@@ -1,7 +1,7 @@
-About NenCarta
-NenCarta is a workflow designed to automate the creation of riverine flood inundation maps using the Automated Rating Curve (ARC) tool, FloodSpreaderPy, and Curve2Flood and streamflow from either the National Water Model or the GEOGLOWS ECWMF Streamflow Service. For the coterminous United States, NenCarta can then take the resulting flood inundaton maps and estimate direct flood consequences using Go-Consequences and the National Structure Inventory (NSI).
+# About NenCarta
+NenCarta is a workflow designed to automate the creation of riverine flood inundation maps using the Automated Rating Curve (ARC) tool and Curve2Flood and streamflow from either the National Water Model or the GEOGLOWS ECWMF Streamflow Service. For the coterminous United States, NenCarta can then take the resulting flood inundaton maps and estimate direct flood consequences using Go-Consequences and the National Structure Inventory (NSI).
 
-Setting up NenCarta
+# Setting up NenCarta
 
 Below are instructions for setting up NenCarta using Miniconda and Docker.
 
@@ -30,22 +30,22 @@ pip install dask-expr
 conda activate nencarta_py310
 ```
 
-3. Run [Step 3](https://sites.google.com/d/1ZsHvRsvhcTeypNZzo--4Sgme-0VXxy3o/p/1D-YqvJ81lK82cOLO_0OH5dsTyzLl5PXw/edit) from the FloodSpreader documentation. 
+3. Install the Automated Rating Curve (ARC) by cloning the repository and installing using the instructions provided [in ARC's README](https://github.com/MikeFHS/automated-rating-curve).
 
-4. Install the Automated Rating Curve (ARC) by cloning the repository and installing using the instructions provided [in ARC's README](https://github.com/MikeFHS/automated-rating-curve).
+4. Install the Curve2Flood by cloning the repository and installing using the instructions provided in [Curve2Flood's README](https://github.com/MikeFHS/curve2flood).
 
-5. Install the Curve2Flood by cloning the repository and installing using the instructions provided in [Curve2Flood's README](https://github.com/MikeFHS/curve2flood).
+5. Optional, if you want to compute direct economic consequences using the resulting flood inundation map, install Go-Consequences by cloning the repository and creating a Go-Consequences Docker container using the Dockerfile found [on Github](https://github.com/USACE/go-consequences).
 
-6. Optional, if you want to compute direct economic consequences using the resulting flood inundation map, install Go-Consequences by cloning the repository and creating a Go-Consequences Docker container using the Dockerfile found [on Github](https://github.com/USACE/go-consequences).
+6. Clone this repository and return to the command prompt window and navigate to where the NenCarta repository was cloned locally.
 
-7. Clone this repository and return to the command prompt window and navigate to where the NenCarta repository was cloned locally.
-
-8. Inside the NenCarta repository run:
+7. Inside the NenCarta repository run:
 ```bash
 pip install .
 ```
 
-9. You should be set up now. You can run `flood-mapping -h` in your command prompt to see if things installed properly. Have fun you dirty animals! 
+8. You should be set up now. You can run `flood-mapping -h` in your command prompt to see if things installed properly. Have fun you dirty animals! 
+
+# How to Run NenCarta
 
 There are two ways to run NenCarta, either by providing a JSON input's filepath or via command line arguments.
 
