@@ -1,0 +1,1070 @@
+#conda env create -f **.yml
+#conda activate ffs_esa_dc
+
+# build-in imports
+import argparse
+import multiprocessing as mp
+import sys
+import os
+import re
+import subprocess
+from datetime import datetime, timedelta
+
+# third-party imports
+from arc import Arc
+try:
+    import gdal 
+except: 
+    from osgeo import gdal, ogr, osr
+import json
+import numpy as np
+import pandas as pd
+import rasterio
+from rasterio.warp import calculate_default_transform, reproject, Resampling
+from rasterio.features import rasterize
+import geopandas as gpd
+import fiona
+from shapely.geometry import shape
+import numpy as np
+
+# local imports
+from . import streamflow_processing as HistFlows
+from . import Download_Process_ForecastData_GeoGLOWS as ForecastFlows
+from . import DEM_Cleaner
+from . import esa_download_processing as ESA
+from . import Curves_To_GeoJSON
+
+
+def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial, 
+                                             ARC_FileName_Bathy, ARC_FileName_FloodForecast, 
+                                             DEM_File, DEM_File_Clean, LandCoverFile, 
+                                             VDT_Test_File, STRM_File, STRM_File_Clean, 
+                                             LAND_File, BathyFileFolder, FloodFolder, FLOW_Folder,
+                                             ManningN, VDT_File, Curve_File, FloodMapFile, FloodMapFile_Initial,
+                                             DepthMapFile, ARC_BathyFile, FS_BathyFile, DEM_StrmShp, 
+                                             DEM_Reanalsyis_FlowFile, bathy_use_banks, flood_waterlc_and_strm_cells, clean_dem, 
+                                             use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, 
+                                             find_banks_based_on_landcover, create_reach_average_curve_file,
+                                             StrmShp_gdf=None):
+
+    
+  
+    
+    #Get the Spatial Information from the DEM Raster
+    (minx, miny, maxx, maxy, dx, dy, ncols, nrows, dem_geoTransform, dem_projection) = Get_Raster_Details(DEM_File)
+    projWin_extents = [minx, maxy, maxx, miny]
+    outputBounds = [minx, miny, maxx, maxy]  #https://gdal.org/api/python/osgeo.gdal.html
+   
+    #Create Land Dataset
+    if os.path.isfile(LAND_File):
+        print(LAND_File + ' Already Exists')
+    else: 
+        print('Creating ' + LAND_File) 
+        # Let's make sure all the GIS data is using the same coordinate system as the DEM
+        LandCoverFile = Check_and_Change_Coordinate_Systems(DEM_File, LandCoverFile)
+        Create_AR_LandRaster(LandCoverFile, LAND_File, projWin_extents, dem_projection, ncols, nrows)
+
+    # now we need to figure out if our DEM_StrmShp and DEM_Reanalysis_Flowfile exists and if not, create it
+    if os.path.isfile(DEM_StrmShp) and os.path.isfile(DEM_Reanalsyis_FlowFile):
+        print(DEM_StrmShp + ' Already Exists')
+        print(DEM_Reanalsyis_FlowFile + ' Already Exists')
+        DEM_StrmShp_gdf = gpd.read_file(DEM_StrmShp)
+        rivids = DEM_StrmShp_gdf['LINKNO'].values
+    elif StrmShp_gdf is not None and os.path.isfile(DEM_StrmShp) is False and os.path.isfile(DEM_Reanalsyis_FlowFile) is False:
+        (DEM_Reanalsyis_FlowFile, DEM_StrmShp, rivids, DEM_StrmShp_gdf) = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, 'LINKNO', DEM_File, DEM_Reanalsyis_FlowFile, DEM_StrmShp)
+
+    #Create Stream Raster
+    if os.path.isfile(STRM_File):
+        print(STRM_File + ' Already Exists')
+    else:
+        print('Creating ' + STRM_File)
+        Create_AR_StrmRaster(DEM_StrmShp, STRM_File, outputBounds, minx, miny, maxx, maxy, dx, dy, ncols, nrows, 'LINKNO')
+    
+    #Clean Stream Raster
+    if os.path.isfile(STRM_File_Clean):
+        print(STRM_File_Clean + ' Already Exists')
+    else:
+        print('Creating ' + STRM_File_Clean)
+        Clean_STRM_Raster(STRM_File, STRM_File_Clean)
+
+    
+    # now lets download the forecast streamflows
+    #Forecast flow data from GeoGLOWS
+    parquet_file_from_geoglows = 'v2-model-table.parquet'     #http://geoglows-v2.s3-website-us-west-2.amazonaws.com/#tables/
+    for fd in range(1,12):
+        try:
+            demfilename = os.path.basename(DEM_File)
+            forecastdate = ForecastFlows.Get_Date_For_Forecast(fd)  #Looks at yesterdays forecast
+            ForecastFlowFile = os.path.join(FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_GeoGLOWS_forecast.csv')
+            if not os.path.exists(ForecastFlowFile):
+                # rivids = ForecastFlows.Get_RIVID_Values('Shapefile', parquet_file_from_geoglows, -9999, DEM_StrmShp)
+                ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, rivids, ForecastFlowFile)
+            break
+        except:
+            print('Could not process forecast, moving back another day..')
+    print('Forecast data save here: ' + ForecastFlowFile)
+    
+    
+    #Get the unique values for all the stream ids
+    (S, ncols, nrows, cellsize, yll, yur, xll, xur, lat, dem_geotransform, dem_projection) = Read_Raster_GDAL(STRM_File_Clean)
+    (RR,CC) = S.nonzero()
+    num_strm_cells = len(RR)
+    COMID_Unique = np.unique(S)
+    # COMID_Unique = np.delete(COMID_Unique, 0)  #We don't need the first entry of zero
+    COMID_Unique = COMID_Unique[np.where(COMID_Unique > 0)]
+    COMID_Unique = np.sort(COMID_Unique).astype(int)
+    num_comids = len(COMID_Unique)
+    
+    #Create a Starting AutoRoute Input File
+    print('Creating ARC Input File: ' + ARC_FileName_Initial)
+    #Create the Initial Flow
+
+    COMID_Q_File = os.path.join(os.path.dirname(DEM_Reanalsyis_FlowFile), f"{os.path.basename(DEM_File[:-4])}_2yr_flow_initial.txt")
+    Create_FlowFile(DEM_Reanalsyis_FlowFile, COMID_Q_File, 'COMID', 'rp2')
+    if bathy_use_banks is True and clean_dem is True:
+        Create_ARC_Model_Input_File_Initial(ARC_FileName_Initial, DEM_File, COMID_Q_File, 'COMID', 'rp2', 'rp100_premium', STRM_File_Clean, LAND_File, DEM_Reanalsyis_FlowFile, VDT_File, Curve_File, ManningN, FloodMapFile, VDT_Test_File, DEM_StrmShp, bathy_use_banks, flood_waterlc_and_strm_cells, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, find_banks_based_on_landcover, create_reach_average_curve_file)
+    elif bathy_use_banks is False and clean_dem is True:
+        Create_ARC_Model_Input_File_Initial(ARC_FileName_Initial, DEM_File, COMID_Q_File, 'COMID', 'qout_median', 'rp100_premium', STRM_File_Clean, LAND_File, DEM_Reanalsyis_FlowFile, VDT_File, Curve_File, ManningN, FloodMapFile, VDT_Test_File, DEM_StrmShp, bathy_use_banks, flood_waterlc_and_strm_cells, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, find_banks_based_on_landcover, create_reach_average_curve_file)
+    
+    #Create the Bathy Input File
+    print('Creating ARC Input File: ' + ARC_FileName_Bathy)
+    if clean_dem is True and bathy_use_banks is True:
+        Create_ARC_Model_Input_File_Bathy(ARC_FileName_Bathy, DEM_File_Clean, COMID_Q_File, 'COMID', 'rp2', 'rp100_premium', STRM_File_Clean, LAND_File, DEM_Reanalsyis_FlowFile, VDT_File, Curve_File, ManningN, FloodMapFile, FloodMapFile_Initial, ARC_BathyFile, FS_BathyFile, VDT_Test_File, DEM_StrmShp, bathy_use_banks, flood_waterlc_and_strm_cells, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, find_banks_based_on_landcover, create_reach_average_curve_file)
+    elif clean_dem is True and bathy_use_banks is False:
+        Create_ARC_Model_Input_File_Bathy(ARC_FileName_Bathy, DEM_File_Clean, COMID_Q_File, 'COMID', 'qout_median', 'rp100_premium', STRM_File_Clean, LAND_File, DEM_Reanalsyis_FlowFile, VDT_File, Curve_File, ManningN, FloodMapFile, FloodMapFile_Initial, ARC_BathyFile, FS_BathyFile, VDT_Test_File, DEM_StrmShp, bathy_use_banks, flood_waterlc_and_strm_cells, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, find_banks_based_on_landcover, create_reach_average_curve_file)
+    elif clean_dem is False and bathy_use_banks is False:
+        Create_ARC_Model_Input_File_Bathy(ARC_FileName_Bathy, DEM_File, COMID_Q_File, 'COMID', 'qout_median', 'rp100_premium', STRM_File_Clean, LAND_File, DEM_Reanalsyis_FlowFile, VDT_File, Curve_File, ManningN, FloodMapFile, FloodMapFile_Initial, ARC_BathyFile, FS_BathyFile, VDT_Test_File, DEM_StrmShp, bathy_use_banks, flood_waterlc_and_strm_cells, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, find_banks_based_on_landcover, create_reach_average_curve_file)
+    elif clean_dem is False and bathy_use_banks is True:
+        Create_ARC_Model_Input_File_Bathy(ARC_FileName_Bathy, DEM_File, COMID_Q_File, 'COMID', 'rp2', 'rp100_premium', STRM_File_Clean, LAND_File, DEM_Reanalsyis_FlowFile, VDT_File, Curve_File, ManningN, FloodMapFile, FloodMapFile_Initial, ARC_BathyFile, FS_BathyFile, VDT_Test_File, DEM_StrmShp, bathy_use_banks, flood_waterlc_and_strm_cells, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, find_banks_based_on_landcover, create_reach_average_curve_file)
+
+    
+    #Create the Forecast Input File
+    print('Creating ARC Input File: ' + ARC_FileName_FloodForecast)
+    Forecast_Flood_Map = Create_ARC_Model_Input_File_FloodForecast(ARC_FileName_FloodForecast, ForecastFlowFile, STRM_File_Clean, VDT_File, Curve_File, FloodMapFile, FS_BathyFile, forecastdate, DEM_StrmShp, flood_waterlc_and_strm_cells, LAND_File)
+    
+    return ARC_FileName_Initial, ARC_FileName_Bathy, ARC_FileName_FloodForecast, Forecast_Flood_Map, DEM_Reanalsyis_FlowFile, ForecastFlowFile, DEM_StrmShp, forecastdate
+
+def Create_FlowFile(MainFlowFile, FlowFileName, OutputID, Qparam):
+    infile = open(MainFlowFile,'r')
+    lines = infile.readlines()
+    ls = lines[0].strip().split(',')
+    q_val = 0
+    c_val = 0
+    for i in range(len(ls)):
+        if ls[i]==Qparam:
+            q_val=i
+        if ls[i]==OutputID:
+            c_val=i
+    
+    outfile = open(FlowFileName, 'w')
+    outfile.write(OutputID + ',' + Qparam)
+    
+    for r in range(1,len(lines)):
+        ls = lines[r].strip().split(',')
+        out_str = '\n' + ls[c_val] + ',' + ls[q_val]
+        outfile.write(out_str)
+    outfile.close()
+    return
+
+def Create_Folder(F):
+    if not os.path.exists(F): 
+        os.makedirs(F)
+    return
+
+def Create_ARC_Model_Input_File_Initial(ARC_Input_File_Initial, DEM_File_Clean, COMID_Q_File, COMID_Param, Q_BF_Param, Q_Param, STRM_File_Clean, LAND_File, FLOW_File_Use, VDT_File, Curve_File, ManningN, FloodMapFile, VDT_Test_File, DEM_StrmShp, bathy_use_banks, flood_waterlc_and_strm_cells, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, find_banks_based_on_landcover, create_reach_average_curve_file):
+    out_file = open(ARC_Input_File_Initial,'w')
+    out_file.write('#ARC_Inputs')
+    out_file.write('\n' + 'DEM_File	' + DEM_File_Clean)
+    out_file.write('\n' + 'Stream_File	' + STRM_File_Clean)
+    out_file.write('\n' + 'LU_Raster_SameRes	' + LAND_File)
+    out_file.write('\n' + 'LU_Manning_n	' + ManningN)
+    out_file.write('\n' + 'Flow_File	' + FLOW_File_Use)
+    out_file.write('\n' + 'Flow_File_ID	' + COMID_Param)
+    out_file.write('\n' + 'Flow_File_BF	' + Q_BF_Param)
+    out_file.write('\n' + 'Flow_File_QMax	' + Q_Param)
+    out_file.write('\n' + 'Spatial_Units	deg')
+    out_file.write('\n' + 'X_Section_Dist	5000.0')
+    out_file.write('\n' + 'Degree_Manip	6.1')
+    out_file.write('\n' + 'Degree_Interval	1.5')
+    out_file.write('\n' + 'Low_Spot_Range	2')
+    out_file.write('\n' + 'Str_Limit_Val	1')
+    out_file.write('\n' + 'Gen_Dir_Dist	10')
+    out_file.write('\n' + 'Gen_Slope_Dist	10')
+    
+    out_file.write('\n\n#VDT_Output_File_and_CurveFile')
+    out_file.write('\n' + 'VDT_Database_NumIterations	30')
+    out_file.write('\n' + 'Print_VDT_Database	' + VDT_File.replace('.txt', '_Initial.txt'))
+    out_file.write('\n' + 'Print_Curve_File	' + Curve_File.replace('.csv', '_Initial.csv'))
+    out_file.write('\n' + 'Reach_Average_Curve_File' + '\t' + f'{create_reach_average_curve_file}')
+    
+    out_file.write('\n\n#Mapper Input Data')
+    out_file.write('\n' + 'StrmShp_File	' + DEM_StrmShp)
+    out_file.write('\n' + 'Comid_Flow_File	' + COMID_Q_File)
+    out_file.write('\n' + 'FS_ADJUST_FLOW_BY_FRACTION' + '\t' +	'1.0')
+    out_file.write('\n' + 'Bathy_Use_Banks' + '\t' + str(bathy_use_banks))
+    if flood_waterlc_and_strm_cells is True:
+        out_file.write('\n' + 'Flood_WaterLC_and_STRM_Cells' + '\t' + str(flood_waterlc_and_strm_cells))
+    if find_banks_based_on_landcover is True:
+        out_file.write('\n' + 'FindBanksBasedOnLandCover' + '\t' + str(find_banks_based_on_landcover))
+    # out_file.write('\n' + 'FloodLocalOnly')
+    if use_specified_depth_for_bathy_mask is True:
+        out_file.write('\n' + 'OutFLD	' + FloodMapFile.replace('.tif', '_Initial.tif'))
+        out_file.write('\n' + 'OutSHP	' + FloodMapFile.replace('.tif', '_Initial.shp'))
+        out_file.write('\n' + f'FloodSpreader_SpecifyDepth	{specify_depths_for_bathy_mask[0]}')
+    out_file.close()
+    
+
+
+def Create_ARC_Model_Input_File_Bathy(ARC_FileName_Bathy, DEM_File_Clean, COMID_Q_File, COMID_Param, Q_BF_Param, Q_Param, STRM_File_Clean, LAND_File, FLOW_File_Use, VDT_File, Curve_File, ManningN, FloodMapFile, FloodMapFile_Initial, ARC_BathyFile, FS_BathyFile, VDT_Test_File, DEM_StrmShp, bathy_use_banks, flood_waterlc_and_strm_cells, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, find_banks_based_on_landcover, create_reach_average_curve_file):
+    out_file = open(ARC_FileName_Bathy,'w')
+    out_file.write('#ARC_Inputs')
+    out_file.write('\n' + 'DEM_File	' + DEM_File_Clean)
+    out_file.write('\n' + 'Stream_File	' + STRM_File_Clean)
+    out_file.write('\n' + 'LU_Raster_SameRes	' + LAND_File)
+    out_file.write('\n' + 'LU_Manning_n	' + ManningN)
+    out_file.write('\n' + 'Flow_File	' + FLOW_File_Use)
+    out_file.write('\n' + 'Flow_File_ID	' + COMID_Param)
+    out_file.write('\n' + 'Flow_File_BF	' + Q_BF_Param)
+    out_file.write('\n' + 'Flow_File_QMax	' + Q_Param)
+    out_file.write('\n' + 'Spatial_Units	deg')
+    out_file.write('\n' + 'X_Section_Dist	5000.0')
+    out_file.write('\n' + 'Degree_Manip	6.1')
+    out_file.write('\n' + 'Degree_Interval	1.5')
+    out_file.write('\n' + 'Low_Spot_Range	2')
+    out_file.write('\n' + 'Str_Limit_Val	1')
+    out_file.write('\n' + 'Gen_Dir_Dist	10')
+    out_file.write('\n' + 'Gen_Slope_Dist	10')
+    
+    out_file.write('\n\n#VDT_Output_File_and_CurveFile')
+    out_file.write('\n' + 'VDT_Database_NumIterations	30')
+    out_file.write('\n' + 'Print_VDT_Database' + '\t' + VDT_File.replace('.txt', '_Bathy.txt'))
+    out_file.write('\n' + 'Print_Curve_File' + '\t' + Curve_File.replace('.csv', '_Bathy.csv'))
+    out_file.write('\n' + 'Reach_Average_Curve_File' + '\t' + f'{create_reach_average_curve_file}')
+    
+    out_file.write('\n\n#Mapper Input Data')
+    out_file.write('\n' + 'Comid_Flow_File	' + COMID_Q_File)
+    out_file.write('\n' + 'StrmShp_File	' + DEM_StrmShp)
+    out_file.write('\n' + 'FS_ADJUST_FLOW_BY_FRACTION	1.0')
+    # out_file.write('\n' + 'FloodLocalOnly')
+    out_file.write('\n' + 'OutFLD	' + FloodMapFile.replace('.tif', '_Bathy.tif'))
+    out_file.write('\n' + 'OutSHP	' + FloodMapFile.replace('.tif', '_Bathy.shp'))
+    out_file.write('\n' + 'TopWidthDistanceFactor	1.5')
+    if use_specified_depth_for_bathy_mask is True:
+        if len(specify_depths_for_bathy_mask) == 1:
+            specified_depth = specify_depths_for_bathy_mask[0]
+        if len(specify_depths_for_bathy_mask) == 2:
+            specified_depth = specify_depths_for_bathy_mask[1]
+        out_file.write('\n' + f'FloodSpreader_SpecifyDepth\t{specified_depth}')
+    elif use_specified_depth_for_bathy_mask is False:
+        out_file.write('\n' + 'BathyWaterMask' + '\t' + FloodMapFile_Initial)
+    out_file.write('\n\n#Bathymetry_Information')
+    out_file.write('\n' + 'Bathy_Trap_H	0.20')
+    out_file.write('\n' + 'Bathy_Use_Banks' + '\t' + str(bathy_use_banks))
+    if flood_waterlc_and_strm_cells is True:
+        out_file.write('\n' + 'Flood_WaterLC_and_STRM_Cells' + '\t' + str(flood_waterlc_and_strm_cells))
+    if find_banks_based_on_landcover is True:
+        out_file.write('\n' + 'FindBanksBasedOnLandCover' + '\t' + str(find_banks_based_on_landcover))
+    out_file.write('\n' + 'AROutBATHY	' + ARC_BathyFile)
+    out_file.write('\n' + 'BATHY_Out_File	' + ARC_BathyFile)
+    out_file.write('\n' + 'FSOutBATHY	' + FS_BathyFile)
+
+    out_file.close()
+
+def Create_ARC_Model_Input_File_FloodForecast(ARC_FileName_FloodForecast, ForecastFlowFile, STRM_File_Clean, VDT_File, Curve_File, FloodMapFile, FS_BathyFile, forecastdate, DEM_StrmShp, flood_waterlc_and_strm_cells, LAND_File):
+    out_file = open(ARC_FileName_FloodForecast, 'w')
+    out_file.write('#ARC_Inputs')
+    out_file.write('\n' + 'DEM_File	' + FS_BathyFile)
+    out_file.write('\n' + 'Stream_File	' + STRM_File_Clean)
+    
+    out_file.write('\n\n#VDT_Output_File_and_CurveFile')
+    out_file.write('\n' + 'Print_VDT_Database	' + VDT_File.replace('.txt', '_Bathy.txt'))
+    out_file.write('\n' + 'Print_Curve_File	' + Curve_File.replace('.csv', '_Bathy.csv'))
+    
+    out_file.write('\n\n#Mapper Input Data')
+    out_file.write('\n' + 'StrmShp_File	' + DEM_StrmShp)
+    out_file.write('\n' + 'Comid_Flow_File	' + ForecastFlowFile)
+    out_file.write('\n' + 'FS_ADJUST_FLOW_BY_FRACTION	1.0')
+    #out_file.write('\n' + 'FloodLocalOnly')
+    ending_of_forecast_file = '_Forecast_' + str(forecastdate) + '.tif'
+    Forecast_Flood_Map_Raster = FloodMapFile.replace('.tif', ending_of_forecast_file)
+
+    if flood_waterlc_and_strm_cells is True:
+        out_file.write('\n' + 'Flood_WaterLC_and_STRM_Cells' + '\t' + str(flood_waterlc_and_strm_cells))
+        out_file.write('\n' + 'LU_Raster_SameRes	' + LAND_File)
+
+    # delete the old FloodSpreader outputs, it can cause issues otherwise
+    if os.path.exists(Forecast_Flood_Map_Raster):
+        os.remove(Forecast_Flood_Map_Raster)
+    Forecast_Flood_Map_Shapefile = Forecast_Flood_Map_Raster.replace('.tif','.shp')
+    if os.path.exists(Forecast_Flood_Map_Shapefile):
+        os.remove(Forecast_Flood_Map_Shapefile)
+    out_file.write('\n' + 'OutFLD	' + Forecast_Flood_Map_Raster)
+    out_file.write('\n' + 'OutSHP	' + Forecast_Flood_Map_Shapefile)
+    out_file.close()
+    return Forecast_Flood_Map_Raster
+    
+
+def Create_BaseLine_Manning_n_File(ManningN):
+    out_file = open(ManningN,'w')
+    out_file.write('LC_ID	Description	Manning_n')
+    out_file.write('\n' + '11	Water	0.030')
+    out_file.write('\n' + '21	Dev_Open_Space	0.013')
+    out_file.write('\n' + '22	Dev_Low_Intesity	0.050')
+    out_file.write('\n' + '23	Dev_Med_Intensity	0.075')
+    out_file.write('\n' + '24	Dev_High_Intensity	0.100')
+    out_file.write('\n' + '31	Barren_Land	0.030')
+    out_file.write('\n' + '41	Decid_Forest	0.120')
+    out_file.write('\n' + '42	Evergreen_Forest	0.120')
+    out_file.write('\n' + '43	Mixed_Forest	0.120')
+    out_file.write('\n' + '52	Shrub	0.050')
+    out_file.write('\n' + '71	Grass_Herb	0.030')
+    out_file.write('\n' + '81	Pasture_Hay	0.040')
+    out_file.write('\n' + '82	Cultivated_Crops	0.035')
+    out_file.write('\n' + '90	Woody_Wetlands	0.100')
+    out_file.write('\n' + '95	Emergent_Herb_Wet	0.100')
+    out_file.close()
+
+def Create_BaseLine_Manning_n_File_ESA(ManningN):
+    out_file = open(ManningN,'w')
+    out_file.write('LC_ID	Description	Manning_n')
+    out_file.write('\n' + '10	Tree Cover	0.120')
+    out_file.write('\n' + '20	Shrubland	0.050')
+    out_file.write('\n' + '30	Grassland	0.030')
+    out_file.write('\n' + '40	Cropland	0.035')
+    out_file.write('\n' + '50	Builtup	0.075')
+    out_file.write('\n' + '60	Bare	0.030')
+    out_file.write('\n' + '70	SnowIce	0.030')
+    out_file.write('\n' + '80	Water	0.030')
+    out_file.write('\n' + '90	Emergent_Herb_Wet	0.100')
+    out_file.write('\n' + '95	Mangroves	0.100')
+    out_file.write('\n' + '100	MossLichen	0.100')
+    out_file.close()
+
+
+def Create_AR_LandRaster(LandCoverFile, LAND_File, projWin_extents, out_projection, ncols, nrows):
+    ds = gdal.Open(LandCoverFile)
+    ds = gdal.Translate(LAND_File, ds, projWin = projWin_extents, width=ncols, height = nrows)
+    ds = None
+    return
+
+def Create_AR_StrmRaster(StrmSHP, STRM_File, outputBounds, minx, miny, maxx, maxy, dx, dy, ncols, nrows, Param):
+    print(StrmSHP)
+    source_ds = gdal.OpenEx(StrmSHP)
+
+    gdal.Rasterize(STRM_File, source_ds, format='GTiff', outputType=gdal.GDT_Int32, outputBounds = outputBounds, width = ncols, height = nrows, noData = -9999, attribute = Param)
+    source_ds = None
+
+    return
+
+def Write_Output_Raster(s_output_filename, raster_data, ncols, nrows, dem_geotransform, dem_projection, s_file_format, s_output_type):   
+    o_driver = gdal.GetDriverByName(s_file_format)  #Typically will be a GeoTIFF "GTiff"
+    
+    # Construct the file with the appropriate data shape
+    o_output_file = o_driver.Create(s_output_filename, xsize=ncols, ysize=nrows, bands=1, eType=s_output_type)
+
+    # Get the first band (assuming a single-band raster)
+    band = o_output_file.GetRasterBand(1)
+
+    # Initialize the band with zeros
+    band.Fill(0)
+
+    # Write to disk
+    band.FlushCache()
+    
+    # Set the geotransform
+    o_output_file.SetGeoTransform(dem_geotransform)
+    
+    # Set the spatial reference
+    o_output_file.SetProjection(dem_projection)
+    
+    # Write the data to the file
+    o_output_file.GetRasterBand(1).WriteArray(raster_data)
+    
+    # Once we're done, close properly the dataset
+    o_output_file = None
+
+
+def Get_Raster_Details(DEM_File):
+    print(DEM_File)
+    gdal.Open(DEM_File, gdal.GA_ReadOnly)
+    data = gdal.Open(DEM_File)
+    geoTransform = data.GetGeoTransform()
+    ncols = int(data.RasterXSize)
+    nrows = int(data.RasterYSize)
+    minx = geoTransform[0]
+    dx = geoTransform[1]
+    maxy = geoTransform[3]
+    dy = geoTransform[5]
+    maxx = minx + dx * ncols
+    miny = maxy + dy * nrows
+    Rast_Projection = data.GetProjectionRef()
+    data = None
+    return minx, miny, maxx, maxy, dx, dy, ncols, nrows, geoTransform, Rast_Projection
+
+
+def Read_Raster_GDAL(InRAST_Name):
+    try:
+        dataset = gdal.Open(InRAST_Name, gdal.GA_ReadOnly)     
+    except RuntimeError:
+        sys.exit(" ERROR: Field Raster File cannot be read!")
+    # Retrieve dimensions of cell size and cell count then close DEM dataset
+    geotransform = dataset.GetGeoTransform()
+    # Continue grabbing geospatial information for this use...
+    band = dataset.GetRasterBand(1)
+    RastArray = band.ReadAsArray()
+    #global ncols, nrows, cellsize, yll, yur, xll, xur
+    ncols=band.XSize
+    nrows=band.YSize
+    band = None
+    cellsize = geotransform[1]
+    yll = geotransform[3] - nrows * np.fabs(geotransform[5])
+    yur = geotransform[3]
+    xll = geotransform[0];
+    xur = xll + (ncols)*geotransform[1]
+    lat = np.fabs((yll+yur)/2.0)
+    Rast_Projection = dataset.GetProjectionRef()
+    dataset = None
+    print('Spatial Data for Raster File:')
+    print('   ncols = ' + str(ncols))
+    print('   nrows = ' + str(nrows))
+    print('   cellsize = ' + str(cellsize))
+    print('   yll = ' + str(yll))
+    print('   yur = ' + str(yur))
+    print('   xll = ' + str(xll))
+    print('   xur = ' + str(xur))
+    return RastArray, ncols, nrows, cellsize, yll, yur, xll, xur, lat, geotransform, Rast_Projection
+
+def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
+    print('\nCleaning up the Stream File.')
+    (SN, ncols, nrows, cellsize, yll, yur, xll, xur, lat, dem_geotransform, dem_projection) = Read_Raster_GDAL(STRM_File)
+    
+    #Create an array that is slightly larger than the STRM Raster Array
+    B = np.zeros((nrows+2,ncols+2))
+    
+    #Imbed the STRM Raster within the Larger Zero Array
+    B[1:(nrows+1), 1:(ncols+1)] = SN
+    
+    #Added this because sometimes the non-stream values end up as -9999
+    B = np.where(B>0,B,0)
+    #(RR,CC) = B.nonzero()
+    (RR,CC) = np.where(B>0)
+    num_nonzero = len(RR)
+    
+    for filterpass in range(2):
+        #First pass is just to get rid of single cells hanging out not doing anything
+        p_count = 0
+        p_percent = (num_nonzero+1)/100.0
+        n=0
+        for x in range(num_nonzero):
+            if x>=p_count*p_percent:
+                p_count = p_count + 1
+                print(' ' + str(p_count), end =" ")
+            r=RR[x]
+            c=CC[x]
+            V = B[r,c]
+            if V>0:
+                #Left and Right cells are zeros
+                if B[r,c+1]==0 and B[r,c-1]==0:
+                    #The bottom cells are all zeros as well, but there is a cell directly above that is legit
+                    if (B[r+1,c-1]+B[r+1,c]+B[r+1,c+1])==0 and B[r-1,c]>0:
+                        B[r,c] = 0
+                        n=n+1
+                    #The top cells are all zeros as well, but there is a cell directly below that is legit
+                    elif (B[r-1,c-1]+B[r-1,c]+B[r-1,c+1])==0 and B[r+1,c]>0:
+                        B[r,c] = 0
+                        n=n+1
+                #top and bottom cells are zeros
+                if B[r,c]>0 and B[r+1,c]==0 and B[r-1,c]==0:
+                    #All cells on the right are zero, but there is a cell to the left that is legit
+                    if (B[r+1,c+1]+B[r,c+1]+B[r-1,c+1])==0 and B[r,c-1]>0:
+                        B[r,c] = 0
+                        n=n+1
+                    elif (B[r+1,c-1]+B[r,c-1]+B[r-1,c-1])==0 and B[r,c+1]>0:
+                        B[r,c] = 0
+                        n=n+1
+        print('\nFirst pass removed ' + str(n) + ' cells')
+        
+        
+        #This pass is to remove all the redundant cells
+        n=0
+        p_count = 0
+        p_percent = (num_nonzero+1)/100.0
+        for x in range(num_nonzero):
+            if x>=p_count*p_percent:
+                p_count = p_count + 1
+                print(' ' + str(p_count), end =" ")
+            r=RR[x]
+            c=CC[x]
+            V = B[r,c]
+            if V>0:
+                if B[r+1,c]==V and (B[r+1,c+1]==V or B[r+1,c-1]==V):
+                    if sum(B[r+1,c-1:c+2])==0:
+                        B[r+1,c] = 0
+                        n=n+1
+                elif B[r-1,c]==V and (B[r-1,c+1]==V or B[r-1,c-1]==V):
+                    if sum(B[r-1,c-1:c+2])==0:
+                        B[r-1,c] = 0
+                        n=n+1
+                elif B[r,c+1]==V and (B[r+1,c+1]==V or B[r-1,c+1]==V):
+                    if sum(B[r-1:r+1,c+2])==0:
+                        B[r,c+1] = 0
+                        n=n+1
+                elif B[r,c-1]==V and (B[r+1,c-1]==V or B[r-1,c-1]==V):
+                    if sum(B[r-1:r+1,c-2])==0:
+                            B[r,c-1] = 0
+                            n=n+1
+        print('\nSecond pass removed ' + str(n) + ' redundant cells')
+    
+    print('Writing Output File ' + STRM_File_Clean)
+    Write_Output_Raster(STRM_File_Clean, B[1:nrows+1,1:ncols+1], ncols, nrows, dem_geotransform, dem_projection, "GTiff", gdal.GDT_Int32)
+    #return B[1:nrows+1,1:ncols+1], ncols, nrows, cellsize, yll, yur, xll, xur
+    return
+
+def Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(FloodMapFile_Initial, STRM_File_Clean, LandCoverFile, watervalue):
+    (LC, ncols, nrows, cellsize, yll, yur, xll, xur, lat, lc_geotransform, lc_projection) = Read_Raster_GDAL(LandCoverFile)
+    (SN, ncols, nrows, cellsize, yll, yur, xll, xur, lat, sn_geotransform, sn_projection) = Read_Raster_GDAL(STRM_File_Clean)
+    
+    '''
+    # Streams identified in LC
+    LC = np.where(LC == watervalue, 1, -9999)   # Mark streams with 1, other areas as -9999
+    
+    # Streams identified in SN
+    SN = np.where(SN > 0, 1, 0)  # Mark streams with 1, other areas with 0
+    
+    # Combine LC and SN values
+    F = np.where(SN == 1, 1, LC)  # Prioritize SN stream values, else take LC
+    
+    # Mark non-stream areas as -9999 in the final flood map
+    F = np.where(F > 0, 1, -9999)
+    '''
+    # Mark streams in LC with 1, other areas as -9999
+    LC = np.where(LC == watervalue, 1, -9999)
+
+    # Mark streams in SN with 1, other areas with 0
+    SN = (SN > 0).astype(int)
+
+    # Combine LC and SN, prioritizing SN values
+    F = np.where(SN == 1, 1, LC)
+
+    # Mark non-stream areas as -9999 in the final flood map
+    F[F <= 0] = -9999
+    
+    Write_Output_Raster(FloodMapFile_Initial, F, ncols, nrows, sn_geotransform, sn_projection, "GTiff", gdal.GDT_Int32)
+    return
+
+def Check_and_Change_Coordinate_Systems(DEM_File, LandCoverFile):
+
+    # Load the projection of the DEM file
+    with rasterio.open(DEM_File) as src:
+        dem_projection = src.crs
+    src.close()
+
+    # re-project the LAND file raster, if necessary
+    with rasterio.open(LandCoverFile) as src:
+        current_crs = src.crs
+    src.close()
+        
+    if current_crs != dem_projection:
+        input_raster = gdal.Open(LandCoverFile)
+        LandCoverFile_Update = f"{LandCoverFile[:-4]}_new.tif"
+        output_raster = LandCoverFile_Update
+        warp = gdal.Warp(output_raster,input_raster,dstSRS=dem_projection)
+        warp = None # Closes the files
+        input_raster = None
+
+    # delete the old LAND raster, if it was replaced and change the name
+    if current_crs != dem_projection:
+        os.remove(LandCoverFile)
+        LandCoverFile = LandCoverFile_Update
+
+    return (LandCoverFile)
+
+def DEM_Forecast(DEM_Folder, DEM, watershed, ESA_LC_Folder, STRM_Folder, LAND_Folder, FLOW_Folder, VDT_Folder, DEM_Updated_Folder, FloodFolder, ARC_Folder, BathyFileFolder, FIST_Folder, ManningN, bathy_use_banks, flood_waterlc_and_strm_cells, mapper, clean_dem, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, age_of_forecast_days, find_banks_based_on_landcover, create_reach_average_curve_file, StrmShp_gdf=None):
+
+    if DEM.endswith(".tif") or DEM.endswith(".img"):
+        DEM_Name = DEM
+        FileName = DEM_Name.replace('.tif','')
+        FileName = FileName.replace('.img','')
+        DEM_File = os.path.join(DEM_Folder, DEM_Name)
+        
+        #Input Dataset
+        ARC_FileName_Initial = os.path.join(ARC_Folder, 'ARC_Input_' + FileName + '_InitialFlood.txt')
+        ARC_FileName_Bathy = os.path.join(ARC_Folder, 'ARC_Input_' + FileName + '_Bathy.txt')
+        ARC_FileName_FloodForecast = os.path.join(ARC_Folder, 'ARC_Input_' + FileName + '_FloodForecast.txt')
+        DEM_File_Clean = os.path.join(DEM_Updated_Folder, FileName + '_Clean.tif')
+        VDT_Test_File = os.path.join(VDT_Folder, FileName + '_VDT_FS.csv')
+        
+        #Datasets to be Created
+        DEM_StrmShp = os.path.join(STRM_Folder, f"{FileName}_StrmShp.shp")
+        DEM_Reanalsyis_FlowFile = os.path.join(FLOW_Folder,f"{FileName}_Reanalysis.csv")
+
+
+        STRM_File = os.path.join(STRM_Folder, FileName + '_STRM_Raster.tif')
+        STRM_File_Clean = STRM_File.replace('.tif','_Clean.tif')
+        LAND_File = os.path.join(LAND_Folder, FileName + '_LAND_Raster.tif')
+        
+        VDT_File = os.path.join(VDT_Folder, FileName + '_VDT_Database.txt')
+        Curve_File = os.path.join(VDT_Folder, FileName + '_CurveFile.csv')
+        
+        
+        FloodMapFile = os.path.join(FloodFolder, FileName + '_ARC_Flood.tif')
+        
+        FloodMapFile_Initial = os.path.join(FloodFolder, FileName + '_ARC_Flood_Initial.tif')
+        
+        DepthMapFile = os.path.join(FloodFolder, FileName + '_ARC_Depth.tif')
+        ARC_BathyFile = os.path.join(BathyFileFolder, FileName + '_ARC_Bathy.tif')
+        FS_BathyFile = os.path.join(BathyFileFolder, FileName + '_FS_Bathy.tif')    
+
+        
+        #Download and Process Land Cover Data
+        LandCoverFile = ''
+        if not os.path.exists(LAND_File):
+            (lon_1, lat_1, lon_2, lat_2, dx, dy, ncols, nrows, geoTransform, Rast_Projection) = Get_Raster_Details(DEM_File)
+            geom = ESA.Get_Polygon_Geometry(lon_1, lat_1, lon_2, lat_2)
+            LandCoverFile = ESA.Download_ESA_WorldLandCover(ESA_LC_Folder, geom, 2021)
+
+        # This function sets-up the Input files for ARC and FloodSpreader
+        # It also does some of the geospatial processing
+        (ARC_FileName_Initial, ARC_FileName_Bathy, ARC_FileName_FloodForecast, Forecast_Flood_Map, DEM_Reanalsyis_FlowFile, ForecastFlowFile, DEM_StrmShp, forecastdate) = Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial, 
+                                                                                                                                                                           ARC_FileName_Bathy, ARC_FileName_FloodForecast, 
+                                                                                                                                                                           DEM_File, DEM_File_Clean, LandCoverFile, 
+                                                                                                                                                                           VDT_Test_File, STRM_File, 
+                                                                                                                                                                           STRM_File_Clean, LAND_File, 
+                                                                                                                                                                           BathyFileFolder, FloodFolder, FLOW_Folder, ManningN, 
+                                                                                                                                                                           VDT_File, Curve_File, FloodMapFile, FloodMapFile_Initial,
+                                                                                                                                                                           DepthMapFile, ARC_BathyFile, FS_BathyFile, DEM_StrmShp, 
+                                                                                                                                                                           DEM_Reanalsyis_FlowFile, bathy_use_banks, flood_waterlc_and_strm_cells, clean_dem, 
+                                                                                                                                                                           use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask,
+                                                                                                                                                                           find_banks_based_on_landcover, create_reach_average_curve_file,
+                                                                                                                                                                           StrmShp_gdf)  
+
+        # read in the reanalysis streamflow and break the code if the dataframe is empty or if the streamflow is all 0
+        DEM_Reanalsyis_FlowFile_df = pd.read_csv(DEM_Reanalsyis_FlowFile)
+        if DEM_Reanalsyis_FlowFile_df.empty is True or DEM_Reanalsyis_FlowFile_df['qout_max'].mean() <= 0 or len(DEM_Reanalsyis_FlowFile_df.index)==0:
+            print(f"Results for {DEM} are not possible because we don't have streamflow estimates...")
+            return
+
+        # check and see if forecasts past a specified date exist and if so, delete them
+        forecast_dir = os.path.dirname(Forecast_Flood_Map)
+        forecast_file = os.path.basename(Forecast_Flood_Map)
+        files_in_forecast_dir = os.listdir(forecast_dir)
+        for filename in files_in_forecast_dir:
+            if filename.startswith(forecast_file[:-12]):
+                # Regular expression to extract the date
+                date_pattern = re.compile(r'\d{8}')
+                match = date_pattern.search(filename)
+
+                if match:
+                    # Extracted date string
+                    date_str = match.group()
+                    
+                    # Convert to datetime object
+                    file_date = datetime.strptime(date_str, '%Y%m%d')
+                    
+                    # Calculate the date 7 days ago
+                    seven_days_ago = datetime.now() - timedelta(days=age_of_forecast_days)
+                    
+                    # Check if the file is older than 7 days
+                    if file_date <= seven_days_ago:
+                        # If the file is 7 days old or older, delete the file
+                        if os.path.exists(filename):
+                            os.remove(os.path.join(forecast_dir,filename))
+                            print(f"File {filename} has been deleted.")
+                        else:
+                            print(f"File {filename} does not exist.")
+                    else:
+                        print(f"File {filename} is not old enough to be deleted.")
+                else:
+                    print("No valid date found in the filename.")
+
+        # # creat the initial flood map with the stream raster and land cover data
+        if use_specified_depth_for_bathy_mask is False:
+            if FloodMapFile_Initial is not None and os.path.exists(FloodMapFile_Initial) is False:
+                print('Cannot find initial flood file, so creating ' + FloodMapFile_Initial)
+                #Create an Initial Flood Map Based on Stream Raster and Land Cover Dataset
+                Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(FloodMapFile_Initial, STRM_File_Clean, LAND_File, 80)
+            else:
+                print(f"{FloodMapFile_Initial} exists and we aren't making it again...")
+        
+        if clean_dem is True and os.path.exists(FloodMapFile_Initial) is False:
+            print('Cannot find initial flood file, so creating ' + FloodMapFile_Initial)
+            #Create an Initial Flood Map Based on Stream Raster and Land Cover Dataset
+            Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(FloodMapFile_Initial, STRM_File_Clean, LAND_File, 80)
+            
+        # Run the DEM Cleaner Program, if you wanna
+        if not os.path.exists(DEM_File_Clean) and clean_dem is True:
+                
+            Curve_File_Initial = Curve_File.replace('_CurveFile.csv','_CurveFile_Initial.csv')
+            if os.path.exists(Curve_File_Initial) is False:
+                # call_arc = 'python Automated_Rating_Curve_Generator.py ' + ARC_FileName_Initial
+                # subprocess.call(call_arc, shell=True)
+                arc = Arc(ARC_FileName_Initial)
+                arc.run() # Runs ARC
+            else:
+                print(f"{Curve_File_Initial} exists and we aren't making it again...")
+            if mapper == "FloodSpreader" and use_specified_depth_for_bathy_mask is True:
+                # Resolve the path to floodspreader.py
+                script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of main.py
+                floodspreader_path = os.path.join(script_dir, "floodspreader.py")
+
+                # Build the subprocess call with the full path
+                call_mapper = f'python "{floodspreader_path}" {ARC_FileName_Initial}'
+                subprocess.call(call_mapper, shell=True)
+            elif mapper == "Curve2Flood" and use_specified_depth_for_bathy_mask is True:
+                # Resolve the path to Curve2Flood.py
+                script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of main.py
+                curve2flood_path = os.path.join(script_dir, "Curve2Flood.py")
+                print('Calling the following: ')
+                print('   ' + curve2flood_path + ' ' + ARC_FileName_Initial)
+                
+                call_mapper = f'python "{curve2flood_path}" {ARC_FileName_Initial}'
+                subprocess.call(call_mapper, shell=True)
+                # arc = Arc(ARC_FileName_Bathy)
+                # arc.flood() # Runs ARC
+            
+            
+            '''
+            FloodMapFile_Initial = os.path.join(FloodFolder, FileName + '_ARC_Flood_Initial.tif')
+            if not os.path.exists(FloodMapFile_Initial):
+                print('Cannot find initial flood file, so creating ' + FloodMapFile_Initial)
+                call_arc = 'python Automated_Rating_Curve_Generator.py ' + ARC_FileName_Initial
+                subprocess.call(call_arc, shell=True)
+                call_floodspreader = 'python floodspreader.py ' + ARC_FileName_Initial
+                subprocess.call(call_floodspreader, shell=True)
+            '''
+            OutputID = 'COMID'
+            Q_Fraction = 0.10
+            TopWidthPlausibleLimit = 600
+            search_dist_for_min_elev = 10
+            search_dist_perp_cells = 10 # this was 40
+            FlowFileName = os.path.join(FLOW_Folder, FileName + '_Flow_COMID_Q.txt')
+            Create_FlowFile(DEM_Reanalsyis_FlowFile, FlowFileName, OutputID, 'qout_median')
+            DEM_Cleaner.DEM_Cleaner_Program(OutputID, DEM_StrmShp, DEM_Folder, [DEM_Name], [STRM_File_Clean], DEM_Updated_Folder, FlowFileName, Curve_File.replace('_CurveFile.csv','_CurveFile_Initial.csv'), FloodMapFile_Initial, Q_Fraction, TopWidthPlausibleLimit, search_dist_for_min_elev, search_dist_perp_cells)
+        
+        
+        # Create a Bathymetry Raster Dataset
+        if os.path.exists(FS_BathyFile) is False:
+            print('Cannot find bathy file, so creating ' + FS_BathyFile)
+            if os.path.exists(ARC_BathyFile) is False:
+                # call_arc = 'python Automated_Rating_Curve_Generator.py ' + ARC_FileName_Bathy
+                # subprocess.call(call_arc, shell=True)
+                arc = Arc(ARC_FileName_Bathy)
+                arc.run() # Runs ARC
+            else:
+                print(f"{ARC_BathyFile} exists and we aren't making it again...")   
+            if mapper == "FloodSpreader":
+                # Resolve the path to floodspreader.py
+                script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of main.py
+                floodspreader_path = os.path.join(script_dir, "floodspreader.py")
+
+                # Build the subprocess call with the full path
+                call_mapper = f'python "{floodspreader_path}" {ARC_FileName_Bathy}'
+                subprocess.call(call_mapper, shell=True)
+            elif mapper == "Curve2Flood":
+                # Resolve the path to Curve2Flood.py
+                script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of main.py
+                curve2flood_path = os.path.join(script_dir, "Curve2Flood.py")
+                
+                call_mapper = f'python "{curve2flood_path}" {ARC_FileName_Bathy}'
+                subprocess.call(call_mapper, shell=True)
+                # arc = Arc(ARC_FileName_Bathy)
+                # arc.flood() # Runs ARC
+        else:
+            print(f"{FS_BathyFile} exists and we aren't making it again...")
+        
+        
+        # Forecast Flood Map
+        # (May want to look here to do a reduced flow file to only flows that exceed a threshold.  Could also do in the forecast flow function)
+        print('Creating Forecast Flood Event to be stored here: ' + Forecast_Flood_Map)
+        if mapper == "FloodSpreader":
+            # Resolve the path to floodspreader.py
+            script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of main.py
+            floodspreader_path = os.path.join(script_dir, "floodspreader.py")
+            # Build the subprocess call with the full path
+            call_mapper = f'python "{floodspreader_path}" {ARC_FileName_FloodForecast}'
+        elif mapper == "Curve2Flood":
+            # call_mapper = 'python Curve2Flood.py ' + ARC_FileName_FloodForecast
+            #arc = Arc(ARC_FileName_FloodForecast)
+            #arc.flood() # Runs ARC
+            
+            script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of main.py
+            curve2flood_path = os.path.join(script_dir, "Curve2Flood.py")
+            
+            call_mapper = f'python "{curve2flood_path}" {ARC_FileName_FloodForecast}'
+        subprocess.call(call_mapper, shell=True)
+        print('Forecast Flood Raster saved here : ' + Forecast_Flood_Map)
+        print('Forecast Flood Shapefile saved here : ' + Forecast_Flood_Map.replace('.tif','.shp'))
+
+        # FIST Input Creation
+        OutProjection = "EPSG:4269"
+        # SEED file for creating a GEOJSON for FIST
+        SEED_File = os.path.join(FIST_Folder, FileName + '_Seed.shp') 
+        streamflow_forecast_df = pd.read_csv(ForecastFlowFile)
+        streamflow_columns = streamflow_forecast_df.select_dtypes(include=['float']).columns.tolist()
+        Curve_File_Bathy = Curve_File.replace('.csv', '_Bathy.csv')
+        for streamflow_column in streamflow_columns:
+            streamflow_forecast_filtered_df = streamflow_forecast_df[['rivid', streamflow_column]]
+            GeoJSON_File = os.path.join(FIST_Folder, f"{FileName}_{forecastdate}_{streamflow_column}.geojson") 
+            print('Creating FIST Input: ' + GeoJSON_File)
+            Curves_To_GeoJSON.Run_Main_Curve_to_GEOJSON_Program_Stream_Vector(Curve_File_Bathy, STRM_File_Clean, GeoJSON_File, OutProjection, DEM_StrmShp, 'LINKNO', 'DSLINKNO', SEED_File, Thin_Output=True, comid_q_df=streamflow_forecast_filtered_df)
+
+    return
+
+def process_dem(watershed_dict):
+    
+    # set if the system will use banks of water surface elevation to estimate bathymetry
+    bathy_use_banks = watershed_dict['bathy_use_banks']
+
+    # set if you want the water-related land cover and the stream raster cells to be shown as flooding in Curve2Flood
+    flood_waterlc_and_strm_cells = watershed_dict['flood_waterlc_and_strm_cells']
+
+    # set if floodspreader or curves2flood will be used to estimated bathymetry and flood maps
+    mapper = watershed_dict['mapper']
+
+    # set if you're using a clean DEM to process things or leave the DEM as is
+    clean_dem = watershed_dict['clean_dem']
+
+    # if you don't have the stream network preprocessed, do so
+    process_stream_network = watershed_dict['process_stream_network']
+
+    # set this to True if you want to use FloodSpreaderPy's specify depth functionality to provide a water mask for bathymetry estimation
+    use_specified_depth_for_bathy_mask = watershed_dict['use_specified_depth_for_bathy_mask']
+
+    # these are the two specify depth values that will be used to create the water mask for bathymetry estimation, if 'use_specified_depth_for_bathy_mask' is set to True 
+    specify_depths_for_bathy_mask = watershed_dict['specify_depths_for_bathy_mask']
+
+    # set the how long you want to keep the old forecasts, in days
+    age_of_forecast_days = watershed_dict['age_of_forecast_days']
+
+    # set if you want to use the landcover data to find the banks of the river, instead of the flat water surface elevation in the DEM
+    find_banks_based_on_landcover = watershed_dict['find_banks_based_on_landcover']
+
+    # let's tell ARC whether we want the curvefile parameters to be the same for each reach or vary by stream cell
+    create_reach_average_curve_file = watershed_dict['create_reach_average_curve_file']
+
+
+    #Folder Management
+    Output_Dir = watershed_dict['output_dir']
+    watershed = watershed_dict['name']
+    DEM_Folder = watershed_dict['dem_dir']
+    ARC_Folder = os.path.join(Output_Dir, watershed, 'ARC_InputFiles')
+    FloodFolder = os.path.join(Output_Dir, watershed, 'FloodMap')
+    BathyFileFolder = os.path.join(Output_Dir, watershed, 'Bathymetry')
+    DEM_Updated_Folder = os.path.join(Output_Dir, watershed, 'DEM_Updated')
+    STRM_Folder = os.path.join(Output_Dir, watershed, 'STRM')
+    LAND_Folder = os.path.join(Output_Dir, watershed, 'LAND')
+    FLOW_Folder = os.path.join(Output_Dir, watershed, 'FLOW')
+    VDT_Folder = os.path.join(Output_Dir, watershed, 'VDT')
+    ESA_LC_Folder = os.path.join(Output_Dir, watershed, 'ESA_LC')
+    FIST_Folder = os.path.join(Output_Dir, watershed, 'FIST')
+    
+    #Create Folders
+    # Create_Folder(watershed)
+    Create_Folder(ESA_LC_Folder)
+    Create_Folder(STRM_Folder)
+    Create_Folder(LAND_Folder)
+    Create_Folder(FLOW_Folder)
+    Create_Folder(VDT_Folder)
+    Create_Folder(DEM_Updated_Folder)
+    Create_Folder(FloodFolder)
+    Create_Folder(ARC_Folder)
+    Create_Folder(BathyFileFolder)
+    Create_Folder(FIST_Folder)
+    
+    #Datasets that can be good for a large domain
+    StrmSHP = watershed_dict['flowline']
+    ManningN = os.path.join(LAND_Folder, 'AR_Manning_n_MED.txt')
+
+    #Create a Baseline Manning N File
+    print('Creating Manning n file: ' + ManningN)
+    Create_BaseLine_Manning_n_File_ESA(ManningN)
+    
+    #This is the list of all the DEM files we will go through
+    DEM_List = os.listdir(DEM_Folder)
+
+    # Before we get too far ahead, let's make sure that our DEMs and Flowlines have the same coordinate system
+    # we will assume that all DEMs in the DEM list have the same coordinate system
+    if process_stream_network is True:
+        print('Reading in stream file: ' + StrmSHP)
+        if StrmSHP.endswith(".gdb"):
+            # Specify the layer you want to access
+            layer_name = "geoglowsv2"
+            # Read the layer from the geodatabase
+            StrmShp_gdf = gpd.read_file(StrmSHP, layer=layer_name)    
+        elif StrmSHP.endswith(".shp") or StrmSHP.endswith(".gpkg"):
+            # Read the layer from the shapefile
+            StrmShp_gdf = gpd.read_file(StrmSHP)
+        elif StrmSHP.endswith(".parquet"):
+            # Read the layer from the shapefile
+            StrmShp_gdf = gpd.read_parquet(StrmSHP)
+
+        # removing any lingering NoneType geometries
+        StrmShp_gdf = StrmShp_gdf[~StrmShp_gdf.geometry.isna()]
+
+        print('Converting the coordinate system of the stream file to match the DEM files, if necessary')
+        test_dem = next((file for file in DEM_List if file.endswith('.tif')), None)
+        test_dem_path = os.path.join(DEM_Folder,test_dem)
+        # Load the DEM file and get its CRS using gdal
+        dem_dataset = gdal.Open(test_dem_path)
+        dem_proj = dem_dataset.GetProjection()  # Get the projection as a WKT string
+        dem_spatial_ref = osr.SpatialReference()
+        dem_spatial_ref.ImportFromWkt(dem_proj)
+        dem_crs = dem_spatial_ref.ExportToProj4()  # Export CRS to a Proj4 string (or other formats if needed)
+        # Check if the CRS of the shapefile matches the DEM's CRS
+        if StrmShp_gdf.crs != dem_crs:
+            # Reproject the shapefile to match the DEM's CRS
+            StrmShp_gdf = StrmShp_gdf.to_crs(dem_crs)
+        dem_dataset = None
+        dem_proj = None 
+        dem_spatial_ref = None
+        dem_crs = None 
+    elif process_stream_network is False:
+        StrmShp_gdf = None   
+
+    #Now go through each DEM dataset
+    for DEM in DEM_List:
+            
+        DEM_Forecast(DEM_Folder, DEM, watershed, ESA_LC_Folder, STRM_Folder, LAND_Folder, FLOW_Folder, VDT_Folder, DEM_Updated_Folder, FloodFolder, ARC_Folder, 
+                     BathyFileFolder, FIST_Folder, ManningN, bathy_use_banks, flood_waterlc_and_strm_cells, mapper, clean_dem, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, 
+                     age_of_forecast_days, find_banks_based_on_landcover, create_reach_average_curve_file,
+                     StrmShp_gdf)
+    
+    return
+    
+def process_json_input(json_file):
+    """Process input from a JSON file."""
+    with open(json_file, 'r') as file:
+        print('Opening ' + str(file))
+        data = json.load(file)
+        print(data)
+    
+    watersheds = data.get("watersheds", [])
+    for watershed in watersheds:
+        watershed_name = watershed.get("name")
+        flowline = os.path.normpath(watershed.get("flowline"))
+        dem_dir = os.path.normpath(watershed.get("dem_dir"))
+        output_dir = os.path.normpath(watershed.get("output_dir"))
+
+        # loading these early to do some preprocessing checks
+        clean_dem = watershed.get("clean_dem", False)
+        use_specified_depth_for_bathy_mask = watershed.get("use_specified_depth_for_bathy_mask", True)
+        specify_depths_for_bathy_mask = watershed.get("specify_depths_for_bathy_mask", None)
+
+        # Validation for `use_specified_depth_for_bathy_mask` and `specify_depths_for_bathy_mask`
+        if use_specified_depth_for_bathy_mask is True:
+            if not specify_depths_for_bathy_mask or not isinstance(specify_depths_for_bathy_mask, list) or len(specify_depths_for_bathy_mask) < 1:
+                raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of two floats when 'use_specified_depth_for_bathy_mask' is True.")
+            elif len(specify_depths_for_bathy_mask) < 2 and clean_dem is True:
+                raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of two floats when 'clean_dem' is True.")
+            elif len(specify_depths_for_bathy_mask) > 1 and clean_dem is False:
+                raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of one float when 'clean_dem' is False.")
+            
+        watershed_dict = {
+            "name": watershed_name,
+            "flowline": flowline,
+            "dem_dir": dem_dir,
+            "output_dir": output_dir,
+            "bathy_use_banks": watershed.get("bathy_use_banks", False),
+            "flood_waterlc_and_strm_cells":watershed.get("flood_waterlc_and_strm_cells", False),
+            "clean_dem": clean_dem,
+            "mapper": watershed.get("mapper", "FloodSpreader"),
+            "process_stream_network": watershed.get("process_stream_network", False),
+            "use_specified_depth_for_bathy_mask": use_specified_depth_for_bathy_mask,
+            "age_of_forecast_days": watershed.get("age_of_forecast_days", 7),
+            "find_banks_based_on_landcover": watershed.get("find_banks_based_on_landcover", True),
+            "specify_depths_for_bathy_mask": specify_depths_for_bathy_mask,
+            "create_reach_average_curve_file": watershed.get("create_reach_average_curve_file", False)
+
+        }
+
+        # Ensure the output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+
+        print(f"Processing watershed: {watershed_name} with parameters: {watershed_dict}")
+
+        # Call your existing processing logic here
+        process_dem(watershed_dict)
+
+def normalize_path(path):
+    return os.path.normpath(path)
+
+def process_cli_arguments(args):
+    """Process input from CLI arguments."""
+    output_dir = args.output_dir
+    watershed_name = args.watershed
+
+    clean_dem = args.clean_dem
+    use_specified_depth_for_bathy_mask = args.use_specified_depth_for_bathy_mask
+    specify_depths_for_bathy_mask = args.specify_depths_for_bathy_mask
+
+    # Validation for `use_specified_depth_for_bathy_mask` and `specify_depths_for_bathy_mask`
+    if use_specified_depth_for_bathy_mask is True:
+        if not specify_depths_for_bathy_mask or len(specify_depths_for_bathy_mask) < 1:
+            raise ValueError("'--use_specified_depth_for_bathy_mask' must be specified as two floats when '--use_specified_depth_for_bathy_mask' is True.")
+        elif len(specify_depths_for_bathy_mask) < 2 and clean_dem is True:
+            raise ValueError("'--specify_depths_for_bathy_mask' must be specified as two floats when '--clean_dem' is True.")
+        elif len(specify_depths_for_bathy_mask) > 1 and clean_dem is False:
+            raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of one float when 'clean_dem' is False.")
+
+    watershed_dict = {
+        "name": watershed_name,
+        "flowline": normalize_path(args.flowline),
+        "dem_dir": normalize_path(args.dem_dir),
+        "bathy_use_banks": args.bathy_use_banks,
+        "flood_waterlc_and_strm_cells": args.flood_waterlc_and_strm_cells,
+        "clean_dem": clean_dem,
+        "mapper": args.mapper,
+        "output_dir": normalize_path(output_dir),
+        "process_stream_network": args.process_stream_network,
+        "use_specified_depth_for_bathy_mask": use_specified_depth_for_bathy_mask,
+        "age_of_forecast_days": args.age_of_forecast_days,
+        "find_banks_based_on_landcover": args.find_banks_based_on_landcover,
+        "specify_depths_for_bathy_mask": specify_depths_for_bathy_mask,
+        "create_reach_average_curve_file": args.create_reach_average_curve_file
+    }
+
+    # Ensure the output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    print(f"Processing watershed: {args.watershed} with parameters: {watershed_dict}")
+    print(f"Results will be saved in: {output_dir}")
+
+    # Call the existing processing logic here
+    process_dem(watershed_dict)
+
+def main():
+    parser = argparse.ArgumentParser(description="Flood Mapping Script")
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # Subcommand for JSON input
+    json_parser = subparsers.add_parser("json", help="Process watersheds from a JSON file")
+    json_parser.add_argument("json_file", type=str, help="Path to the JSON file")
+
+    # Subcommand for CLI input
+    cli_parser = subparsers.add_parser("cli", help="Process watershed parameters via CLI")
+    cli_parser.add_argument("watershed", type=str, help="Watershed name")
+    cli_parser.add_argument("flowline", type=str, help="Path to the flowline shapefile")
+    cli_parser.add_argument("dem_dir", type=str, help="Directory containing DEM files")
+    cli_parser.add_argument("output_dir", type=str, help="Directory where results will be saved")
+    cli_parser.add_argument("--bathy_use_banks", action="store_true", help="Use bathy banks for processing")
+    cli_parser.add_argument("--flood_waterlc_and_strm_cells", action="store_true", help="In the flood inundation maps it shows water related land use and stream raster cells as flooded")
+    cli_parser.add_argument("--clean_dem", action="store_true", help="Clean DEM data before processing")
+    cli_parser.add_argument("--process_stream_network", action="store_true", help="Clean DEM data before processing")
+    cli_parser.add_argument("--mapper", type=str, default="FloodSpreader", choices=["FloodSpreader", "Curve2Flood"], help="Mapping method")
+    cli_parser.add_argument("--use_specified_depth_for_bathy_mask", action="store_true", help="Specify a depth for FloodSprederPy to use for bathymetry masking")
+    cli_parser.add_argument("--age_of_forecast_days", type=int, default=7, help="Age of forecast in days")
+    cli_parser.add_argument("--find_banks_based_on_landcover", action="store_true", help="Use landcover data for finding banks when estimating bathymetry")
+    cli_parser.add_argument("--specify_depths_for_bathy_mask", type=float, nargs=2, help="Specify two floats for bathymetry depth mask when '--use_specified_depth_for_bathy_mask' is True")
+    cli_parser.add_argument("--create_reach_average_curve_file", action="store_true", help="Create a reach average curve file instead of one that varies for each stream cell")
+
+    args = parser.parse_args()
+
+    if args.command == "json":
+        print('Processing ' + str(args.json_file))
+        process_json_input(args.json_file)
+    elif args.command == "cli":
+        process_cli_arguments(args)
+
+if __name__ == "__main__":
+    main()
