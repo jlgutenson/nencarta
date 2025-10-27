@@ -34,7 +34,7 @@ conda activate nencarta_py310
 
 4. Install the Curve2Flood by cloning the repository and installing using the instructions provided in [Curve2Flood's README](https://github.com/MikeFHS/curve2flood).
 
-5. Optional, if you want to compute direct economic consequences using the resulting flood inundation map, install Go-Consequences by cloning the repository and creating a Go-Consequences Docker container using the Dockerfile found [on Github](https://github.com/USACE/go-consequences).
+5. Optional, if you want to compute direct economic consequences using the resulting flood inundation map, install Go-Consequences by cloning the repository and creating a Go-Consequences Docker container using the Dockerfile found [in this repository](https://github.com/jlgutenson/nencarta/blob/main/Dockerfile.prod).
 
 6. Clone this repository and return to the command prompt window and navigate to where the NenCarta repository was cloned locally.
 

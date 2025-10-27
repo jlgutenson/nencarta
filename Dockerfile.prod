@@ -1,0 +1,41 @@
+# --- go-consequences Dockerfile (vendored; no network needed for go deps) ---
+
+FROM golang:1.24-bookworm
+
+# Optional corporate proxy for APT only (Go deps are vendored)
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+ARG TZ=UTC
+ENV TZ=${TZ} \
+    DEBIAN_FRONTEND=noninteractive \
+    CGO_ENABLED=1 \
+    # Force vendor mode & skip VCS metadata
+    GOFLAGS="-mod=vendor -buildvcs=false" \
+    HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    NO_PROXY=${NO_PROXY}
+
+# OS deps (GDAL runtime + headers for cgo)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      tzdata ca-certificates build-essential \
+      gdal-bin gdal-data libgdal-dev \
+      git wget && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Copy manifests and vendored deps first (cache-friendly)
+COPY go.mod go.sum ./
+COPY vendor ./vendor
+
+# Copy the rest of the source
+COPY . .
+
+# Build with GDAL cgo flags from gdal-config (no network for Go)
+RUN export CGO_CFLAGS="$(gdal-config --cflags)" CGO_LDFLAGS="$(gdal-config --libs)" && \
+    go build -o /usr/local/bin/go-consequences .
+
+ENTRYPOINT ["/usr/local/bin/go-consequences"]
