@@ -1,41 +1,43 @@
-# --- go-consequences Dockerfile (vendored; no network needed for go deps) ---
-
 FROM golang:1.24-bookworm
-
-# Optional corporate proxy for APT only (Go deps are vendored)
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG NO_PROXY
 
 ARG TZ=UTC
 ENV TZ=${TZ} \
     DEBIAN_FRONTEND=noninteractive \
     CGO_ENABLED=1 \
-    # Force vendor mode & skip VCS metadata
-    GOFLAGS="-mod=vendor -buildvcs=false" \
-    HTTP_PROXY=${HTTP_PROXY} \
-    HTTPS_PROXY=${HTTPS_PROXY} \
-    NO_PROXY=${NO_PROXY}
+    GOFLAGS="-mod=vendor -buildvcs=false"
 
-# OS deps (GDAL runtime + headers for cgo)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+# GDAL (runtime + headers) and build deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
       tzdata ca-certificates build-essential \
-      gdal-bin gdal-data libgdal-dev \
-      git wget && \
+      gdal-bin gdal-data libgdal-dev git && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 
-# Copy manifests and vendored deps first (cache-friendly)
+# Copy manifests and vendor FIRST (fail fast if vendor missing)
 COPY go.mod go.sum ./
 COPY vendor ./vendor
+
+# Show we actually have vendor content
+RUN set -eux; pwd; ls -la; echo "--- vendor head ---"; ls -la vendor | head -n 20
 
 # Copy the rest of the source
 COPY . .
 
-# Build with GDAL cgo flags from gdal-config (no network for Go)
-RUN export CGO_CFLAGS="$(gdal-config --cflags)" CGO_LDFLAGS="$(gdal-config --libs)" && \
-    go build -o /usr/local/bin/go-consequences .
+# Prove GDAL toolchain exists + show flags
+RUN set -eux; \
+    which gdal-config; gdal-config --version; \
+    echo "CFLAGS: $(gdal-config --cflags)"; \
+    echo "LDFLAGS: $(gdal-config --libs)"; \
+    go version
+
+# Build using vendored modules and explicit CGO flags
+RUN set -eux; \
+    CGO_CFLAGS="$(gdal-config --cflags)"; \
+    CGO_LDFLAGS="$(gdal-config --libs)"; \
+    export CGO_CFLAGS CGO_LDFLAGS; \
+    go env GOFLAGS; \
+    go list -m all | head -n 20; \
+    go build -v -o /usr/local/bin/go-consequences .
 
 ENTRYPOINT ["/usr/local/bin/go-consequences"]

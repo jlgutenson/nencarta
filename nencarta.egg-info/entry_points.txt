@@ -1,0 +1,2 @@
+[console_scripts]
+flood-mapping = flood_mapping.main:main

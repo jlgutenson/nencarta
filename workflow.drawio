@@ -1,0 +1,89 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36" version="28.2.8">
+  <diagram name="Page-1" id="rERJF2D1YIABF24GHqnC">
+    <mxGraphModel dx="1426" dy="1877" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-2" value="&lt;b&gt;&lt;font style=&quot;font-size: 13px;&quot;&gt;Want a forecast of flood inundation and consequences&lt;br&gt;&lt;/font&gt;&lt;/b&gt;" style="strokeWidth=2;html=1;shape=mxgraph.flowchart.start_1;whiteSpace=wrap;" parent="1" vertex="1">
+          <mxGeometry x="342" y="-30" width="167" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-3" value="&lt;div&gt;&lt;b&gt;&lt;font style=&quot;font-size: 13px;&quot;&gt;&lt;br&gt;&lt;/font&gt;&lt;/b&gt;&lt;/div&gt;&lt;b&gt;&lt;font style=&quot;font-size: 13px;&quot;&gt;GEOGLOWS Forecast and Reanalysis Streamflow&lt;/font&gt;&lt;/b&gt;" style="strokeWidth=2;html=1;shape=mxgraph.flowchart.database;whiteSpace=wrap;" parent="1" vertex="1">
+          <mxGeometry x="100" y="140" width="180" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="NN2RdpUQW-DhD2QBmOeE-4" target="NN2RdpUQW-DhD2QBmOeE-8" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-4" value="&lt;div&gt;&lt;b&gt;&lt;font style=&quot;font-size: 13px;&quot;&gt;&lt;br&gt;&lt;/font&gt;&lt;/b&gt;&lt;/div&gt;&lt;b&gt;&lt;font style=&quot;font-size: 13px;&quot;&gt;NWM Forecast and Reanalysis Streamflow&lt;/font&gt;&lt;/b&gt;" style="strokeWidth=2;html=1;shape=mxgraph.flowchart.database;whiteSpace=wrap;" parent="1" vertex="1">
+          <mxGeometry x="100" y="260" width="180" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-5" value="&lt;font style=&quot;font-size: 13px;&quot;&gt;&lt;b style=&quot;&quot;&gt;ARC&lt;/b&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="680" y="50" width="100" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" parent="1" source="NN2RdpUQW-DhD2QBmOeE-6" target="NN2RdpUQW-DhD2QBmOeE-8" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-6" value="&lt;font style=&quot;font-size: 13px;&quot;&gt;&lt;b style=&quot;&quot;&gt;Curve2Flood&lt;/b&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="680" y="170" width="100" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=1;entryY=0.75;entryDx=0;entryDy=0;" parent="1" source="NN2RdpUQW-DhD2QBmOeE-7" target="NN2RdpUQW-DhD2QBmOeE-8" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-7" value="&lt;font style=&quot;font-size: 13px;&quot;&gt;&lt;b style=&quot;&quot;&gt;Go-Consequences&lt;/b&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="680" y="290" width="100" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" parent="1" source="NN2RdpUQW-DhD2QBmOeE-8" target="NN2RdpUQW-DhD2QBmOeE-21" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-8" value="&lt;font style=&quot;font-size: 13px;&quot;&gt;&lt;b style=&quot;&quot;&gt;NenCarta&lt;/b&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="375" y="170" width="100" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;curved=1;" parent="1" source="NN2RdpUQW-DhD2QBmOeE-5" target="NN2RdpUQW-DhD2QBmOeE-8" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=-0.07;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" source="NN2RdpUQW-DhD2QBmOeE-2" target="NN2RdpUQW-DhD2QBmOeE-8" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" parent="1" source="NN2RdpUQW-DhD2QBmOeE-3" target="NN2RdpUQW-DhD2QBmOeE-8" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="360" y="190" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-15" value="&lt;div&gt;&lt;b&gt;&lt;font style=&quot;font-size: 13px;&quot;&gt;&lt;br&gt;&lt;/font&gt;&lt;/b&gt;&lt;/div&gt;&lt;b&gt;&lt;font style=&quot;font-size: 13px;&quot;&gt;ESA WorldCover 2021&lt;/font&gt;&lt;/b&gt;" style="strokeWidth=2;html=1;shape=mxgraph.flowchart.database;whiteSpace=wrap;" parent="1" vertex="1">
+          <mxGeometry x="100" y="380" width="180" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="NN2RdpUQW-DhD2QBmOeE-16" target="NN2RdpUQW-DhD2QBmOeE-8" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-16" value="&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Manning&#39;s n values&lt;/div&gt;&lt;div&gt;tied to land cover&lt;/div&gt;" style="strokeWidth=2;html=1;shape=mxgraph.flowchart.database;whiteSpace=wrap;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="100" y="500" width="180" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="NN2RdpUQW-DhD2QBmOeE-15" target="NN2RdpUQW-DhD2QBmOeE-8" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="450" y="480" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-20" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="NN2RdpUQW-DhD2QBmOeE-19" target="NN2RdpUQW-DhD2QBmOeE-8" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-19" value="&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;National Structure Inventory (NSI)&lt;/div&gt;" style="strokeWidth=2;html=1;shape=mxgraph.flowchart.database;whiteSpace=wrap;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="100" y="620" width="180" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-24" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" parent="1" source="NN2RdpUQW-DhD2QBmOeE-21" target="NN2RdpUQW-DhD2QBmOeE-23" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-21" value="&lt;font style=&quot;font-size: 13px;&quot;&gt;&lt;b style=&quot;&quot;&gt;Generate FIM and Estimate Locations of Impacted Buildings&lt;/b&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="375" y="340" width="100" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="NN2RdpUQW-DhD2QBmOeE-23" value="&lt;font style=&quot;font-size: 13px;&quot;&gt;&lt;b&gt;Forecast of Impacted Buildings&lt;/b&gt;&lt;/font&gt;&lt;div&gt;&lt;font style=&quot;font-size: 13px;&quot;&gt;&lt;b&gt;(CONUS Only)&lt;/b&gt;&lt;/font&gt;&lt;/div&gt;" style="strokeWidth=2;html=1;shape=mxgraph.flowchart.stored_data;whiteSpace=wrap;" parent="1" vertex="1">
+          <mxGeometry x="338" y="520" width="175" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="PJDw-Ws4KwC2r1LtV7Qj-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="PJDw-Ws4KwC2r1LtV7Qj-1" target="NN2RdpUQW-DhD2QBmOeE-8" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="PJDw-Ws4KwC2r1LtV7Qj-1" value="&lt;div&gt;&lt;font style=&quot;font-size: 13px;&quot;&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;b style=&quot;font-size: 13px; background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;Digital Elevation Model (DEM)&lt;/b&gt;&lt;/div&gt;" style="strokeWidth=2;html=1;shape=mxgraph.flowchart.database;whiteSpace=wrap;" parent="1" vertex="1">
+          <mxGeometry x="100" y="20" width="180" height="100" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
