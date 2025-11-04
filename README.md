@@ -1,6 +1,10 @@
 # About NenCarta
 NenCarta is a workflow designed to automate the creation of riverine flood inundation maps using the Automated Rating Curve (ARC) tool and Curve2Flood and streamflow from either the National Water Model or the GEOGLOWS ECWMF Streamflow Service. For the coterminous United States, NenCarta can then take the resulting flood inundaton maps and estimate direct flood consequences using Go-Consequences and the National Structure Inventory (NSI).
 
+Here is an overview of how NenCarta produces flood inundation maps and performs consequence assessment.
+
+[![NenCarta Overview](https://github.com/jlgutenson/nencarta/blob/main/workflow.png)](https://github.com/jlgutenson/nencarta/blob/main/workflow.png)
+
 # Setting up NenCarta
 
 Below are instructions for setting up NenCarta using Miniconda and Docker.
@@ -46,10 +50,6 @@ pip install .
 8. You should be set up now. You can run `flood-mapping -h` in your command prompt to see if things installed properly. Have fun you dirty animals! 
 
 # How to Run NenCarta
-Here is an overview of how NenCarta produces flood inundation maps and performs consequence assessment.
-
-[![NenCarta Overview](https://github.com/jlgutenson/nencarta/blob/main/workflow.png)](https://github.com/jlgutenson/nencarta/blob/main/workflow.png)
-
 
 There are two ways to run NenCarta, either by providing a JSON input's filepath or via command line arguments.
 
