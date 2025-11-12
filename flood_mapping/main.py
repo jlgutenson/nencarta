@@ -80,7 +80,8 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
                                              DEM_File, DEM_File_Clean, LandCoverFile, 
                                              VDT_Test_File, STRM_File, STRM_File_Clean, 
                                              LAND_File, BathyFileFolder, FloodFolder, FLOW_Folder,
-                                             ManningN, VDT_File, Curve_File, FloodMapFile, FloodDepthFile, FloodWSEFile, FloodMapFile_Initial,
+                                             ManningN, VDT_File, Curve_File, FloodMapFile, FloodDepthFile, FloodWSEFile, 
+                                             FloodVELFile, FloodMapFile_Initial,
                                              DepthMapFile, ARC_BathyFile, FS_BathyFile, DEM_StrmShp, 
                                              DEM_Reanalsyis_FlowFile, bathy_use_banks, flood_waterlc_and_strm_cells, 
                                              land_watervalue, clean_dem, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, 
@@ -188,11 +189,12 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
             sys.exit()
     else:
         # cycle through today through 12 days ago to find the most recent day with a forecast
+        found = False
         for fd in range(0,13):
             for fh in range(0,24):
                 try:
                     demfilename = os.path.basename(DEM_File)
-                    forecastdate, forecasthour = ForecastFlows.Get_Date_For_Forecast(fd, fh) 
+                    forecastdate, forecasthour = ForecastFlows.Get_Date_For_Forecast(fd, fh, streamflow_source) 
                     # we only need the forecast date for GEOGLOWS, for NWM we need the forecast hour as well               
                     if streamflow_source.upper() == "GEOGLOWS":
                         ForecastFlowFile = os.path.join(FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{streamflow_source}_forecast.csv')
@@ -200,10 +202,13 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
                         ForecastFlowFile = os.path.join(FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{forecasthour}_{streamflow_source}_forecast.csv')
                     if not os.path.exists(ForecastFlowFile):
                         # rivids = ForecastFlows.Get_RIVID_Values('Shapefile', parquet_file_from_geoglows, -9999, DEM_StrmShp)
-                        ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, rivids, ForecastFlowFile, streamflow_source)
+                        ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, ForecastFlowFile, streamflow_source)
+                    found = True
                     break
-                except:
-                    print('Could not process forecast, moving back another day..')
+                except Exception as e:
+                    print(f'Could not process forecast, moving back another day.. ({e})')
+            if found:
+                break  # break outer
     print('Forecast data save here: ' + ForecastFlowFile)
     
     
@@ -242,7 +247,7 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
     
     #Create the Forecast Input File
     print('Creating ARC Input File: ' + ARC_FileName_FloodForecast)
-    Forecast_Flood_Map, Forecast_Flood_Depth_Raster = Create_ARC_Model_Input_File_FloodForecast(streamflow_source, ARC_FileName_FloodForecast, ForecastFlowFile, STRM_File_Clean, VDT_File, Curve_File, FloodMapFile, FloodDepthFile, FloodWSEFile, FS_BathyFile, forecastdate, forecasthour, DEM_StrmShp, flood_waterlc_and_strm_cells, land_watervalue, LAND_File)
+    Forecast_Flood_Map, Forecast_Flood_Depth_Raster = Create_ARC_Model_Input_File_FloodForecast(streamflow_source, ARC_FileName_FloodForecast, ForecastFlowFile, STRM_File_Clean, VDT_File, Curve_File, ManningN, FloodMapFile, FloodDepthFile, FloodWSEFile, FloodVELFile, FS_BathyFile, forecastdate, forecasthour, DEM_StrmShp, flood_waterlc_and_strm_cells, land_watervalue, LAND_File)
     
     return (ARC_FileName_Initial, ARC_FileName_Bathy, ARC_FileName_FloodForecast, Forecast_Flood_Map, DEM_Reanalsyis_FlowFile, ForecastFlowFile, DEM_StrmShp, forecastdate, Forecast_Flood_Depth_Raster, stream_id_field, ds_stream_id_field)
 
@@ -381,7 +386,7 @@ def Create_ARC_Model_Input_File_Bathy(ARC_FileName_Bathy, DEM_File_Clean, COMID_
 
     out_file.close()
 
-def Create_ARC_Model_Input_File_FloodForecast(streamflow_source, ARC_FileName_FloodForecast, ForecastFlowFile, STRM_File_Clean, VDT_File, Curve_File, FloodMapFile, FloodDepthFile, FloodWSEFile, FS_BathyFile, forecastdate, forecasthour, DEM_StrmShp, flood_waterlc_and_strm_cells, land_watervalue, LAND_File):
+def Create_ARC_Model_Input_File_FloodForecast(streamflow_source, ARC_FileName_FloodForecast, ForecastFlowFile, STRM_File_Clean, VDT_File, Curve_File, ManningN, FloodMapFile, FloodDepthFile, FloodWSEFile, FloodVELFile, FS_BathyFile, forecastdate, forecasthour, DEM_StrmShp, flood_waterlc_and_strm_cells, land_watervalue, LAND_File):
     out_file = open(ARC_FileName_FloodForecast, 'w')
     out_file.write('#ARC_Inputs')
     out_file.write('\n' + 'DEM_File	' + FS_BathyFile)
@@ -406,7 +411,7 @@ def Create_ARC_Model_Input_File_FloodForecast(streamflow_source, ARC_FileName_Fl
 
     Forecast_Flood_Depth_Raster = FloodDepthFile.replace('.tif', ending_of_forecast_file)
     Forecast_Flood_WSE_Raster = FloodWSEFile.replace('.tif', ending_of_forecast_file)
-
+    Forecast_Flood_VEL_Raster = FloodVELFile.replace('.tif', ending_of_forecast_file)
     Forecast_Flood_Map_Raster = FloodMapFile.replace('.tif', ending_of_forecast_file)
     # add the name of the file in the DEM_StrmShp file path to the Forecast_Flood_Map_Raster variable
     DEM_StrmShp_filname = os.path.basename(DEM_StrmShp)
@@ -427,10 +432,14 @@ def Create_ARC_Model_Input_File_FloodForecast(streamflow_source, ARC_FileName_Fl
         os.remove(Forecast_Flood_Depth_Raster)
     if os.path.exists(Forecast_Flood_WSE_Raster):
         os.remove(Forecast_Flood_WSE_Raster)
+    if os.path.exists(Forecast_Flood_VEL_Raster):
+        os.remove(Forecast_Flood_VEL_Raster)
     out_file.write('\n' + 'OutFLD	' + Forecast_Flood_Map_Raster)
     out_file.write('\n' + 'OutSHP	' + Forecast_Flood_Map_Shapefile)
     out_file.write('\n' + 'OutDEP    ' + Forecast_Flood_Depth_Raster)
     out_file.write('\n' + 'OutWSE    ' + Forecast_Flood_WSE_Raster)
+    out_file.write('\n' + 'OutVEL    ' + Forecast_Flood_VEL_Raster)
+    out_file.write('\n' + 'LU_Manning_n	' + ManningN)
     out_file.close()
     return (Forecast_Flood_Map_Raster, Forecast_Flood_Depth_Raster)
     
@@ -865,6 +874,7 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
         ARC_FileName_FloodForecast = os.path.join(ARC_Folder, streamflow_source + '_ARC_Input_' + FileName + '_FloodForecast.txt')
         FloodDepthFile = os.path.join(FloodFolder, streamflow_source + '_' + FileName + '_ARC_FloodDepth.tif')
         FloodWSEFile = os.path.join(FloodFolder, streamflow_source + '_' + FileName + '_ARC_FloodWSE.tif') 
+        FloodVELFile = os.path.join(FloodFolder, streamflow_source + '_' + FileName + '_ARC_FloodVEL.tif')
 
         
         #Download and Process Land Cover Data
@@ -896,7 +906,8 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
                                                                                          VDT_Test_File, STRM_File, 
                                                                                          STRM_File_Clean, LAND_File, 
                                                                                          BathyFileFolder, FloodFolder, FLOW_Folder, ManningN, 
-                                                                                         VDT_File, Curve_File, FloodMapFile, FloodDepthFile, FloodWSEFile, FloodMapFile_Initial,
+                                                                                         VDT_File, Curve_File, FloodMapFile, FloodDepthFile, FloodWSEFile, 
+                                                                                         FloodVELFile, FloodMapFile_Initial,
                                                                                          DepthMapFile, ARC_BathyFile, FS_BathyFile, DEM_StrmShp, 
                                                                                          DEM_Reanalsyis_FlowFile, bathy_use_banks, 
                                                                                          flood_waterlc_and_strm_cells,

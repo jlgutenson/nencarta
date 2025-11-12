@@ -310,7 +310,7 @@ def Get_RIVID_Values(Riv_Method, parquet_file_from_geoglows, TermLinkNumber, Str
     #rivids = [280706358, 280759351]
     return rivids
 
-def Get_Date_For_Forecast(day_back, hour_back):
+def Get_Date_For_Forecast(day_back, hour_back, streamflow_source):
 
     # get the date and time in UTC
     today = datetime.now(timezone.utc)
@@ -322,8 +322,41 @@ def Get_Date_For_Forecast(day_back, hour_back):
     forecastdate = new_date.strftime("%Y%m%d")
     print('Forecast date: ', str(forecastdate))
     forecasthour = new_date.strftime("%H")
-    
+
+    # set forecast hour based upon the streamflow source
+    # GEOGLOWS: daily — hour doesn't matter
+    if streamflow_source == "GEOGLOWS":
+        forecasthour = None  # explicitly signal "daily"
+
+    # NWM short range: hour can be 2 hours behind the current forecast hour
+    elif streamflow_source == "NWM_short_range":
+        h = int(forecasthour) - 2
+        if h < 0:
+            # roll back a day and wrap hour into prior day
+            base = base - timedelta(days=1)
+            forecastdate = base.strftime("%Y%m%d")
+            h += 24
+        forecasthour = f"{h:02d}"
+
+    # NWM medium range: choose the closest cycle among 00, 06, 12, 18 that does NOT exceed the current hour
+    elif streamflow_source == "NWM_medium_range":
+        h_now = int(forecasthour)
+        # allowed cycle hours
+        cycles = [0, 6, 12, 18]
+        # pick the greatest cycle <= current hour; if current hour < 0 (impossible), default to 00
+        cycle = max([c for c in cycles if c <= h_now], default=0)
+        forecasthour = f"{cycle:02d}"
+
+    # NWM long range: the forecast hour must be "00"
+    elif streamflow_source == "NWM_long_range":
+        forecasthour = "00"
+
+    else:
+        # Unknown source — leave as derived from base
+        pass    
+        
     return forecastdate, forecasthour
+
 
 if __name__ == "__main__":
     #MAIN INPUTS
