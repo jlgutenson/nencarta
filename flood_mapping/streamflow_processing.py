@@ -582,21 +582,21 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
             # uniqify the index
             fdc_df = fdc_df[~fdc_df.index.duplicated(keep='first')]
 
-            # Combine the results from retrospective and return periods data
-            # final_df = pd.concat([combined_df, rp_pivot_df], axis=1)
-            final_df = pd.concat([fdc_df, rp_pivot_df], axis=1)
-            final_df['COMID'] = final_df.index
+        # Combine the results from retrospective and return periods data
+        # final_df = pd.concat([combined_df, rp_pivot_df], axis=1)
+        final_df = pd.concat([fdc_df, rp_pivot_df], axis=1)
+        final_df['COMID'] = final_df.index
 
-            # Reorder the DataFrame
-            columns = [target_column] + [col for col in final_df.columns if col != target_column]
-            final_df = final_df[columns]
+        # Reorder the DataFrame
+        columns = [target_column] + [col for col in final_df.columns if col != target_column]
+        final_df = final_df[columns]
 
-            # Add a safety factor to one of the columns we could use to run the ARC model
-            for col in final_df.columns:
-                if col in ['qout_max','rp100']:
-                    final_df[f'{col}_premium'] = round(final_df[col]*1.5, 3)
-            
-            print(final_df)
+        # Add a safety factor to one of the columns we could use to run the ARC model
+        for col in final_df.columns:
+            if col in ['qout_max','rp100']:
+                final_df[f'{col}_premium'] = round(final_df[col]*1.5, 3)
+        
+        print(final_df)
 
     elif rivid_field == 'COMID':
 

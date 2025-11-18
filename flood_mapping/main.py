@@ -247,7 +247,7 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
     
     #Create the Forecast Input File
     print('Creating ARC Input File: ' + ARC_FileName_FloodForecast)
-    Forecast_Flood_Map, Forecast_Flood_Depth_Raster = Create_ARC_Model_Input_File_FloodForecast(streamflow_source, ARC_FileName_FloodForecast, ForecastFlowFile, STRM_File_Clean, VDT_File, Curve_File, ManningN, FloodMapFile, FloodDepthFile, FloodWSEFile, FloodVELFile, FS_BathyFile, forecastdate, forecasthour, DEM_StrmShp, flood_waterlc_and_strm_cells, land_watervalue, LAND_File)
+    Forecast_Flood_Map, Forecast_Flood_Depth_Raster = Create_ARC_Model_Input_File_FloodForecast(streamflow_source, ARC_FileName_FloodForecast, ForecastFlowFile, STRM_File_Clean, VDT_File, Curve_File, ManningN, FloodMapFile, FloodDepthFile, FloodWSEFile, FloodVELFile, FS_BathyFile, forecastdate, forecasthour, DEM_StrmShp, flood_waterlc_and_strm_cells, land_watervalue, LAND_File, streamflow_source)
     
     return (ARC_FileName_Initial, ARC_FileName_Bathy, ARC_FileName_FloodForecast, Forecast_Flood_Map, DEM_Reanalsyis_FlowFile, ForecastFlowFile, DEM_StrmShp, forecastdate, Forecast_Flood_Depth_Raster, stream_id_field, ds_stream_id_field)
 
@@ -404,10 +404,16 @@ def Create_ARC_Model_Input_File_FloodForecast(streamflow_source, ARC_FileName_Fl
     out_file.write('\n' + 'TW_MultFact' + '\t' +  '1.5')
     out_file.write('\n' + 'TopWidthPlausibleLimit' + '\t' + '6000')
     #out_file.write('\n' + 'FloodLocalOnly')
-    ending_of_forecast_file = '_Forecast_' + str(forecastdate) + '.tif' 
     if streamflow_source.upper().startswith("NWM"):
-        ending_of_forecast_file = '_Forecast_' + str(forecastdate) + '_' + str(forecasthour) + '.tif'   
-    Forecast_Flood_Map_Raster = FloodMapFile.replace('.tif', ending_of_forecast_file)
+        # create the end of the file name that describes the forecast
+        ending_of_forecast_file = '_Forecast_' + str(forecastdate) + '_' + str(forecasthour) + '.tif' 
+        # rename the forecast of the extent raster based upon the type of NWM forecast we are using
+        Forecast_Flood_Map_Raster = FloodMapFile.replace('.tif', ending_of_forecast_file)
+        Forecast_Flood_Map_Raster = FloodMapFile.replace('NWM', streamflow_source)
+    else:
+        # create the end of the file name that describes the forecast
+        ending_of_forecast_file = '_Forecast_' + str(forecastdate) + '.tif' 
+        Forecast_Flood_Map_Raster = FloodMapFile.replace('.tif', ending_of_forecast_file)
 
     Forecast_Flood_Depth_Raster = FloodDepthFile.replace('.tif', ending_of_forecast_file)
     Forecast_Flood_WSE_Raster = FloodWSEFile.replace('.tif', ending_of_forecast_file)
