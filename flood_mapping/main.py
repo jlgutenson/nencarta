@@ -297,6 +297,7 @@ def Create_ARC_Model_Input_File_Initial(ARC_Input_File_Initial, DEM_File_Clean, 
     out_file.write('\n' + 'Str_Limit_Val	1')
     out_file.write('\n' + 'Gen_Dir_Dist	10')
     out_file.write('\n' + 'Gen_Slope_Dist	10')
+    out_file.write('\n' + 'Stream_Slope_Method' + '\t' + 'local_average_corrected')
     
     out_file.write('\n\n#VDT_Output_File_and_CurveFile')
     out_file.write('\n' + 'VDT_Database_NumIterations	30')
@@ -343,6 +344,7 @@ def Create_ARC_Model_Input_File_Bathy(ARC_FileName_Bathy, DEM_File_Clean, COMID_
     out_file.write('\n' + 'Str_Limit_Val	1')
     out_file.write('\n' + 'Gen_Dir_Dist	10')
     out_file.write('\n' + 'Gen_Slope_Dist	10')
+    out_file.write('\n' + 'Stream_Slope_Method' + '\t' + 'local_average_corrected')
     
     out_file.write('\n\n#VDT_Output_File_and_CurveFile')
     out_file.write('\n' + 'VDT_Database_NumIterations	30')

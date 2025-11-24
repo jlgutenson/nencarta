@@ -442,9 +442,11 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
     '''
     StrmShp_filtered_gdf = StrmShp_gdf.iloc[possible_matches_index]
 
-    # ensure that a 'LINKNO' field exists in StrmShp_filtered_gdf
+    # ensure that a 'LINKNO' and 'COMID' fields exists in StrmShp_filtered_gdf
     if 'LINKNO' not in StrmShp_filtered_gdf.columns:
         StrmShp_filtered_gdf['LINKNO'] = StrmShp_filtered_gdf[rivid_field]
+    if 'COMID' not in StrmShp_filtered_gdf.columns:
+        StrmShp_filtered_gdf['COMID'] = StrmShp_filtered_gdf[rivid_field]
 
     # Second attempt at fixing an empty StrmShp_filtered_gdf
     if StrmShp_filtered_gdf.empty:
