@@ -44,7 +44,7 @@ conda activate nencarta_py310
 ```bash
 pip install .
 ```
-7. Optional, if you want to compute economic consequences using the resulting flood inundation map, install Go-Consequences creating a Go-Consequences Docker container using the Dockerfile found [in this repository](https://github.com/jlgutenson/nencarta/blob/main/Dockerfile.prod). The easiet way to do this is to navigate to where the NenCarta repository was cloned locally using the command prompt window and running the command
+7. Optional, if you want to compute economic consequences using the resulting flood inundation map, install Go-Consequences creating a Go-Consequences Docker container using the Dockerfile found [in this repository](https://github.com/jlgutenson/nencarta/blob/main/Dockerfile.prod). The easiet way to do this is to install Docker (e.g., [Docker Desktop](https://www.docker.com/products/docker-desktop/)), navigate to where the NenCarta repository was cloned locally using the command prompt window, and running the command
 
 ```bash
 docker build --progress=plain --file Dockerfile.prod -t go-consequences:latest .
