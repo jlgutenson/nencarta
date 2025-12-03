@@ -247,7 +247,7 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
     
     #Create the Forecast Input File
     print('Creating ARC Input File: ' + ARC_FileName_FloodForecast)
-    Forecast_Flood_Map, Forecast_Flood_Depth_Raster = Create_ARC_Model_Input_File_FloodForecast(streamflow_source, ARC_FileName_FloodForecast, ForecastFlowFile, STRM_File_Clean, VDT_File, Curve_File, ManningN, FloodMapFile, FloodDepthFile, FloodWSEFile, FloodVELFile, FS_BathyFile, forecastdate, forecasthour, DEM_StrmShp, flood_waterlc_and_strm_cells, land_watervalue, LAND_File, streamflow_source)
+    Forecast_Flood_Map, Forecast_Flood_Depth_Raster = Create_ARC_Model_Input_File_FloodForecast(streamflow_source, ARC_FileName_FloodForecast, ForecastFlowFile, STRM_File_Clean, VDT_File, Curve_File, ManningN, FloodMapFile, FloodDepthFile, FloodWSEFile, FloodVELFile, FS_BathyFile, forecastdate, forecasthour, DEM_StrmShp, flood_waterlc_and_strm_cells, land_watervalue, LAND_File)
     
     return (ARC_FileName_Initial, ARC_FileName_Bathy, ARC_FileName_FloodForecast, Forecast_Flood_Map, DEM_Reanalsyis_FlowFile, ForecastFlowFile, DEM_StrmShp, forecastdate, Forecast_Flood_Depth_Raster, stream_id_field, ds_stream_id_field)
 
@@ -1158,7 +1158,7 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
             # run the go-consequences Docker container
             source_dir = os.path.join(Output_Dir, watershed)
             # docker run --rm --mount type=bind,source="D:\nencarta",target=/data go-consequences /data/results/streams_715_WseBanks_NotClean_Curve2Flood/consequences/USGS_13_n37w106_ARC_FloodDepth_Forecast_20250807_consequences.json
-            docker_command = f'docker run --rm --mount type=bind,source="{source_dir}",target=/data go-consequences /data/Consequences/{Consequences_JSON_File}'
+            docker_command = f'docker run --rm --mount type=bind,source="{source_dir}",target=/data go-consequences:latest /data/Consequences/{Consequences_JSON_File}'
             # run the docker command
             subprocess.call(docker_command, shell=True)
             # end time for the simulation

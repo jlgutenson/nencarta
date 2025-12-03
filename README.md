@@ -47,7 +47,7 @@ pip install .
 7. Optional, if you want to compute economic consequences using the resulting flood inundation map, install Go-Consequences creating a Go-Consequences Docker container using the Dockerfile found [in this repository](https://github.com/jlgutenson/nencarta/blob/main/Dockerfile.prod). The easiet way to do this is to navigate to where the NenCarta repository was cloned locally using the command prompt window and running the command
 
 ```bash
-docker build --progress=plain --file Dockerfile.prod -t go-consequences:1.0 .
+docker build --progress=plain --file Dockerfile.prod -t go-consequences:latest .
 ```
 
 8. You should be set up now. You can run `flood-mapping -h` in your command prompt to see if things installed properly. Have fun you dirty animals! 
