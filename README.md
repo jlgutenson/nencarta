@@ -9,9 +9,22 @@ Here is an overview of how NenCarta produces flood inundation maps and performs 
 
 Below are instructions for setting up NenCarta using Miniconda and Docker.
 
-1. Create the necessary conda environment with the following command in a command prompt window:
+1. Create the necessary conda environment with the following commands in a command prompt window:
 ```bash
-conda create -c conda-forge -n nencarta_py310 python=3.10 numba=0.60 gdal pyarrow geopandas pandas netcdf4 cython dask fiona s3fs xarray zarr beautifulsoup4 dataretrieval geojson progress tqdm geoglows pygeos noise pillow=9.0.1 rasterio
+conda create -c conda-forge -n nencarta_py310 python=3.10 
+numba=0.60 gdal pyarrow geopandas pandas netcdf4 cython dask fiona s3fs xarray zarr beautifulsoup4 dataretrieval geojson progress tqdm geoglows pygeos noise pillow=9.0.1 rasterio
+```
+
+```bash
+conda activate nencarta_py310
+```
+
+```bash
+conda install -c conda-forge pyqt
+```
+
+```bash
+conda install -c conda-forge numba gdal pyarrow geopandas pandas netcdf4 cython dask fiona s3fs xarray zarr beautifulsoup4 dataretrieval geojson progress tqdm geoglows pygeos noise pillow=9.0.1 rasterio
 ```
 
 For those (i.e., Mike) who have difficulty with the above, use these sets of installs:
@@ -44,7 +57,7 @@ conda activate nencarta_py310
 ```bash
 pip install .
 ```
-7. Optional, if you want to compute economic consequences using the resulting flood inundation map, install Go-Consequences creating a Go-Consequences Docker container using the Dockerfile found [in this repository](https://github.com/jlgutenson/nencarta/blob/main/Dockerfile.prod). The easiet way to do this is to install Docker (e.g., [Docker Desktop](https://www.docker.com/products/docker-desktop/)), navigate to where the NenCarta repository was cloned locally using the command prompt window, and running the command
+7. Optional, if you want to compute economic consequences using the resulting flood inundation map, install Go-Consequences creating a Go-Consequences Docker container using the Dockerfile found [in this repository](https://github.com/jlgutenson/nencarta/blob/main/Dockerfile.prod). The easiet way to do this is to install Docker (e.g., [Docker Desktop](https://www.docker.com/products/docker-desktop/)), navigate to where the NenCarta repository was cloned locally using the command prompt window, and running the command:
 
 ```bash
 docker build --progress=plain --file Dockerfile.prod -t go-consequences:latest .
@@ -54,8 +67,9 @@ docker build --progress=plain --file Dockerfile.prod -t go-consequences:latest .
 
 # How to Run NenCarta
 
-There are two ways to run NenCarta, either by providing a JSON input's filepath or via command line arguments.
+There are three ways to run NenCarta, either by providing a JSON input's filepath, command line arguments, or through a built-in graphical user interface (GUI).
 
+## JSON File Arguments
 The JSON should look like what's provided below. Multiple watersheds can be provided in this JSON format
 
 ```
@@ -117,7 +131,6 @@ forensic_forecast_date (String): If you want to use a past forecast, you can spe
 
 forensic_forecast_hour (String): If you want to use a past National Water Model forecast, along with the forensic_forecast_date, you must also specify a forensic forecast hour. This is the hour the forecast was produced, in UTC. For the "NWM_short_range" forecast, the forensic forecast hour must be between 0 and 23, expressed as a string (e.g., "00"). For the "NWM_medium_range" forecast, the forensic forecast hour must be "00", "06", "12", or "18". For the "NWM_long_range" forecast, the forensic forecast hour must be "00".
 
-
 specified_bathyflow_field (String): The field in the GEOGLOWS downloaded reanalysis data that will be provided to ARC to estimate bathmetry in each cross-section. For "GEOGLOWS" it must be one of "qout_median", "qout_max", "rp2", "rp5", "rp10", "rp25", "rp50", "rp100","qout_max_premium", or "rp100_premium". For "NWM" it must be one of "rp2", "rp5", "rp10", "rp25", "rp50", "rp100", or "rp100_premium".
 
 specified_highflow_field (String): The field in the GEOGLOWS downloaded reanalysis data that will be provided to ARC as the highest flow used to estimate water surface elevation. For "GEOGLOWS" it must be one of "qout_median", "qout_max", "rp2", "rp5", "rp10", "rp25", "rp50", "rp100","qout_max_premium", or "rp100_premium". For "NWM" it must be one of "rp2", "rp5", "rp10", "rp25", "rp50", "rp100", or "rp100_premium".
@@ -140,6 +153,7 @@ simulation.
 
 And your NenCarta simulation will commense with the JSON file.
 
+## Command Line Interface
 The second option is to run an indivdual watershed straight from the command line. This can be done by issuing the following command:
 
 ```
@@ -153,4 +167,11 @@ The argument `--specify_depths_for_bathy_mask` requires two float arguments if `
 
 The cli option will only operate in serial.
 
+## Graphical User Interface (GUI)
+A built-in GUI can be accessed that will build the JSON file and simulate a serial simulation in NenCarta.
 
+The GUI can be accessed using the command below.
+
+```bash
+flood-mapping gui
+```

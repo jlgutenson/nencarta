@@ -45,6 +45,7 @@ from . import streamflow_processing as HistFlows
 from . import Download_Process_ForecastData as ForecastFlows
 from . import DEM_Cleaner
 from . import esa_download_processing as ESA
+from . import gui_app
 
 
 def _resolve_parallel_settings(data, cli_parallel=None, cli_num_workers=None):
@@ -1787,7 +1788,6 @@ class RequiredIfFloodWaterAction(argparse.Action):
 
 def main():
     parser = argparse.ArgumentParser(description="Flood Mapping Script")
-
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Subcommand for JSON input
@@ -1835,13 +1835,21 @@ def main():
     cli_parser.add_argument("--estimate_consequences", action="store_true", help="Estimate consequences using go-consequences")
     cli_parser.add_argument("--streamflow_source", type=str, default="GEOGLOWS", choices=["NWM", "GEOGLOWS"], help="Streamflow source for NenCarta (defaults to GEOGLOWS)")
 
+    # add subcommand for GUI
+    gui_parser = subparsers.add_parser("gui", help="Summon the GUI application")
+
     args = parser.parse_args()
+
+    
 
     if args.command == "json":
         print('Processing ' + str(args.json_file))
         process_json_input(args.json_file, parallel=args.parallel, num_workers=args.num_workers)
     elif args.command == "cli":
         process_cli_arguments(args)
+    elif args.command == "gui":
+        gui_app.run_gui()
+
 
 if __name__ == "__main__":
     main()
