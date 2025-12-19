@@ -12,7 +12,6 @@ Below are instructions for setting up NenCarta using Miniconda and Docker.
 1. Create the necessary conda environment with the following commands in a command prompt window:
 ```bash
 conda create -c conda-forge -n nencarta_py310 python=3.10 
-numba=0.60 gdal pyarrow geopandas pandas netcdf4 cython dask fiona s3fs xarray zarr beautifulsoup4 dataretrieval geojson progress tqdm geoglows pygeos noise pillow=9.0.1 rasterio
 ```
 
 ```bash

@@ -596,7 +596,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
         # Add a safety factor to one of the columns we could use to run the ARC model
         for col in final_df.columns:
             if col in ['qout_max','rp100']:
-                final_df[f'{col}_premium'] = round(final_df[col]*1.5, 3)
+                final_df[f'{col}_premium'] = round(final_df[col]*10, 3)
         
         print(final_df)
 
@@ -606,7 +606,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
         final_df = get_nwm_rp(rivids_int)
 
         # Add derived flows directly to rp_df without dropping anything
-        final_df["rp100_premium"] = (final_df["rp100"] * 1.5).round(3)
+        final_df["rp100_premium"] = (final_df["rp100"] * 10).round(3)
 
         # Reorder columns so qout_median and qout_max come first
         cols = [col for col in final_df.columns if col.startswith("rp")]

@@ -4,11 +4,10 @@ import sys
 import os
 import random
 import time
-import subprocess
+import traceback
 
 # third-party imports
 import json          # <-- add this
-import shlex         # <-- and this
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLineEdit, QLabel, QPushButton, QCheckBox, QComboBox,
@@ -260,21 +259,59 @@ class WorkerThread(QThread):
 
         return json_path
 
+    @staticmethod
+    def _format_exception(e: Exception, context: str = ""):
+        """
+        Return (summary, details) strings for an exception, including location + traceback.
+        summary: short, human-readable error + location + failing line (best effort)
+        details: full traceback (for expandable details pane)
+        """
+        exc_type = type(e).__name__
+        exc_msg = str(e)
+
+        # Best-effort extraction of where the exception occurred
+        tb = e.__traceback__
+        location = ""
+        code_line = ""
+        try:
+            frames = traceback.extract_tb(tb)
+            if frames:
+                last = frames[-1]
+                location = f"{os.path.basename(last.filename)}:{last.lineno} in {last.name}()"
+                if last.line:
+                    code_line = last.line.strip()
+        except Exception:
+            pass
+
+        summary_parts = []
+        if context:
+            summary_parts.append(context)
+        summary_parts.append(f"{exc_type}: {exc_msg}".strip())
+        if location:
+            summary_parts.append(f"Location: {location}")
+        if code_line:
+            summary_parts.append(f"Code: {code_line}")
+        summary = "\n".join(summary_parts)
+
+        details = traceback.format_exc()
+        return summary, details
 
 
     # --- main worker entry point ---------------------------------------------
 
     def run(self):
         try:
-            # 1. Build watershed dict from GUI parameters
+            # 1) Build watershed dict from GUI parameters
             watershed_dict = self._build_watershed_dict()
 
-            # 2. Write JSON input file
+            # 2) Write JSON input file
             json_file = self._write_json_input(watershed_dict)
             self.log_signal.emit("[INFO] JSON input file created for main.py:")
             self.log_signal.emit(f"   {json_file}")
-            # 3. Direct call instead of subprocess
+
+            # 3) Direct call instead of subprocess
             self.log_signal.emit("[INFO] Running main.process_json_input_serial() ...")
+
             # --- redirect stdout/stderr so all prints go into the GUI ---
             old_stdout, old_stderr = sys.stdout, sys.stderr
             stream = QtLogStream(self.log_signal)
@@ -284,55 +321,25 @@ class WorkerThread(QThread):
                 sys.stderr = stream
                 result = flood_main.process_json_input_serial(json_file)
             finally:
-                # Make sure we restore stdout/stderr no matter what
                 stream.flush()
                 sys.stdout = old_stdout
                 sys.stderr = old_stderr
 
-            # If you later teach process_json_input_serial() to return timings,
-            # you can pass them through. For now, just emit an empty dict so
-            # display_results() prints "No timing data returned."
             if isinstance(result, dict):
                 self.finished_signal.emit(result)
             else:
                 self.finished_signal.emit({})
 
-        except ValueError as e:
-            self.error_signal.emit(f"Input/Validation Error: {e}")
         except Exception as e:
-            self.error_signal.emit(f"An unexpected error occurred during simulation: {e}")
+            context = "Error running simulation"
+            summary, details = self._format_exception(e, context=context)
 
-        except Exception as e:
-            self.error_signal.emit(f"Error running main.py directly: {e}")
+            # Keep log readable (single-line-ish summary)
+            self.log_signal.emit("[ERROR] " + summary.replace("\n", " | "))
 
-            # We'll try to parse the timing lines that main.py prints at the end
-            timing_results = {k: 0.0 for k in SIMULATION_TIMES_MAP.keys()}
+            # Send both summary + full traceback to the GUI
+            self.error_signal.emit(summary + "\n\nDETAILS:\n" + details)
 
-            prefix_to_key = {
-                "ARC Initial Flood Simulation Time:": "arc_initial_simulation_time",
-                "Curve2Flood Initial Flood Simulation Time:": "curve2flood_initial_simulation_time",
-                "FloodSpreaderPy Initial Flood Simulation Time:": "floodpsreaderpy_initial_simulation_time",
-                "DEM Cleaner Simulation Time:": "dem_cleaner_simulation_time",
-                "ARC Bathymetry Simulation Time:": "arc_bathy_simulation_time",
-                "Curve2Flood Bathymetry Simulation Time:": "curve2flood_bathy_simulation_time",
-                "FloodSpreaderPy Bathymetry Simulation Time:": "floodpsreaderpy_bathy_simulation_time",
-                "Curve2Flood Forecast Simulation Time:": "curve2flood_forecast_simulation_time",
-                "FloodSpreaderPy Forecast Simulation Time:": "floodpsreaderpy_forecast_simulation_time",
-                "GeoJSON Forecast Simulation Time:": "geojson_forecast_simulation_time",
-                "Go-Consequences Simulation Time:": "go_consequences_simulation_time",
-            }
-
-            import re
-            time_pattern = re.compile(r":\s*([0-9.]+)\s+minutes", re.IGNORECASE)
-
-
-            # 5. Emit parsed timing results (may be all zeros if parsing found nothing)
-            self.finished_signal.emit(timing_results)
-
-        except ValueError as e:
-            self.error_signal.emit(f"Input/Validation Error: {e}")
-        except Exception as e:
-            self.error_signal.emit(f"An unexpected error occurred during simulation: {e}")
 
 # --- GUI CLASS ---
 
@@ -628,11 +635,31 @@ class FloodSimulationGUI(QMainWindow):
         self.results_text.setText(html_output)
 
     def show_error(self, message):
-        """Displays an error in the log and a pop-up."""
-        self.log_text.append(f"[ERROR] {message}")
-        QMessageBox.critical(self, "Simulation Error", message)
+        """Displays an error in the log and a pop-up with expandable technical details."""
+        summary = message
+        details = None
+
+        marker = "\n\nDETAILS:\n"
+        if marker in message:
+            summary, details = message.split(marker, 1)
+
+        self.log_text.append(f"[ERROR] {summary}")
+
+        dlg = QMessageBox(self)
+        dlg.setIcon(QMessageBox.Critical)
+        dlg.setWindowTitle("Simulation Error")
+        dlg.setText("An error occurred during the simulation.")
+        dlg.setInformativeText(summary)
+
+        # This enables the "Show Details..." expandable panel
+        if details:
+            dlg.setDetailedText(details)
+
+        dlg.exec_()
+
         self.run_button.setEnabled(True)
         self.run_button.setText("Start Simulation")
+
 
 def run_gui():
     """Initializes and runs the Qt GUI application."""

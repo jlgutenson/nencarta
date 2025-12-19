@@ -41,6 +41,7 @@ setup(
         'progress',
         'pygeos',
         'pyproj',
+        'PyQt5>=5.15',
         'rasterio',
         'requests',
         's3fs',

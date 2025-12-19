@@ -186,7 +186,7 @@ def Calculate_TW_D_ForEachCOMID_ARC(CurveParamFileName, COMID_Unique_Flow, COMID
     
     num_lines = len(lines)
     for n in range(1,num_lines):
-        (COMID, R, C, Base_E, DEM_E, QMax, Da, Db, Ta, Tb, Va, Vb) = lines[n].strip().split(',')
+        (COMID, R, C, Base_E, DEM_E, QMax, Slope, Da, Db, Ta, Tb, Va, Vb) = lines[n].strip().split(',')
         if int(COMID)>=MinCOMID and int(COMID)<=MaxCOMID:
             i = COMID_to_ID[int(COMID)-MinCOMID]
             if float(Da)>0.0 and float(Db)>0.0 and float(Ta)>0.0 and float(Tb)>0.0:
@@ -1471,7 +1471,19 @@ def Last_Ditch_Effort_To_Smooth_Stream_Bumps(Elev_Streams, nrows, ncols, CON_r, 
     return
 
 
-def DEM_Cleaner_Program(OutputID, StreamShapefile, DEM_Folder, DEM_List, STRM_File_List, Working_Folder, FlowFileName, CurveParamFileName, FloodMapName, Q_Fraction, TopWidthPlausibleLimit, search_dist_for_min_elev, search_dist_perp_cells):
+def DEM_Cleaner_Program(OutputID, 
+                        StreamShapefile, 
+                        DEM_Folder, 
+                        DEM_List, 
+                        STRM_File_List, 
+                        Working_Folder, 
+                        FlowFileName, 
+                        CurveParamFileName, 
+                        FloodMapName, 
+                        Q_Fraction, 
+                        TopWidthPlausibleLimit, 
+                        search_dist_for_min_elev, 
+                        search_dist_perp_cells):
     
     StrmBase = GetStreamlineBaseName(StreamShapefile)
     

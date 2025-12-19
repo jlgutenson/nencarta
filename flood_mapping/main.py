@@ -279,7 +279,28 @@ def Create_Folder(F):
         os.makedirs(F)
     return
 
-def Create_ARC_Model_Input_File_Initial(ARC_Input_File_Initial, DEM_File_Clean, COMID_Q_File, COMID_Param, Q_BF_Param, Q_Param, STRM_File_Clean, LAND_File, FLOW_File_Use, VDT_File, Curve_File, ManningN, FloodMapFile, VDT_Test_File, DEM_StrmShp, bathy_use_banks, flood_waterlc_and_strm_cells, land_watervalue, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, find_banks_based_on_landcover, create_reach_average_curve_file):
+def Create_ARC_Model_Input_File_Initial(ARC_Input_File_Initial, 
+                                        DEM_File_Clean, 
+                                        COMID_Q_File, 
+                                        COMID_Param, 
+                                        Q_BF_Param, 
+                                        Q_Param, 
+                                        STRM_File_Clean, 
+                                        LAND_File, 
+                                        FLOW_File_Use, 
+                                        VDT_File, 
+                                        Curve_File, 
+                                        ManningN, 
+                                        FloodMapFile, 
+                                        VDT_Test_File, 
+                                        DEM_StrmShp, 
+                                        bathy_use_banks, 
+                                        flood_waterlc_and_strm_cells, 
+                                        land_watervalue, 
+                                        use_specified_depth_for_bathy_mask, 
+                                        specify_depths_for_bathy_mask, 
+                                        find_banks_based_on_landcover, 
+                                        create_reach_average_curve_file):
     out_file = open(ARC_Input_File_Initial,'w')
     out_file.write('#ARC_Inputs')
     out_file.write('\n' + 'DEM_File	' + DEM_File_Clean)
@@ -1047,7 +1068,19 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
             Create_FlowFile(DEM_Reanalsyis_FlowFile, FlowFileName, OutputID, 'qout_median')
             # start time for the simulation
             start_time = time.time()
-            DEM_Cleaner.DEM_Cleaner_Program(OutputID, DEM_StrmShp, DEM_Folder, [DEM_Name], [STRM_File_Clean], DEM_Updated_Folder, FlowFileName, Curve_File.replace('_CurveFile.csv','_CurveFile_Initial.csv'), FloodMapFile_Initial, Q_Fraction, TopWidthPlausibleLimit, search_dist_for_min_elev, search_dist_perp_cells)
+            DEM_Cleaner.DEM_Cleaner_Program(OutputID, 
+                                            DEM_StrmShp, 
+                                            DEM_Folder, 
+                                            [DEM_Name], 
+                                            [STRM_File_Clean], 
+                                            DEM_Updated_Folder, 
+                                            FlowFileName, 
+                                            Curve_File.replace('_CurveFile.csv','_CurveFile_Initial.csv'), 
+                                            FloodMapFile_Initial, 
+                                            Q_Fraction, 
+                                            TopWidthPlausibleLimit, 
+                                            search_dist_for_min_elev, 
+                                            search_dist_perp_cells)
             # end time for the simulation
             end_time = time.time()
             elapsed_time = (end_time - start_time)/60 # in minutes
