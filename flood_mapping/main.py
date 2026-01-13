@@ -176,6 +176,8 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
         if streamflow_source.upper().startswith("NWM"):
             forecasthour = forensic_forecast_hour
             print(f"Using forensic forecast hour: {forensic_forecast_hour}")
+        elif streamflow_source.upper() == "GEOGLOWS":
+            forecasthour = None
         try:
             demfilename = os.path.basename(DEM_File)
             if streamflow_source.upper() == "GEOGLOWS":
