@@ -19,6 +19,12 @@ from PyQt5.QtGui import QFont, QColor, QPalette, QIcon
 # local imports
 from . import main as flood_main
 
+FLOW_FIELD_OPTIONS = (
+    [f"p_exceed_{i}" for i in [0] + list(range(5, 101, 5))]
+    + ["p_exceed_0_premium"]
+    + ["rp2", "rp5", "rp10", "rp25", "rp50", "rp100", "rp100_premium"]
+)
+
 
 
 # --- MOCK SIMULATION CORE (Integrated for self-containment) ---
@@ -218,6 +224,10 @@ class WorkerThread(QThread):
             "forensic_forecast_hour": params["forensic_forecast_hour"] or None,
             "specified_bathyflow_field": params["specified_bathyflow_field"],
             "specified_highflow_field": params["specified_highflow_field"],
+            "StrmOrder_Field": params["StrmOrder_Field"],
+            "Downstream_Link_Field": params["Downstream_Link_Field"],
+            "StrmOrder_Lower": params["StrmOrder_Lower"],
+            "StrmOrder_Upper": params["StrmOrder_Upper"],
             "lake_filter_json": (
                 normalize_path(params["lake_filter_json"])
                 if params["lake_filter_json"]
@@ -363,6 +373,7 @@ class FloodSimulationGUI(QMainWindow):
         # --- Left Panel: Input Parameters ---
         self.input_area = QWidget()
         self.input_area.setFixedWidth(500)
+        self.input_area.setFont(QFont("Arial", 10))
         self.input_layout = QVBoxLayout(self.input_area)
         self.input_layout.setSpacing(10)
 
@@ -461,7 +472,7 @@ class FloodSimulationGUI(QMainWindow):
         group_wf_layout.addWidget(self.estimate_consequences, i, 0, 1, 2); self.input_fields['estimate_consequences'] = self.estimate_consequences; i+=1
 
         self.mapper = QComboBox()
-        self.mapper.addItems(["Curve2Flood"])
+        self.mapper.addItems(["Curve2Flood", "FLDPLN"])
         group_wf_layout.addWidget(QLabel("Mapper Method"), i+1, 0); group_wf_layout.addWidget(self.mapper, i+1, 1); self.input_fields['mapper'] = self.mapper; i+=2
 
         self.streamflow_source = QComboBox()
@@ -512,7 +523,9 @@ class FloodSimulationGUI(QMainWindow):
         self.specify_depths_for_bathy_mask = QLineEdit("0.3, 0.6")
         group_adv_layout.addWidget(QLabel("Specific flood depths (in meters) for bathy mask"), i+1, 0); group_adv_layout.addWidget(self.specify_depths_for_bathy_mask, i+1, 1); self.input_fields['specify_depths_for_bathy_mask'] = self.specify_depths_for_bathy_mask; i+=2
 
-        self.geoglows_vpu = QSpinBox(); self.geoglows_vpu.setRange(0, 100); self.geoglows_vpu.setValue(0); self.geoglows_vpu.setSpecialValueText("Optional")
+        self.geoglows_vpu = QComboBox()
+        self.geoglows_vpu.addItem("")  # Optional/None
+        self.geoglows_vpu.addItems(["704", "702", "703", "715", "714", "706", "713", "712", "709"])
         group_adv_layout.addWidget(QLabel("GEOGLOWS VPU ID"), i+1, 0); group_adv_layout.addWidget(self.geoglows_vpu, i+1, 1); self.input_fields['geoglows_vpu'] = self.geoglows_vpu; i+=2
         
         self.forensic_forecast_date = QLineEdit()
@@ -526,11 +539,33 @@ class FloodSimulationGUI(QMainWindow):
              self.forensic_forecast_hour.addItem(str(h).zfill(2))
         group_adv_layout.addWidget(QLabel("Forensic Forecast Hour"), i+1, 0); group_adv_layout.addWidget(self.forensic_forecast_hour, i+1, 1); self.input_fields['forensic_forecast_hour'] = self.forensic_forecast_hour; i+=2
 
-        self.specified_bathyflow_field = QLineEdit("qout_median")
+        self.specified_bathyflow_field = QComboBox()
+        self.specified_bathyflow_field.addItems(FLOW_FIELD_OPTIONS)
+        self.specified_bathyflow_field.setEditable(True)
+        self.specified_bathyflow_field.setCurrentText("p_exceed_50")
         group_adv_layout.addWidget(QLabel("Bathy Flow Field"), i+1, 0); group_adv_layout.addWidget(self.specified_bathyflow_field, i+1, 1); self.input_fields['specified_bathyflow_field'] = self.specified_bathyflow_field; i+=2
 
-        self.specified_highflow_field = QLineEdit("rp100_premium")
+        self.specified_highflow_field = QComboBox()
+        self.specified_highflow_field.addItems(FLOW_FIELD_OPTIONS)
+        self.specified_highflow_field.setEditable(True)
+        self.specified_highflow_field.setCurrentText("rp100_premium")
         group_adv_layout.addWidget(QLabel("High Flow Field"), i+1, 0); group_adv_layout.addWidget(self.specified_highflow_field, i+1, 1); self.input_fields['specified_highflow_field'] = self.specified_highflow_field; i+=2
+
+        self.strmorder_field = QLineEdit()
+        self.strmorder_field.setPlaceholderText("strmOrder (Optional)")
+        group_adv_layout.addWidget(QLabel("Stream Order Field"), i+1, 0); group_adv_layout.addWidget(self.strmorder_field, i+1, 1); self.input_fields['StrmOrder_Field'] = self.strmorder_field; i+=2
+
+        self.downstream_link_field = QLineEdit()
+        self.downstream_link_field.setPlaceholderText("DSLINKNO (Optional)")
+        group_adv_layout.addWidget(QLabel("Downstream Link Field"), i+1, 0); group_adv_layout.addWidget(self.downstream_link_field, i+1, 1); self.input_fields['Downstream_Link_Field'] = self.downstream_link_field; i+=2
+
+        self.strmorder_lower = QLineEdit()
+        self.strmorder_lower.setPlaceholderText("Optional integer")
+        group_adv_layout.addWidget(QLabel("Stream Order Lower"), i+1, 0); group_adv_layout.addWidget(self.strmorder_lower, i+1, 1); self.input_fields['StrmOrder_Lower'] = self.strmorder_lower; i+=2
+
+        self.strmorder_upper = QLineEdit()
+        self.strmorder_upper.setPlaceholderText("Optional integer")
+        group_adv_layout.addWidget(QLabel("Stream Order Upper"), i+1, 0); group_adv_layout.addWidget(self.strmorder_upper, i+1, 1); self.input_fields['StrmOrder_Upper'] = self.strmorder_upper; i+=2
 
         self.lake_filter_json = QLineEdit()
         self.lake_filter_json.setPlaceholderText("Path to JSON (Optional)")
@@ -557,8 +592,18 @@ class FloodSimulationGUI(QMainWindow):
         
         # Convert empty strings/zero from optional fields to None/default if they should be
         if not params['forensic_forecast_date']: params['forensic_forecast_date'] = None
-        if params['geoglows_vpu'] == 0: params['geoglows_vpu'] = None
+        if not params['geoglows_vpu']:
+            params['geoglows_vpu'] = None
+        else:
+            params['geoglows_vpu'] = int(params['geoglows_vpu'])
         if not params['lake_filter_json']: params['lake_filter_json'] = None
+        if not params.get('StrmOrder_Field'): params['StrmOrder_Field'] = None
+        if not params.get('Downstream_Link_Field'): params['Downstream_Link_Field'] = None
+        for key in ('StrmOrder_Lower', 'StrmOrder_Upper'):
+            if not params.get(key):
+                params[key] = None
+            else:
+                params[key] = int(params[key])
         
         return params
 

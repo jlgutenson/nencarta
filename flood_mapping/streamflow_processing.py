@@ -373,13 +373,26 @@ class PatchedZarrStore(dict):
         return list(self.__iter__())
 
 
-def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, DEM_Tile, CSV_File_Name, OutShp_File_Name, stream_ids_in_lake_list):
+def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, DEM_Tile, CSV_File_Name, OutShp_File_Name, stream_ids_in_lake_list, StrmOrder_Field, StrmOrder_Lower, StrmOrder_Upper):
 
 
     # First let's remove the stream reaches that are in the stream_ids_in_lake_list
     # filter out the streams that are in the stream_ids_in_lake_list by using the "LINKNO values in stream_ids_in_lake_list"
     if stream_ids_in_lake_list is not None:
         StrmShp_gdf = StrmShp_gdf[~StrmShp_gdf[rivid_field].isin(stream_ids_in_lake_list)]
+
+    # if the StrmOrder_Field and StrmOrder_Lower or StrmOrder_Upper are not None use these to filter the StrmShp_gdf
+    if StrmOrder_Field and (StrmOrder_Lower is not None or StrmOrder_Upper is not None):
+        if StrmOrder_Field not in StrmShp_gdf.columns:
+            print(f"StrmOrder_Field '{StrmOrder_Field}' not found in stream shapefile; skipping stream order filter.")
+        else:
+            order_vals = pd.to_numeric(StrmShp_gdf[StrmOrder_Field], errors="coerce")
+            mask = order_vals.notna()
+            if StrmOrder_Lower is not None:
+                mask &= order_vals >= StrmOrder_Lower
+            if StrmOrder_Upper is not None:
+                mask &= order_vals <= StrmOrder_Upper
+            StrmShp_gdf = StrmShp_gdf.loc[mask].copy()
 
     # Load the raster tile and get its bounds using gdal
     raster_dataset = gdal.Open(DEM_Tile)
@@ -511,8 +524,14 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
             # # Convert to a list of integers
             fdc_s3_uri = 's3://geoglows-v2/retrospective/fdc.zarr'
             fdc_s3store = s3fs.S3Map(root=fdc_s3_uri, s3=s3, check=False)
-            p_exceedance = [float(50.0), float(0.0)]
-            fdc_ds = xr.open_zarr(fdc_s3store).sel(p_exceed=p_exceedance, river_id=rivids_int)
+            p_exceedance = [float(v) for v in range(5, 101, 5)]
+            p_exceedance.insert(0, 0.0)
+            fdc_ds = xr.open_zarr(fdc_s3store)
+            available_p_exceed = [float(v) for v in fdc_ds["p_exceed"].values.tolist()]
+            p_exceedance = [v for v in p_exceedance if v in available_p_exceed]
+            if not p_exceedance:
+                raise ValueError("No requested p_exceedance values were found in the FDC dataset.")
+            fdc_ds = fdc_ds.sel(p_exceed=p_exceedance, river_id=rivids_int)
 
 
             # Convert Xarray to Dask DataFrame
@@ -528,25 +547,21 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
                 StrmShp_filtered_gdf = None
                 return (CSV_File_Name, OutShp_File_Name, rivids_int, StrmShp_filtered_gdf)
 
-            # Create 'qout_median' column where 'p_exceed' is 50.0
-            fdc_df.loc[fdc_df['p_exceed'] == 50.0, 'qout_median'] = fdc_df['hourly_annual']
-            # Create 'qout_max' column where 'p_exceed' is 100.0
-            fdc_df.loc[fdc_df['p_exceed'] == 0.0, 'qout_max'] = fdc_df['hourly_annual']
-            # Group by 'river_id' and aggregate 'qout_median' and 'qout_max' by taking the non-null value
-            fdc_df = fdc_df.groupby('river_id').agg({
-                'qout_median': 'max',  # or use 'max' as both approaches would work
-                'qout_max': 'max'
-            }).reset_index()
+            def _format_p_exceed_label(value):
+                try:
+                    label = f"{float(value):g}"
+                except (TypeError, ValueError):
+                    label = str(value)
+                return label.replace(".", "_")
 
-            # set the dataframe index
-            fdc_df = fdc_df.set_index('river_id')
-
-            # round the values
-            fdc_df['qout_median'] = fdc_df['qout_median'].round(3)
-            fdc_df['qout_max'] = fdc_df['qout_max'].round(3)
-
-            # drop all the columns except for the river_id, qout_median, and qout_max
-            fdc_df = fdc_df[['qout_median', 'qout_max']]
+            fdc_pivot = fdc_df.pivot_table(
+                index='river_id',
+                columns='p_exceed',
+                values='hourly_annual',
+                aggfunc='mean'
+            )
+            fdc_pivot = fdc_pivot.rename(columns={p: f"p_exceed_{_format_p_exceed_label(p)}" for p in fdc_pivot.columns})
+            fdc_df = fdc_pivot.round(3)
 
         except:
             # Load daily data from S3 using Dask
@@ -567,19 +582,11 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
                 StrmShp_filtered_gdf = None
                 return (CSV_File_Name, OutShp_File_Name, rivids_int, StrmShp_filtered_gdf)
             
-            # find the median and maximum Q values
-            fdc_df['qout_median'] = fdc_df.groupby('river_id')['Q'].transform('median')
-            fdc_df['qout_max'] = fdc_df.groupby('river_id')['Q'].transform('max')
-
             # Drop the original 'Q' and 'time' columns
             fdc_df = fdc_df.drop(columns=['Q', 'time'])
 
             # set the the column river_id to be the index
             fdc_df = fdc_df.set_index('river_id')
-
-            # round the values
-            fdc_df['qout_median'] = fdc_df['qout_median'].round(3)
-            fdc_df['qout_max'] = fdc_df['qout_max'].round(3)
 
             # uniqify the index
             fdc_df = fdc_df[~fdc_df.index.duplicated(keep='first')]
@@ -595,7 +602,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
 
         # Add a safety factor to one of the columns we could use to run the ARC model
         for col in final_df.columns:
-            if col in ['qout_max','rp100']:
+            if col in ['p_exceed_0', 'rp100']:
                 final_df[f'{col}_premium'] = round(final_df[col]*10, 3)
         
         print(final_df)
@@ -608,7 +615,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
         # Add derived flows directly to rp_df without dropping anything
         final_df["rp100_premium"] = (final_df["rp100"] * 10).round(3)
 
-        # Reorder columns so qout_median and qout_max come first
+        # Reorder columns so the return period fields come first
         cols = [col for col in final_df.columns if col.startswith("rp")]
         final_df = final_df[cols]
 
@@ -629,60 +636,3 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
     
     # Return the combined DataFrame as a Dask DataFrame
     return (CSV_File_Name, OutShp_File_Name, rivids_int, StrmShp_filtered_gdf)
-
-if __name__ == "__main__":
-    
-    # StrmShp = r"F:\Global_Forecast\StrmShp\geoglows-v2-map-optimized.parquet"
-    # rivid_field = "LINKNO"
-    # DEM_Tile_Dir = r"F:\FABDEM_DEM"
-
-    StrmShp = r"C:\Users\jlgut\OneDrive\Desktop\AutomatedRatingCurve_TestCase\Gardiner_TestCase\StrmShp\Gardiner_GeoGLoWS_StreamShapefile.shp"
-    rivid_field = "LINKNO"
-    DEM_Tile_Dir = r"C:\Users\jlgut\OneDrive\Desktop\AutomatedRatingCurve_TestCase\Gardiner_TestCase\DEM"
-
-    # load in the the StrmShp GDF
-    # StrmShp_gdf = gpd.read_parquet(StrmShp)
-    StrmShp_gdf = gpd.read_file(StrmShp)
-
-
-
-    # make sure the Stream shapefile and DEMs are in the same coordinate system
-    print('Converting the coordinate system of the stream file to match the DEM files, if necessary')
-    dem_dir = os.listdir(DEM_Tile_Dir)
-    dem_dir.sort()
-    for test_dem in dem_dir:
-        if test_dem.endswith(".tif"):
-            test_dem_path = os.path.join(DEM_Tile_Dir,test_dem)
-            # Load the DEM file and get its CRS using gdal
-            dem_dataset = gdal.Open(test_dem_path)
-            dem_proj = dem_dataset.GetProjection()  # Get the projection as a WKT string
-            dem_spatial_ref = osr.SpatialReference()
-            dem_spatial_ref.ImportFromWkt(dem_proj)
-            dem_crs = dem_spatial_ref.ExportToProj4()  # Export CRS to a Proj4 string (or other formats if needed)
-            # Check if the CRS of the shapefile matches the DEM's CRS
-            if StrmShp_gdf.crs != dem_crs:
-                # Reproject the shapefile to match the DEM's CRS
-                StrmShp_gdf = StrmShp_gdf.to_crs(dem_crs)
-            dem_dataset = None
-            dem_proj = None 
-            dem_spatial_ref = None
-            dem_crs = None     
-            break
-
-
-    # Walk through the DEM directory to find all DEM files
-    for root, _, files in os.walk(DEM_Tile_Dir):
-        for file in files:
-            if file.endswith(".tif"):
-                DEM_Tile = os.path.join(DEM_Tile_Dir, file)
-                # OutShp_File_Name = rf"F:\Global_Forecast\StrmShp\{file[:-4]}_StrmShp.shp"
-                # CSV_File_Name = rf"F:\Global_Forecast\Global_Forecast\FLOW\{file[:-4]}_Reanalysis.csv"
-
-                OutShp_File_Name = rf"C:\Users\jlgut\OneDrive\Desktop\FHS_OperationalFloodMapping\Gardiner_TestCase\STRM\{file[:-4]}_StrmShp.shp"
-                CSV_File_Name = rf"C:\Users\jlgut\OneDrive\Desktop\FHS_OperationalFloodMapping\Gardiner_TestCase\FLOW\{file[:-4]}_Reanalysis.csv"
-
-                Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, DEM_Tile, CSV_File_Name, OutShp_File_Name)
-                # if os.path.exists(OutShp_File_Name):
-                #     pass
-                # else:
-                #     Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, DEM_Tile, CSV_File_Name, OutShp_File_Name)

@@ -48,7 +48,8 @@ setup(
         'scipy',
         'shapely',
         'tqdm',
-        'xarray'
+        'xarray',
+        'whitebox',
     ],
     # ext_modules=cythonize(extensions, compiler_directives={"language_level": "3"}),  # Compile Cython extensions
     entry_points={

@@ -43,6 +43,7 @@ dependencies = [
 "shapely",
 "tqdm",
 "xarray",
+"whitebox"
 ]
 
 [project.scripts]
