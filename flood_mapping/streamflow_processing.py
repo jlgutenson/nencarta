@@ -513,10 +513,17 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
         rp_df['return_period'] = rp_df['return_period'].astype('category')
         
         # Pivot the table
-        rp_pivot_df = rp_df.pivot_table(index='river_id', columns='return_period', values='return_period_flow', aggfunc='mean')
+        rp_pivot_df = rp_df.pivot_table(index='river_id', columns='return_period', values='return_period_flow', aggfunc='mean', observed=False)
 
         # Rename columns to indicate return periods
         rp_pivot_df = rp_pivot_df.rename(columns={col: f'rp{int(col)}' for col in rp_pivot_df.columns})
+
+        def _format_p_exceed_label(value):
+            try:
+                label = f"{float(value):g}"
+            except (TypeError, ValueError):
+                label = str(value)
+            return label.replace(".", "_")
 
         # try to maximum and mean flows a couple of different ways
         try:
@@ -547,13 +554,6 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
                 StrmShp_filtered_gdf = None
                 return (CSV_File_Name, OutShp_File_Name, rivids_int, StrmShp_filtered_gdf)
 
-            def _format_p_exceed_label(value):
-                try:
-                    label = f"{float(value):g}"
-                except (TypeError, ValueError):
-                    label = str(value)
-                return label.replace(".", "_")
-
             fdc_pivot = fdc_df.pivot_table(
                 index='river_id',
                 columns='p_exceed',
@@ -564,29 +564,33 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
             fdc_df = fdc_pivot.round(3)
 
         except:
+            print("FDC data not available; falling back to daily data for FDC calculation.")
             # Load daily data from S3 using Dask
             # Convert to a list of integers
-            fdc_s3_uri = 's3://geoglows-v2/retrospective/daily.zarr'
-            fdc_s3store = s3fs.S3Map(root=fdc_s3_uri, s3=s3, check=False)
-            fdc_ds = xr.open_zarr(fdc_s3store).sel(river_id=rivids_int)
+            dailyflow_s3_uri = 's3://geoglows-v2/retrospective/daily.zarr'
+            dailyflow_s3store = s3fs.S3Map(root=dailyflow_s3_uri, s3=s3, check=False)
+            dailyflow_ds = xr.open_zarr(dailyflow_s3store).sel(river_id=rivids_int)
             # Convert Xarray to Dask DataFrame
-            fdc_df = fdc_ds.to_dataframe().reset_index()
+            daily_df = dailyflow_ds.to_dataframe().reset_index()
 
-
-            # Check if fdc_df is empty
-            if fdc_df.empty:
-                print(f"Skipping processing for {DEM_Tile} because fdc_df is empty.")
+            # Check if daily_df is empty
+            if daily_df.empty:
+                print(f"Skipping processing for {DEM_Tile} because daily_df is empty.")
                 CSV_File_Name = None
                 OutShp_File_Name = None
                 rivids_int = None
                 StrmShp_filtered_gdf = None
                 return (CSV_File_Name, OutShp_File_Name, rivids_int, StrmShp_filtered_gdf)
             
-            # Drop the original 'Q' and 'time' columns
-            fdc_df = fdc_df.drop(columns=['Q', 'time'])
-
-            # set the the column river_id to be the index
-            fdc_df = fdc_df.set_index('river_id')
+            # creating exceedance percentiles with the daily data
+            p_exceedance = [float(v) for v in range(5, 101, 5)]
+            p_exceedance.insert(0, 0.0)
+            quantiles = [1.0 - (p / 100.0) for p in p_exceedance]
+            daily_quantiles = daily_df.groupby('river_id')['Q'].quantile(quantiles).unstack()
+            daily_quantiles = daily_quantiles.rename(
+                columns={q: f"p_exceed_{_format_p_exceed_label(p)}" for q, p in zip(quantiles, p_exceedance)}
+            )
+            fdc_df = daily_quantiles.round(3)
 
             # uniqify the index
             fdc_df = fdc_df[~fdc_df.index.duplicated(keep='first')]
