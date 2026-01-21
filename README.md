@@ -136,7 +136,7 @@ lake_filter_json (String): The path to the GEOGLOWS json that describes which st
 
 mapper (String): Here you're specifying if you're running "FloodSpreader", "Curve2Flood", or "FLDPLN" when performing bathymetry estimation and flood inundation mapping.
 
-nwm_api_key (String): Required when streamflow_source is set to "NWM" or any "NWM_*" option. This is the NWM API key passed as the 'x-api-key' header for NWM requests. You must apply for an API key using these instructions: https://docs.ciroh.org/docuhub-staging/docs/products/data-management/bigquery-api/ 
+nwm_api_key (String): Required when streamflow_source is set to "NWM" or any "NWM_*" option. This is the NWM API key passed as the 'x-api-key' header for NWM requests. You must apply for an API key using these instructions: https://docs.ciroh.org/docuhub-staging/docs/products/data-management/bigquery-api/   
 
 name (String): The name of the watershed you're modeling.
 
