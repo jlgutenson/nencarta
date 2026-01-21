@@ -98,7 +98,8 @@ The JSON should look like what's provided below. Multiple watersheds can be prov
             "specified_highflow_field":"rp100_premium",
             "lake_filter_json":"C:/Users/follumm/Desktop/CHL_MultiModel/Yellowstone_2022_Flood/StrmShp/Yellowstone_flood_2022_stream_reaches_for_ARC_that_are_in_lakes.json",
             "streamflow_source": "NWM",
-            "geoglows_vpu":715
+            "geoglows_vpu":715,
+            "nwm_api_key": "YOUR_NWM_API_KEY"
         }
     ]
 }
@@ -134,6 +135,8 @@ geoglows_vpu (Integer): Optional. Only used for CONUS Vector Processing Units (V
 lake_filter_json (String): The path to the GEOGLOWS json that describes which stream reaches are within a lake. Optional input. This is currently only functional for GEOGLOWS data.
 
 mapper (String): Here you're specifying if you're running "FloodSpreader", "Curve2Flood", or "FLDPLN" when performing bathymetry estimation and flood inundation mapping.
+
+nwm_api_key (String): Required when streamflow_source is set to "NWM" or any "NWM_*" option. This is the NWM API key passed as the 'x-api-key' header for NWM requests. You must apply for an API key using these instructions: https://docs.ciroh.org/docuhub-staging/docs/products/data-management/bigquery-api/ 
 
 name (String): The name of the watershed you're modeling.
 
@@ -174,7 +177,7 @@ The second option is to run an indivdual watershed straight from the command lin
 
 ```
 flood-mapping cli ExampleWatershed "C:\path\to\flowline.shp" "C:\path\to\dem_dir" "C:\path\to\output" --bathy_use_banks --clean_dem --process_stream_network --mapper FloodSpreader --use_specified_depth_for_bathy_mask --specify_depths_for_bathy_mask 1.0 2.0 --age_of_forecast_days 7 --find_banks_based_on_landcover --create_reach_average_curve_file --forensic_forecast_date "20250807" --specified_bathyflow_field 'p_exceed_50' --specified_highflow_field "rp100_premium" --use_warning_flags_to_download_dem --geoglows_vpu 15 --lake_filter_json "C:\path\to\lake_filter_json" 
---estimate_consequences --streamflow_source "NWM_short_range"
+--estimate_consequences --streamflow_source "NWM_short_range" --nwm_api_key "YOUR_NWM_API_KEY"
 ```
 
 The arguments `--bathy_use_banks`, `--clean_dem`, `--process_stream_network`, `--use_specified_depth_for_bathy_mask`,`--find_banks_based_on_landcover`, `--create_reach_average_curve_file`, `use_warning_flags_to_download_dem`, and `--estimate_consequences` are issued when you intend setting those options as True.

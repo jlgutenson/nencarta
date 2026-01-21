@@ -90,7 +90,7 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
                                              find_banks_based_on_landcover, create_reach_average_curve_file,
                                              forensic_forecast_date, forensic_forecast_hour, specified_bathyflow_field, specified_highflow_field, 
                                              stream_ids_in_lake_list, streamflow_source, mapper, StrmOrder_Field, Downstream_Link_Field,
-                                             StrmOrder_Lower, StrmOrder_Upper, StrmShp_gdf=None):
+                                             StrmOrder_Lower, StrmOrder_Upper, nwm_api_key, StrmShp_gdf=None):
 
     
   
@@ -127,11 +127,11 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
         DEM_StrmShp_gdf = gpd.read_file(DEM_StrmShp)
         rivids = DEM_StrmShp_gdf[stream_id_field].values
     elif os.path.isfile(DEM_StrmShp) and os.path.isfile(DEM_Reanalsyis_FlowFile) is False:
-        (DEM_Reanalsyis_FlowFile, DEM_StrmShp, rivids, DEM_StrmShp_gdf) = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, stream_id_field, DEM_File, DEM_Reanalsyis_FlowFile, DEM_StrmShp, stream_ids_in_lake_list, StrmOrder_Field, StrmOrder_Lower, StrmOrder_Upper)
+        (DEM_Reanalsyis_FlowFile, DEM_StrmShp, rivids, DEM_StrmShp_gdf) = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, stream_id_field, DEM_File, DEM_Reanalsyis_FlowFile, DEM_StrmShp, stream_ids_in_lake_list, StrmOrder_Field, StrmOrder_Lower, StrmOrder_Upper, nwm_api_key)
     elif os.path.isfile(DEM_StrmShp) is False and os.path.isfile(DEM_Reanalsyis_FlowFile):
-        (DEM_Reanalsyis_FlowFile, DEM_StrmShp, rivids, DEM_StrmShp_gdf) = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, stream_id_field, DEM_File, DEM_Reanalsyis_FlowFile, DEM_StrmShp, stream_ids_in_lake_list, StrmOrder_Field, StrmOrder_Lower, StrmOrder_Upper)   
+        (DEM_Reanalsyis_FlowFile, DEM_StrmShp, rivids, DEM_StrmShp_gdf) = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, stream_id_field, DEM_File, DEM_Reanalsyis_FlowFile, DEM_StrmShp, stream_ids_in_lake_list, StrmOrder_Field, StrmOrder_Lower, StrmOrder_Upper, nwm_api_key)   
     elif StrmShp_gdf is not None and os.path.isfile(DEM_StrmShp) is False and os.path.isfile(DEM_Reanalsyis_FlowFile) is False:
-        (DEM_Reanalsyis_FlowFile, DEM_StrmShp, rivids, DEM_StrmShp_gdf) = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, stream_id_field, DEM_File, DEM_Reanalsyis_FlowFile, DEM_StrmShp, stream_ids_in_lake_list, StrmOrder_Field, StrmOrder_Lower, StrmOrder_Upper)
+        (DEM_Reanalsyis_FlowFile, DEM_StrmShp, rivids, DEM_StrmShp_gdf) = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, stream_id_field, DEM_File, DEM_Reanalsyis_FlowFile, DEM_StrmShp, stream_ids_in_lake_list, StrmOrder_Field, StrmOrder_Lower, StrmOrder_Upper, nwm_api_key)
 
     # if the DEM_StrmShp is empty, return this function with None values
     if DEM_StrmShp_gdf is None or DEM_StrmShp_gdf.empty:
@@ -188,7 +188,7 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
                 ForecastFlowFile = os.path.join(FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{forecasthour}_{streamflow_source}_forecast.csv')
             if not os.path.exists(ForecastFlowFile):
                 # rivids = ForecastFlows.Get_RIVID_Values('Shapefile', parquet_file_from_geoglows, -9999, DEM_StrmShp)
-                ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, ForecastFlowFile, streamflow_source)
+                ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, ForecastFlowFile, streamflow_source, nwm_api_key)
         except:
             print('Could not process forensic forecast streamflow download, please check your date or try again later...')
             sys.exit()
@@ -207,7 +207,7 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
                         ForecastFlowFile = os.path.join(FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{forecasthour}_{streamflow_source}_forecast.csv')
                     if not os.path.exists(ForecastFlowFile):
                         # rivids = ForecastFlows.Get_RIVID_Values('Shapefile', parquet_file_from_geoglows, -9999, DEM_StrmShp)
-                        ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, ForecastFlowFile, streamflow_source)
+                        ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, ForecastFlowFile, streamflow_source, nwm_api_key)
                     found = True
                     break
                 except Exception as e:
@@ -1041,7 +1041,7 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
                                                                                                         find_banks_based_on_landcover, create_reach_average_curve_file,
                                                                                                         forensic_forecast_date, forensic_forecast_hour, specified_bathyflow_field, specified_highflow_field, 
                                                                                                         stream_ids_in_lake_list, streamflow_source, mapper, StrmOrder_Field, Downstream_Link_Field,
-                                                                                                        StrmOrder_Lower, StrmOrder_Upper, StrmShp_gdf)  
+                                                                                                          StrmOrder_Lower, StrmOrder_Upper, nwm_api_key, StrmShp_gdf)  
 
         # if the DEM_StrmShp file is empty, then we can't do anything
         if DEM_StrmShp is None:
@@ -1394,6 +1394,11 @@ def process_dem(watershed_dict):
     # string to describe what the source of the streamflow data is
     streamflow_source = watershed_dict['streamflow_source']
 
+    # API key for NWM requests (required when streamflow_source is NWM)
+    nwm_api_key = watershed_dict.get('nwm_api_key')
+    if streamflow_source.upper().startswith("NWM") and not nwm_api_key:
+        raise ValueError("nwm_api_key is required when streamflow_source is NWM.")
+
 
 
     #Folder Management
@@ -1635,6 +1640,10 @@ def process_json_input_serial(json_file):
         if streamflow_source == "NWM_long_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in long_range_forecast_hours):
             raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be 0 when 'streamflow_source' is 'NWM_long_range'.")
 
+        nwm_api_key = watershed.get("nwm_api_key")
+        if streamflow_source.upper().startswith("NWM") and not nwm_api_key:
+            raise ValueError(f"Watershed '{watershed_name}' requires 'nwm_api_key' when 'streamflow_source' is NWM.")
+
         # Validation for `use_specified_depth_for_bathy_mask` and `specify_depths_for_bathy_mask`
         if use_specified_depth_for_bathy_mask is True:
             if not specify_depths_for_bathy_mask or not isinstance(specify_depths_for_bathy_mask, list) or len(specify_depths_for_bathy_mask) < 1:
@@ -1673,6 +1682,7 @@ def process_json_input_serial(json_file):
             "lake_filter_json": watershed.get("lake_filter_json", None),
             "estimate_consequences": watershed.get("estimate_consequences", False),
             "streamflow_source": watershed.get("streamflow_source", "GEOGLOWS"),
+            "nwm_api_key": nwm_api_key,
         }
 
         # Ensure the output directory exists
@@ -1744,6 +1754,10 @@ def _process_watershed(watershed):
     if streamflow_source == "NWM_long_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in long_range_forecast_hours):
         raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be 0 when 'streamflow_source' is 'NWM_long_range'.")
 
+    nwm_api_key = watershed.get("nwm_api_key")
+    if streamflow_source.upper().startswith("NWM") and not nwm_api_key:
+        raise ValueError(f"Watershed '{watershed_name}' requires 'nwm_api_key' when 'streamflow_source' is NWM.")
+
 
     if use_specified_depth_for_bathy_mask is True:
         if not specify_depths_for_bathy_mask or not isinstance(specify_depths_for_bathy_mask, list) or len(specify_depths_for_bathy_mask) < 1:
@@ -1782,6 +1796,7 @@ def _process_watershed(watershed):
         "lake_filter_json": watershed.get("lake_filter_json", None),
         "estimate_consequences": watershed.get("estimate_consequences", False),
         "streamflow_source": streamflow_source,
+        "nwm_api_key": nwm_api_key,
 
     }
 
@@ -1891,6 +1906,10 @@ def process_cli_arguments(args):
     if args.streamflow_source == "NWM_long_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in long_range_forecast_hours):
         raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be 0 when 'streamflow_source' is 'NWM_long_range'.")
 
+    nwm_api_key = args.nwm_api_key
+    if args.streamflow_source.upper().startswith("NWM") and not nwm_api_key:
+        raise ValueError(f"Watershed '{watershed_name}' requires '--nwm_api_key' when '--streamflow_source' is NWM.")
+
 
 
     # Validation for `use_specified_depth_for_bathy_mask` and `specify_depths_for_bathy_mask`
@@ -1931,6 +1950,7 @@ def process_cli_arguments(args):
         "lake_filter_json": lake_filter_json,
         "estimate_consequences": args.estimate_consequences,
         "streamflow_source": args.streamflow_source,
+        "nwm_api_key": nwm_api_key,
     }
 
     # Ensure the output directory exists
@@ -2002,6 +2022,7 @@ def main():
     cli_parser.add_argument("--lake_filter_json", type=str, default=None, help="Path to the lake filter JSON file (optional)")
     cli_parser.add_argument("--estimate_consequences", action="store_true", help="Estimate consequences using go-consequences")
     cli_parser.add_argument("--streamflow_source", type=str, default="GEOGLOWS", choices=["NWM", "GEOGLOWS"], help="Streamflow source for NenCarta (defaults to GEOGLOWS)")
+    cli_parser.add_argument("--nwm_api_key", type=str, default=None, help="NWM API key (required when --streamflow_source is NWM)")
 
     # add subcommand for GUI
     gui_parser = subparsers.add_parser("gui", help="Summon the GUI application")

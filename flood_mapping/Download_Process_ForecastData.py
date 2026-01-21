@@ -62,7 +62,7 @@ def Get_RIVIDs_From_Terminal_Link(parquet_file_from_geoglows, TermLinkNumber):
     rivids = df['LINKNO'].values
     return rivids
 
-def Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File_Name, streamflow_source):
+def Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File_Name, streamflow_source, nwm_api_key=None):
 
     if streamflow_source == 'GEOGLOWS':
         ODP_FORECAST_S3_BUCKET_URI = 's3://geoglows-v2-forecasts'
@@ -140,9 +140,12 @@ def Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File
 
         # loop through the five medium-range ensemble members
         nwm_ensemble_df_list = []
+        if not nwm_api_key:
+            raise ValueError("nwm_api_key is required for NWM forecast requests.")
+
         for i in range(0, number_of_ensembles + 1):
 
-            header = {'x-api-key': 'AIzaSyC4BXXMQ9KIodnLnThFi5Iv4y1fDR4U1II'}
+            header = {'x-api-key': nwm_api_key}
             params = {'forecast_type': forecast_type,
                     'reference_time': forecastdate_formatted,
                     'comids': ','.join(map(str, rivids)),
@@ -369,9 +372,10 @@ if __name__ == "__main__":
     #Get list of rivids that you want forecast values for
     rivids = Get_RIVID_Values(Riv_Method, parquet_file_from_geoglows, TermLinkNumber, StrmShpFile)
     
-    forecastdate = Get_Date_For_Forecast(1)
+    streamflow_source = "GEOGLOWS"
+    forecastdate, forecasthour = Get_Date_For_Forecast(1, 0, streamflow_source)
     
     CSV_File_Name = 'PeakFlow_GeoGLOWS_forecast.csv'
     print('Forecast data will written to ' + CSV_File_Name)
     
-    Process_and_Write_Forecast_Data(forecastdate, rivids, CSV_File_Name)
+    Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File_Name, streamflow_source, nwm_api_key=None)

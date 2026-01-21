@@ -21,10 +21,13 @@ import xarray as xr
 
 
 
-def get_nwm_rp(comids: list[int]):
+def get_nwm_rp(comids: list[int], nwm_api_key: str):
     rp_url = 'https://nwm-api.ciroh.org/return-period'
 
-    header = {'x-api-key': 'AIzaSyC4BXXMQ9KIodnLnThFi5Iv4y1fDR4U1II'}
+    if not nwm_api_key:
+        raise ValueError("nwm_api_key is required for NWM return period requests.")
+
+    header = {'x-api-key': nwm_api_key}
     params = {'comids': ','.join(map(str, comids)),
               'output_format': 'csv',
               'order_by_comid': False,}
@@ -373,7 +376,7 @@ class PatchedZarrStore(dict):
         return list(self.__iter__())
 
 
-def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, DEM_Tile, CSV_File_Name, OutShp_File_Name, stream_ids_in_lake_list, StrmOrder_Field, StrmOrder_Lower, StrmOrder_Upper):
+def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, DEM_Tile, CSV_File_Name, OutShp_File_Name, stream_ids_in_lake_list, StrmOrder_Field, StrmOrder_Lower, StrmOrder_Upper, nwm_api_key=None):
 
 
     # First let's remove the stream reaches that are in the stream_ids_in_lake_list
@@ -614,7 +617,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
     elif rivid_field == 'COMID':
 
         # Fetch return periods (rp2, rp100, etc.)
-        final_df = get_nwm_rp(rivids_int)
+        final_df = get_nwm_rp(rivids_int, nwm_api_key)
 
         # Add derived flows directly to rp_df without dropping anything
         final_df["rp100_premium"] = (final_df["rp100"] * 10).round(3)

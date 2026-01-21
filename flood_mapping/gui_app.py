@@ -235,6 +235,7 @@ class WorkerThread(QThread):
             ),
             "estimate_consequences": params["estimate_consequences"],
             "streamflow_source": params["streamflow_source"],
+            "nwm_api_key": params.get("nwm_api_key"),
         }
 
         return watershed_dict
@@ -479,6 +480,10 @@ class FloodSimulationGUI(QMainWindow):
         self.streamflow_source.addItems(["GEOGLOWS", "NWM"])
         group_wf_layout.addWidget(QLabel("Streamflow Source"), i+1, 0); group_wf_layout.addWidget(self.streamflow_source, i+1, 1); self.input_fields['streamflow_source'] = self.streamflow_source; i+=2
 
+        self.nwm_api_key = QLineEdit()
+        self.nwm_api_key.setPlaceholderText("Required for NWM")
+        group_wf_layout.addWidget(QLabel("NWM API Key"), i+1, 0); group_wf_layout.addWidget(self.nwm_api_key, i+1, 1); self.input_fields['nwm_api_key'] = self.nwm_api_key; i+=2
+
         self.input_grid.addWidget(group_wf, row, 0, 1, 2); row += 1
 
 
@@ -597,6 +602,7 @@ class FloodSimulationGUI(QMainWindow):
         else:
             params['geoglows_vpu'] = int(params['geoglows_vpu'])
         if not params['lake_filter_json']: params['lake_filter_json'] = None
+        if not params.get('nwm_api_key'): params['nwm_api_key'] = None
         if not params.get('StrmOrder_Field'): params['StrmOrder_Field'] = None
         if not params.get('Downstream_Link_Field'): params['Downstream_Link_Field'] = None
         for key in ('StrmOrder_Lower', 'StrmOrder_Upper'):
@@ -622,6 +628,8 @@ class FloodSimulationGUI(QMainWindow):
             params = self._get_params()
             if not params['watershed_name'] or not params['flowline'] or not params['dem_dir'] or not params['output_dir']:
                 raise ValueError("Watershed Name, Flowline, DEM Dir, and Output Dir are required.")
+            if params.get("streamflow_source", "").upper().startswith("NWM") and not params.get("nwm_api_key"):
+                raise ValueError("NWM API Key is required when Streamflow Source is NWM.")
         except Exception as e:
             self.show_error(f"Parameter Collection Error: {e}")
             self.run_button.setEnabled(True)
