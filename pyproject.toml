@@ -28,12 +28,10 @@ dependencies = [
 "geojson",
 "geopandas",
 "netCDF4",
-"noise",
 "numpy",
 "pandas",
-"pillow==9.0.1",
+"pillow",
 "progress",
-"pygeos",
 "pyproj",
 "PyQt5>=5.15",
 "rasterio",
@@ -47,8 +45,8 @@ dependencies = [
 ]
 
 [project.scripts]
-flood-mapping = "flood_mapping.main:main"
+flood-mapping = "nencarta.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["nencarta", "flood_mapping*"]
+include = ["nencarta*"]
