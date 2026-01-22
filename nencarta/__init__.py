@@ -1,3 +1,4 @@
+from .logger import LOG
 from .main import *
 from .DEM_Cleaner import *
 from .Download_Process_ForecastData import *

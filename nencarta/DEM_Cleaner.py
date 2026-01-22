@@ -2,24 +2,12 @@
 #This code looks at a DEM raster to find the dimensions, then writes a script to create a STRM raster.
 
 import sys, os, subprocess
-from progress.bar import Bar   #pip install progress
 
-try:
-    import gdal 
-    #import osr 
-    #import ogr
-    #from gdalconst import GA_ReadOnly
-except: 
-    from osgeo import gdal
-    #from osgeo import osr
-    #from osgeo import ogr
-    #from osgeo.gdalconst import GA_ReadOnly
-from scipy.signal import savgol_filter
-
-import subprocess
 import numpy as np
-
+from osgeo import gdal
 import matplotlib.pyplot as plt
+
+from .logger import LOG
 
 def convert_cell_size(dem_cell_size, dem_lower_left, dem_upper_right):
     """
@@ -135,7 +123,7 @@ def convert_cell_size(dem_cell_size, dem_lower_left, dem_upper_right):
 def FindFlowRateForEachCOMID(FlowFileName, COMID_Unique, COMID_to_ID, MinCOMID, MaxCOMID):
     num_unique = len(COMID_Unique)
     COMID_Unique_Flow = np.zeros(num_unique)
-    print('\nOpening and Reading ' + FlowFileName)
+    LOG.info('\nOpening and Reading ' + FlowFileName)
     infile = open(FlowFileName,'r')
     lines = infile.readlines()
     infile.close()
@@ -153,7 +141,7 @@ def Calculate_TW_D_ForEachCOMID(CurveParamFileName, COMID_Unique_Flow, COMID_Uni
     COMID_Unique_TW = np.zeros(num_unique)
     COMID_Unique_Depth = np.zeros(num_unique)
     COMID_NumRecord = np.zeros(num_unique)
-    print('\nOpening and Reading ' + CurveParamFileName)
+    LOG.info('\nOpening and Reading ' + CurveParamFileName)
     infile = open(CurveParamFileName,'r')
     lines = infile.readlines()
     infile.close()
@@ -179,7 +167,7 @@ def Calculate_TW_D_ForEachCOMID_ARC(CurveParamFileName, COMID_Unique_Flow, COMID
     COMID_Unique_TW = np.zeros(num_unique)
     COMID_Unique_Depth = np.zeros(num_unique)
     COMID_NumRecord = np.zeros(num_unique)
-    print('\nOpening and Reading ' + CurveParamFileName)
+    LOG.info('\nOpening and Reading ' + CurveParamFileName)
     infile = open(CurveParamFileName,'r')
     lines = infile.readlines()
     infile.close()
@@ -199,13 +187,13 @@ def Calculate_TW_D_ForEachCOMID_ARC(CurveParamFileName, COMID_Unique_Flow, COMID
                 COMID_Unique_TW[i] = ( COMID_Unique_TW[i]*(COMID_NumRecord[i]-1) + TopWidth ) / COMID_NumRecord[i]
                 COMID_Unique_Depth[i] = ( COMID_Unique_Depth[i]*(COMID_NumRecord[i]-1) + Depth ) / COMID_NumRecord[i]
     TopWidthMax = COMID_Unique_TW.max()
-    print('Max TopWidth is ' + str(TopWidthMax))
+    LOG.info('Max TopWidth is ' + str(TopWidthMax))
     return (COMID_Unique_TW, COMID_Unique_Depth, TopWidthMax)
 
     
 
 def Get_Raster_Details(DEM_File):
-    print(DEM_File)
+    LOG.info(DEM_File)
     gdal.Open(DEM_File, gdal.GA_ReadOnly)
     data = gdal.Open(DEM_File)
     geoTransform = data.GetGeoTransform()
@@ -222,10 +210,7 @@ def Get_Raster_Details(DEM_File):
     return minx, miny, maxx, maxy, dx, dy, ncols, nrows, geoTransform, Rast_Projection
 
 def Read_Raster_GDAL(InRAST_Name):
-    try:
-        dataset = gdal.Open(InRAST_Name, gdal.GA_ReadOnly)     
-    except RuntimeError:
-        sys.exit(" ERROR: Field Raster File cannot be read!")
+    dataset = gdal.Open(InRAST_Name, gdal.GA_ReadOnly)     
     # Retrieve dimensions of cell size and cell count then close DEM dataset
     geotransform = dataset.GetGeoTransform()
     # Continue grabbing geospatial information for this use...
@@ -243,14 +228,14 @@ def Read_Raster_GDAL(InRAST_Name):
     lat = np.fabs((yll+yur)/2.0)
     Rast_Projection = dataset.GetProjectionRef()
     dataset = None
-    print('Spatial Data for Raster File:')
-    print('   ncols = ' + str(ncols))
-    print('   nrows = ' + str(nrows))
-    print('   cellsize = ' + str(cellsize))
-    print('   yll = ' + str(yll))
-    print('   yur = ' + str(yur))
-    print('   xll = ' + str(xll))
-    print('   xur = ' + str(xur))
+    LOG.info('Spatial Data for Raster File:')
+    LOG.info('   ncols = ' + str(ncols))
+    LOG.info('   nrows = ' + str(nrows))
+    LOG.info('   cellsize = ' + str(cellsize))
+    LOG.info('   yll = ' + str(yll))
+    LOG.info('   yur = ' + str(yur))
+    LOG.info('   xll = ' + str(xll))
+    LOG.info('   xur = ' + str(xur))
     return RastArray, ncols, nrows, cellsize, yll, yur, xll, xur, lat, geotransform, Rast_Projection
 
 def GetListOfDEMs(inputfolder):
@@ -298,7 +283,7 @@ def Write_Output_Raster(s_output_filename, raster_data, ncols, nrows, dem_geotra
 
 
 def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
-    print('\nCleaning up the Stream File.')
+    LOG.info('\nCleaning up the Stream File.')
     (SN, ncols, nrows, cellsize, yll, yur, xll, xur, lat, dem_geotransform, dem_projection) = Read_Raster_GDAL(STRM_File)
     
     #Create an array that is slightly larger than the STRM Raster Array
@@ -321,7 +306,7 @@ def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
         for x in range(num_nonzero):
             if x>=p_count*p_percent:
                 p_count = p_count + 1
-                print(' ' + str(p_count), end =" ")
+                LOG.info(' ' + str(p_count))
             r=RR[x]
             c=CC[x]
             V = B[r,c]
@@ -345,7 +330,7 @@ def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
                     elif (B[r+1,c-1]+B[r,c-1]+B[r-1,c-1])==0 and B[r,c+1]>0:
                         B[r,c] = 0
                         n=n+1
-        print('\nFirst pass removed ' + str(n) + ' cells')
+        LOG.info('\nFirst pass removed ' + str(n) + ' cells')
         
         
         #This pass is to remove all the redundant cells
@@ -355,7 +340,7 @@ def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
         for x in range(num_nonzero):
             if x>=p_count*p_percent:
                 p_count = p_count + 1
-                print(' ' + str(p_count), end =" ")
+                LOG.info(' ' + str(p_count))
             r=RR[x]
             c=CC[x]
             V = B[r,c]
@@ -376,7 +361,7 @@ def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
                     if sum(B[r-1:r+1,c-2])==0:
                             B[r,c-1] = 0
                             n=n+1
-        print('\nSecond pass removed ' + str(n) + ' redundant cells')
+        LOG.info('\nSecond pass removed ' + str(n) + ' redundant cells')
         
         #This pass is to remove all the redundant cells that may be connected to a different stream
         n=0
@@ -385,7 +370,7 @@ def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
         for x in range(num_nonzero):
             if x>=p_count*p_percent:
                 p_count = p_count + 1
-                print(' ' + str(p_count), end =" ")
+                LOG.info(' ' + str(p_count))
             r=RR[x]
             c=CC[x]
             V = B[r,c]
@@ -406,9 +391,9 @@ def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
                     if sum(B[r-1:r+1,c-2])==0:
                             B[r,c-1] = 0
                             n=n+1
-        print('\nThird pass removed ' + str(n) + ' redundant cells')
+        LOG.info('\nThird pass removed ' + str(n) + ' redundant cells')
     
-    print('Writing Output File ' + STRM_File_Clean)
+    LOG.info('Writing Output File ' + STRM_File_Clean)
     Write_Output_Raster(STRM_File_Clean, B[1:nrows+1,1:ncols+1], ncols, nrows, dem_geotransform, dem_projection, "GTiff", gdal.GDT_Int32)
     #return B[1:nrows+1,1:ncols+1], ncols, nrows, cellsize, yll, yur, xll, xur
     return
@@ -431,7 +416,7 @@ def FindStreamCharacteristics( E, B, COMID_Unique, COMID_to_ID, MinCOMID, RR, CC
     for x in range(num_strm_cells):
         if x>=p_count*p_percent:
             p_count = p_count + 1
-            print(' ' + str(p_count), end =" ")
+            LOG.info(' ' + str(p_count))
         r=RR[x]
         c=CC[x]
         V = B[r,c]
@@ -439,7 +424,7 @@ def FindStreamCharacteristics( E, B, COMID_Unique, COMID_to_ID, MinCOMID, RR, CC
         if V>0:
             i = COMID_to_ID[(V-MinCOMID)]
             if V==750104382:
-                print(str(i) + ' ' + str(V) + ' ' + str(Elev))
+                LOG.info(str(i) + ' ' + str(V) + ' ' + str(Elev))
             
             
             if Elev < E_Min[i]:
@@ -510,8 +495,8 @@ def Find_SEED_and_CONNECTIONS(RR, CC, B, E_Min, E_Max, COMID_to_ID, MinCOMID, nr
     #         # If the there are only two stream cells in the current block of nine, the block is at the start or end of that stream. Record it as a fixed position. The remaining special
     #         # cases handle logic associated with the boundary of the stream raster
     #         if n <= 2 or r == 1 or c == 1 or r == nrows - 2 or c == ncols - 2:
-    #             #print('SEED ' + str(B[r,c]))
-    #             #print(B[r-1:r+2,c-1:c+2])
+    #             #LOG.info('SEED ' + str(B[r,c]))
+    #             #LOG.info(B[r-1:r+2,c-1:c+2])
 
     #             # Calculate the latitude and longitude of the position
     #             lat_for_seed = float(yur - (0.5 * dy) - ((r - 1) * dy))
@@ -553,8 +538,8 @@ def Find_SEED_and_CONNECTIONS(RR, CC, B, E_Min, E_Max, COMID_to_ID, MinCOMID, nr
         # If the there are only two stream cells in the current block of nine, the block is at the start or end of that stream. Record it as a fixed position. The remaining special
         # cases handle logic associated with the boundary of the stream raster
         if n <= 2 or r == 1 or c == 1 or r == nrows - 2 or c == ncols - 2:
-            #print('SEED ' + str(B[r,c]))
-            #print(B[r-1:r+2,c-1:c+2])
+            #LOG.info('SEED ' + str(B[r,c]))
+            #LOG.info(B[r-1:r+2,c-1:c+2])
 
             # Calculate the latitude and longitude of the position
             lat_for_seed = float(yur - (0.5 * dy) - ((r - 1) * dy))
@@ -590,8 +575,8 @@ def Clean_Connections_NewMethod(SEEDCONNECT, B, nrows, ncols, ConnectVal, sd):
     #SEEDCONNECT is nrows, ncols
     #B is nrows+2, ncols+2
     
-    #print(SEEDCONNECT.shape)
-    #print(B.shape)
+    #LOG.info(SEEDCONNECT.shape)
+    #LOG.info(B.shape)
     
     # (CON_RR,CON_CC) = SEEDCONNECT.nonzero()
     (CON_RR,CON_CC) = np.where(SEEDCONNECT > 0)
@@ -638,10 +623,10 @@ def Clean_Connections_NewMethod(SEEDCONNECT, B, nrows, ncols, ConnectVal, sd):
                             r_use = r1
                             c_use = c1
                     else:
-                        print(SEED_Times_B)
+                        LOG.info(SEED_Times_B)
                         
-                        print(R_Same)
-                        print(C_Same)
+                        LOG.info(R_Same)
+                        LOG.info(C_Same)
                         
                         n_connections_max = 0
                         for xyz in range(n_same):
@@ -672,7 +657,7 @@ def Clean_Connections_NewMethod(SEEDCONNECT, B, nrows, ncols, ConnectVal, sd):
                 r_use = int(round(r_avg/n_avg,0))
                 c_use = int(round(c_avg/n_avg,0))
                 if B[r_use+1,c_use+1]==0:
-                    print('Adjusting due to non-value')
+                    LOG.info('Adjusting due to non-value')
                     r_use = r1
                     c_use = c1
                 CON_r.append(r_use)
@@ -684,7 +669,7 @@ def Clean_Connections_NewMethod(SEEDCONNECT, B, nrows, ncols, ConnectVal, sd):
         c = CON_c[i]
         SEEDCONNECT[r,c] = ConnectVal
     '''
-    print('SEEDCONNECT Cleaned ' + str(num_cleaned))
+    LOG.info('SEEDCONNECT Cleaned ' + str(num_cleaned))
     return SEEDCONNECT, CON_r, CON_c
 
 
@@ -708,7 +693,7 @@ def Clean_Connections(SEEDCONNECT, B, nrows, ncols, ConnectVal, sd):
     ### Process the connections
     if sd <= 0:
         # Don't need to clean any
-        print('Not Cleaning any SEEDCONNECT because sd<=0')
+        LOG.info('Not Cleaning any SEEDCONNECT because sd<=0')
         return SEEDCONNECT, CON_RR, CON_CC
     
     
@@ -738,7 +723,7 @@ def Clean_Connections(SEEDCONNECT, B, nrows, ncols, ConnectVal, sd):
                 r_use = int(round(r_avg/n_avg,0))
                 c_use = int(round(c_avg/n_avg,0))
                 if B[r_use+1,c_use+1]==0:
-                    print('Adjusting due to non-value')
+                    LOG.info('Adjusting due to non-value')
                     r_use = r1
                     c_use = c1
                 CON_r.append(r_use)
@@ -749,7 +734,7 @@ def Clean_Connections(SEEDCONNECT, B, nrows, ncols, ConnectVal, sd):
         r = CON_r[i]
         c = CON_c[i]
         SEEDCONNECT[r,c] = ConnectVal
-    print('SEEDCONNECT Cleaned ' + str(num_cleaned))
+    LOG.info('SEEDCONNECT Cleaned ' + str(num_cleaned))
     return SEEDCONNECT, CON_r, CON_c
 
 def Assign_Connections(nrows, ncols, CON_r, CON_c, B, SEEDCONNECT, COMID_Unique, COMID_to_ID, MinCOMID, num_comids, E_Avg, CON_Val, sd):
@@ -827,7 +812,7 @@ def FindNext(r, c, r_prev, c_prev, B, INDEXVALS):
     for (rrr,ccc,d)in INDEXVALS:
         rtest = r+rrr
         ctest = c+ccc
-        #print(str(rrr) + '  ' + str(ccc) + '  ' + str(rtest) + ' ' + str(ctest) + '  ' + str(B[rtest,ctest]))
+        #LOG.info(str(rrr) + '  ' + str(ccc) + '  ' + str(rtest) + ' ' + str(ctest) + '  ' + str(B[rtest,ctest]))
         if (rtest!=r_prev or ctest!=c_prev) and B[rtest,ctest]!=0:
             return rtest, ctest, d
     return -9999, -9999, 0
@@ -851,7 +836,7 @@ def FindPathToNextAnchor(r_start, c_start, ANCHOR, B, E, dx, dy, dz, num_limit):
     while r>0:
         n=n+1 
         if n>num_limit:
-            print('Look Limit Hit')
+            LOG.info('Look Limit Hit')
             return R_List, C_List, A1, A2, E_Start, E_End, D_List
         (r_next, c_next, d) = FindNext(r, c, r_prev, c_prev, B, INDEXVALS)
         r_prev=r
@@ -877,7 +862,7 @@ def FindNext(r, c, nrows, ncols, RC_List, B, ANCHOR, INDEXVALS):
         rtest = r+rrr
         ctest = c+ccc
         rc = rtest*(ncols+2)+ctest
-        #print(str(rrr) + '  ' + str(ccc) + '  ' + str(rtest) + ' ' + str(ctest) + '  ' + str(B[rtest,ctest]))
+        #LOG.info(str(rrr) + '  ' + str(ccc) + '  ' + str(rtest) + ' ' + str(ctest) + '  ' + str(B[rtest,ctest]))
         #if rc not in RC_List and (B[rtest,ctest]!=0 or ANCHOR[rtest,ctest]!=0):
         if rc not in RC_List and (B[rtest,ctest]==COMID_Current) and ANCHOR[rtest,ctest]<=0:
             return rtest, ctest, d
@@ -888,7 +873,7 @@ def FindNext(r, c, nrows, ncols, RC_List, B, ANCHOR, INDEXVALS):
         rtest = r+rrr
         ctest = c+ccc
         rc = rtest*(ncols+2)+ctest
-        #print(str(rrr) + '  ' + str(ccc) + '  ' + str(rtest) + ' ' + str(ctest) + '  ' + str(B[rtest,ctest]))
+        #LOG.info(str(rrr) + '  ' + str(ccc) + '  ' + str(rtest) + ' ' + str(ctest) + '  ' + str(B[rtest,ctest]))
         #if rc not in RC_List and (B[rtest,ctest]!=0 or ANCHOR[rtest,ctest]!=0):
         if rc not in RC_List and (B[rtest,ctest]!=0) and ANCHOR[rtest,ctest]<=0:
             return rtest, ctest, d
@@ -935,7 +920,7 @@ def FindPathToNextAnchor(COMID_to_Evaluate, r_start, c_start, nrows, ncols, ANCH
     while r>0:
         n=n+1 
         if n>num_limit:
-            print('Look Limit Hit')
+            LOG.info('Look Limit Hit')
             return R_List, C_List, A1, A2, E_Start, E_End, E_Min, D_List
         (r_next, c_next, d) = FindNext(r, c, nrows, ncols, RC_List, B, ANCHOR, INDEXVALS)
         
@@ -961,10 +946,10 @@ def FindPathToNextAnchor(COMID_to_Evaluate, r_start, c_start, nrows, ncols, ANCH
             A2 = -9999
         
         #if int(COMID_to_Evaluate)==750073008:
-        #    print(E[r_next][c_next])
+        #    LOG.info(E[r_next][c_next])
     if int(COMID_to_Evaluate)==750073008:
         for n in range(len(R_List)):
-            print(str(int(B[R_List[n]+1][C_List[n]+1])) + '  ' + str(R_List[n]) + '  ' + str(C_List[n]) + '  ' + str(sum(D_List[0:n])) + '  ' + str( E[R_List[n]+1][C_List[n]+1]) )
+            LOG.info(str(int(B[R_List[n]+1][C_List[n]+1])) + '  ' + str(R_List[n]) + '  ' + str(C_List[n]) + '  ' + str(sum(D_List[0:n])) + '  ' + str( E[R_List[n]+1][C_List[n]+1]) )
     #    asdfasdfasdf
     
     
@@ -1009,13 +994,13 @@ def Adjust_Start_End_Elevations_By_Perpendicular_Cells(E_Start, E_End, R_List, C
             #To get perpendicular, swithc the r and c values and make one negative of what it was
             test_r = int(R_List[0] + dc)
             test_c = int(C_List[0] + int(-1*dr))
-            #print(str(dr) + ' ' + str(dc) + '  ' + str(E_Start)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(DEM[test_r,test_c]))
+            #LOG.info(str(dr) + ' ' + str(dc) + '  ' + str(E_Start)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(DEM[test_r,test_c]))
             if test_r>=0 and test_r<nrows and test_c>=0 and test_c<ncols and DEM[test_r,test_c]>-99 and DEM[test_r,test_c]<E_Start:
                 E_Start = DEM[test_r,test_c]
             
             test_r = int(R_List[0] + int(-1*dc))
             test_c = int(R_List[0] + dr)
-            #print(str(dr) + ' ' + str(dc) + '  ' + str(E_Start)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(DEM[test_r,test_c]))
+            #LOG.info(str(dr) + ' ' + str(dc) + '  ' + str(E_Start)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(DEM[test_r,test_c]))
             if test_r>=0 and test_r<(nrows-1) and test_c>=0 and test_c<(ncols-1) and DEM[test_r,test_c]>-99 and DEM[test_r,test_c]<E_Start:
                 E_Start = DEM[test_r,test_c]
             
@@ -1034,15 +1019,14 @@ def Adjust_Start_End_Elevations_By_Perpendicular_Cells(E_Start, E_End, R_List, C
             if test_r>=0 and test_r<nrows and test_c>=0 and test_c<ncols and DEM[test_r,test_c]>-99 and DEM[test_r,test_c]<E_End:
                 E_End = DEM[test_r,test_c]
     if abs(E_Start-E_S)>0.001:
-        print(str(B[R_List[0]+1,C_List[0]+1]) + '  Changed Starting Elevation from ' + str(E_S) + ' to ' + str(E_Start))
+        LOG.info(str(B[R_List[0]+1,C_List[0]+1]) + '  Changed Starting Elevation from ' + str(E_S) + ' to ' + str(E_Start))
     if abs(E_End-E_E)>0.001:
-        print(str(B[R_List[-1]+1,C_List[-1]+1]) + '  Changed Ending Elevation from ' + str(E_E) + ' to ' + str(E_End))
+        LOG.info(str(B[R_List[-1]+1,C_List[-1]+1]) + '  Changed Ending Elevation from ' + str(E_E) + ' to ' + str(E_End))
     
     #if int(B[R_List[0]+1,C_List[0]+1])==1841439:
-    #    print('\n\n')
-    #    print(str(B[R_List[0]+1,C_List[0]+1]) + '  Changed Starting Elevation from ' + str(E_S) + ' to ' + str(E_Start))
-    #    print(str(B[R_List[-1]+1,C_List[-1]+1]) + '  Changed Ending Elevation from ' + str(E_E) + ' to ' + str(E_End))
-    #    print('\n\n')
+    #    LOG.info('\n\n')
+    #    LOG.info(str(B[R_List[0]+1,C_List[0]+1]) + '  Changed Starting Elevation from ' + str(E_S) + ' to ' + str(E_Start))
+    #    LOG.info(str(B[R_List[-1]+1,C_List[-1]+1]) + '  Changed Ending Elevation from ' + str(E_E) + ' to ' + str(E_End))
     
     return E_Start, E_End
 
@@ -1065,18 +1049,18 @@ def Adjust_Elevations_By_Perpendicular_Cells(E_Original, i, R_List, C_List, nrow
                 #To get perpendicular, switch the r and c values and make one negative of what it was
                 test_r = int(R_List[i] + dc)
                 test_c = int(C_List[i] + int(-1*dr))
-                #print(str(dr) + ' ' + str(dc) + '  ' + str(E_Start)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(DEM[test_r,test_c]))
+                #LOG.info(str(dr) + ' ' + str(dc) + '  ' + str(E_Start)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(DEM[test_r,test_c]))
                 if test_r>=0 and test_r<nrows and test_c>=0 and test_c<ncols and DEM[test_r,test_c]>-99 and DEM[test_r,test_c]<E_Updated and Flood[test_r,test_c]>0:
                     E_Updated = DEM[test_r,test_c]
                 
                 test_r = int(R_List[0] + int(-1*dc))
                 test_c = int(C_List[0] + dr)
-                #print(str(dr) + ' ' + str(dc) + '  ' + str(E_Start)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(DEM[test_r,test_c]))
+                #LOG.info(str(dr) + ' ' + str(dc) + '  ' + str(E_Start)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(DEM[test_r,test_c]))
                 if test_r>=0 and test_r<(nrows-1) and test_c>=0 and test_c<(ncols-1) and DEM[test_r,test_c]>-99 and DEM[test_r,test_c]<E_Updated and Flood[test_r,test_c]>0:
                     E_Updated = DEM[test_r,test_c]
                 
                 #if int(B[R_List[i]+1,C_List[i]+1])==1841439:
-                #    print('   ' + str(dr) + ' ' + str(dc) + '  ' + str(E_Original)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(E_Updated))
+                #    LOG.info('   ' + str(dr) + ' ' + str(dc) + '  ' + str(E_Original)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(E_Updated))
     else:
         sd = i
         if sd>searchdist:
@@ -1090,18 +1074,18 @@ def Adjust_Elevations_By_Perpendicular_Cells(E_Original, i, R_List, C_List, nrow
                 #To get perpendicular, switch the r and c values and make one negative of what it was
                 test_r = int(R_List[i] + dc)
                 test_c = int(C_List[i] + int(-1*dr))
-                #print(str(dr) + ' ' + str(dc) + '  ' + str(E_Start)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(DEM[test_r,test_c]))
+                #LOG.info(str(dr) + ' ' + str(dc) + '  ' + str(E_Start)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(DEM[test_r,test_c]))
                 if test_r>=0 and test_r<nrows and test_c>=0 and test_c<ncols and DEM[test_r,test_c]>-99 and DEM[test_r,test_c]<E_Updated and Flood[test_r,test_c]>0:
                     E_Updated = DEM[test_r,test_c]
                 
                 test_r = int(R_List[0] + int(-1*dc))
                 test_c = int(C_List[0] + dr)
-                #print(str(dr) + ' ' + str(dc) + '  ' + str(E_Start)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(DEM[test_r,test_c]))
+                #LOG.info(str(dr) + ' ' + str(dc) + '  ' + str(E_Start)  + '  Perpendicular Cells:  ' + str(test_r) + '  ' + str(test_c) + '  ' + str(DEM[test_r,test_c]))
                 if test_r>=0 and test_r<(nrows-1) and test_c>=0 and test_c<(ncols-1) and DEM[test_r,test_c]>-99 and DEM[test_r,test_c]<E_Updated and Flood[test_r,test_c]>0:
                     E_Updated = DEM[test_r,test_c]
                 
     #if abs(E_Updated-E_Original)>0.001:
-    #    print(str(B[R_List[i]+1,C_List[i]+1]) + '  Changed Elevation from ' + str(E_Original) + ' to ' + str(E_Updated))
+    #    LOG.info(str(B[R_List[i]+1,C_List[i]+1]) + '  Changed Elevation from ' + str(E_Original) + ' to ' + str(E_Updated))
     
     #if int(B[R_List[i]+1,C_List[i]+1])==1841439:
     #    asdfasdfasdf
@@ -1132,9 +1116,9 @@ def FloodAllLocalAreas(WSE, E_Box, r_min, r_max, c_min, c_max, r_use, c_use):
     #Go through and mark all the cells that 
     for r in range((r_use-r_min+1),nrows_local-1):
         for c in range((c_use-c_min+1),ncols_local-1):
-            #print(FloodLocal[r-1:r+2,c-1:c+2].shape)
-            #print(FourMatrix.shape)
-            #print(FloodLocal[r-1:r+2,c-1:c+2])
+            #LOG.info(FloodLocal[r-1:r+2,c-1:c+2].shape)
+            #LOG.info(FourMatrix.shape)
+            #LOG.info(FloodLocal[r-1:r+2,c-1:c+2])
             if FloodLocal[r,c]>=3:
                 FloodLocal[r-1:r+2,c-1:c+2] = FloodLocal[r-1:r+2,c-1:c+2] * FourMatrix
     for r in range((r_use-r_min+1), 0, -1):
@@ -1147,9 +1131,9 @@ def FloodAllLocalAreas(WSE, E_Box, r_min, r_max, c_min, c_max, r_use, c_use):
             if FloodLocal[r,c]>=3:
                 FloodLocal[r-1:r+2,c-1:c+2] = FloodLocal[r-1:r+2,c-1:c+2] * FourMatrix
     
-    #print(FloodLocal)
+    #LOG.info(FloodLocal)
     #FloodReturn = np.where(FloodLocal[1:nrows_local-1,1:ncols_local-1]>0.0,1.0,0.0)
-    #print(np.where(FloodLocal[1:nrows_local-1,1:ncols_local-1]>3.0,1.0,0.0))
+    #LOG.info(np.where(FloodLocal[1:nrows_local-1,1:ncols_local-1]>3.0,1.0,0.0))
     return np.where(FloodLocal[1:nrows_local-1,1:ncols_local-1]>3.0,1.0,0.0)
 
 
@@ -1167,9 +1151,9 @@ def CreateWeightAndElipseMask(TW, dx, dy):
                     ElipseMask[i,TW-r,TW+c] = 1.0
                     ElipseMask[i,TW+r,TW-c] = 1.0
                     ElipseMask[i,TW-r,TW-c] = 1.0
-    #print(ElipseMask[2,TW-4:TW+4+1,TW-4:TW+4+1].astype(int))
-    #print(ElipseMask[10,TW-14:TW+14+1,TW-14:TW+14+1].astype(int))
-    #print(ElipseMask[40,TW-44:TW+44+1,TW-44:TW+44+1].astype(int))
+    #LOG.info(ElipseMask[2,TW-4:TW+4+1,TW-4:TW+4+1].astype(int))
+    #LOG.info(ElipseMask[10,TW-14:TW+14+1,TW-14:TW+14+1].astype(int))
+    #LOG.info(ElipseMask[40,TW-44:TW+44+1,TW-44:TW+44+1].astype(int))
     
     for r in range(0,TW+1):
         for c in range(0,TW+1):
@@ -1250,9 +1234,9 @@ def CreateSimpleFloodMap(RR, CC, E, B, nrows, ncols, y_depth, sd, TW_m, dx, dy, 
         w_c_max = TW+c_max-c_use
         
         #These all should have the same shape
-        #print(WSE_Times_Weight[r_min:r_max,c_min:c_max].shape)
-        #print(WeightBox[w_r_min:w_r_max,w_c_min:w_c_max].shape)
-        #print(FloodLocalMask.shape)
+        #LOG.info(WSE_Times_Weight[r_min:r_max,c_min:c_max].shape)
+        #LOG.info(WeightBox[w_r_min:w_r_max,w_c_min:w_c_max].shape)
+        #LOG.info(FloodLocalMask.shape)
         
         #Create the Weight Matrix.  Account for the Weight Box as well as what would actually flood Locally
         if LocalFloodOption==True:
@@ -1283,14 +1267,14 @@ def CreateFloodImpactMap(Flood, RR, CC, E, B, nrows, ncols, sd, TW_m, dx, dy, Lo
 
     num_flooded_cells = len(Flood_R)
     
-    print('\nWorking through ' + str(num_flooded_cells) + ' flooded cells:')
+    LOG.info('\nWorking through ' + str(num_flooded_cells) + ' flooded cells:')
     
     p_increment=int(num_flooded_cells/20)
     pcount = p_increment
     for i in range(num_flooded_cells):
         
         if i>=pcount:
-            print('  Worked through ' + str(pcount) + ' cells')
+            LOG.info('  Worked through ' + str(pcount) + ' cells')
             pcount = pcount + p_increment
         
         r = Flood_R[i]
@@ -1328,7 +1312,7 @@ def CreateFloodImpactMap(Flood, RR, CC, E, B, nrows, ncols, sd, TW_m, dx, dy, Lo
         # Subset_Unique = np.delete(Subset_Unique, 0)  #We don't need the first entry of zero
         COMID_to_Print = 0
         if len(Subset_Unique)<1:
-            # print('WE HAVE ISSUES, SHOULD HAVE AT LEAST ONE VALUE HERE')
+            # LOG.info('WE HAVE ISSUES, SHOULD HAVE AT LEAST ONE VALUE HERE')
             COMID_to_Print = 0
         elif len(Subset_Unique)==1:
             COMID_to_Print = Subset_Unique[0]
@@ -1379,7 +1363,7 @@ def CreateFloodImpactMap(Flood, RR, CC, E, B, nrows, ncols, sd, TW_m, dx, dy, Lo
         
         #Find cell that has impact the most times and record it in the 'FloodImpact' Raster.
         FloodImpact[r,c] = COMID_to_Print
-    print('Finished Process for Flood Impact')
+    LOG.info('Finished Process for Flood Impact')
     return FloodImpact
 
 
@@ -1443,11 +1427,11 @@ def MergeStreamElevationsWithDEM(E, B, Flood, FloodImpact, Elev_Streams, ES_R, E
             Elev_Times_Weight[r_min:r_max,c_min:c_max] = Elev_Times_Weight[r_min:r_max,c_min:c_max] + ELEV * WeightBox[w_r_min:w_r_max,w_c_min:w_c_max] * FloodBigImpact[r_min:r_max,c_min:c_max] * ElipseMask[COMID_TW, w_r_min:w_r_max,w_c_min:w_c_max]
             Total_Weight[r_min:r_max,c_min:c_max] = Total_Weight[r_min:r_max,c_min:c_max] + WeightBox[w_r_min:w_r_max,w_c_min:w_c_max] * FloodBigImpact[r_min:r_max,c_min:c_max] * ElipseMask[COMID_TW, w_r_min:w_r_max,w_c_min:w_c_max]
             
-            #print(ELEV)
-            #print(Elev_Times_Weight[r_min:r_max,c_min:c_max])
-            #print(FloodBig[r_min:r_max,c_min:c_max])
-            #print(Elev_Times_Weight[r_min:r_max,c_min:c_max].max())
-            #print(FloodBig[r_min:r_max,c_min:c_max].max())
+            #LOG.info(ELEV)
+            #LOG.info(Elev_Times_Weight[r_min:r_max,c_min:c_max])
+            #LOG.info(FloodBig[r_min:r_max,c_min:c_max])
+            #LOG.info(Elev_Times_Weight[r_min:r_max,c_min:c_max].max())
+            #LOG.info(FloodBig[r_min:r_max,c_min:c_max].max())
         else:
             pass
     
@@ -1489,7 +1473,7 @@ def DEM_Cleaner_Program(OutputID,
     
     
     for ddd in range(len(DEM_List)):
-        print('Working on Site ' + DEM_List[ddd])
+        LOG.info('Working on Site ' + DEM_List[ddd])
         
         DEM_File = os.path.join(DEM_Folder, DEM_List[ddd])
         STRM_File_Clean = STRM_File_List[ddd]
@@ -1502,27 +1486,27 @@ def DEM_Cleaner_Program(OutputID,
                 STRM_File_Clean = STRM_File.replace('.img','_Clean.img')
         
             if os.path.isfile(STRM_File):
-                print('Stream File Already Exists')
+                LOG.info('Stream File Already Exists')
             else:
-                print('Get the Raster Dimensions for ' + DEM_File)
+                LOG.info('Get the Raster Dimensions for ' + DEM_File)
                 (minx, miny, maxx, maxy, dx, dy, ncols, nrows, dem_geoTransform, dem_projection) = Get_Raster_Details(DEM_File)
                 cellsize_x = abs(float(dx))
                 cellsize_y = abs(float(dy))
                 lat_base = float(maxy) - 0.5*cellsize_y
                 lon_base = float(minx) + 0.5*cellsize_x
         
-                print('Creating ' + STRM_File)
+                LOG.info('Creating ' + STRM_File)
                 
                 #This should clip the larger DEM Raster to the correct size
                 function_str = 'gdal_rasterize -a_nodata -9999 -ot UInt32 -a ' + OutputID + ' -ts ' + str(ncols) + ' ' + str(nrows) + ' -te ' + ' '.join([str(x) for x in [minx, miny, maxx, maxy]]) + ' -l ' + StrmBase + ' ' + StreamShapefile + ' ' + STRM_File
-                print(function_str)
+                LOG.info(function_str)
                 subprocess.call(function_str, shell=True)
             
             #Clean the Stream File
             if os.path.isfile(STRM_File_Clean):
-                print('Clean Stream File Already Exists: ' + STRM_File_Clean)
+                LOG.info('Clean Stream File Already Exists: ' + STRM_File_Clean)
             else:
-                print('Creating Clean Stream File: ' + STRM_File_Clean)
+                LOG.info('Creating Clean Stream File: ' + STRM_File_Clean)
                 Clean_STRM_Raster(STRM_File, STRM_File_Clean)
         S = 0
         (S, ncols, nrows, cellsize, yll, yur, xll, xur, lat, s_geotransform, s_projection) = Read_Raster_GDAL(STRM_File_Clean)
@@ -1557,14 +1541,14 @@ def DEM_Cleaner_Program(OutputID,
         MinCOMID = COMID_Unique.min()
         MaxCOMID = COMID_Unique.max()
 
-        print('\nCOMID Ranges from ' + str(MinCOMID) + ' to ' + str(MaxCOMID))
+        LOG.info('\nCOMID Ranges from ' + str(MinCOMID) + ' to ' + str(MaxCOMID))
         
         COMID_to_ID = np.zeros(MaxCOMID-MinCOMID+1).astype(int)
         COMID_to_ID = COMID_to_ID - 1
         
         #Get the Unique Identifier Set
         for i in range(num_comids):
-            #print(str(COMID_Unique[i]) + ' ' + str(i))
+            #LOG.info(str(COMID_Unique[i]) + ' ' + str(i))
             COMID_to_ID[int(COMID_Unique[i]-MinCOMID)] = i
         
         
@@ -1578,10 +1562,10 @@ def DEM_Cleaner_Program(OutputID,
         #TopWidthPlausibleLimit = 600.0
         #(COMID_Unique_TW, COMID_Unique_Depth, TopWidthMax) = Calculate_TW_D_ForEachCOMID(CurveParamFileName, COMID_Unique_Flow, COMID_Unique, COMID_to_ID, MinCOMID, Q_Fraction)
         (COMID_Unique_TW, COMID_Unique_Depth, TopWidthMax) = Calculate_TW_D_ForEachCOMID_ARC(CurveParamFileName, COMID_Unique_Flow, COMID_Unique, COMID_to_ID, MinCOMID, MaxCOMID, Q_Fraction)
-        print('Maximum Top Width = ' + str(TopWidthMax))
+        LOG.info('Maximum Top Width = ' + str(TopWidthMax))
         for x in range(len(COMID_Unique)):
             if COMID_Unique_TW[x]>TopWidthPlausibleLimit:
-                print('Ignoring ' + str(COMID_Unique[x]) + '  ' + str(COMID_Unique_Flow[x])  + '  ' + str(COMID_Unique_Flow[x]*Q_Fraction) + '  ' + str(COMID_Unique_Depth[x]) + '  ' + str(COMID_Unique_TW[x]))             
+                LOG.info('Ignoring ' + str(COMID_Unique[x]) + '  ' + str(COMID_Unique_Flow[x])  + '  ' + str(COMID_Unique_Flow[x]*Q_Fraction) + '  ' + str(COMID_Unique_Depth[x]) + '  ' + str(COMID_Unique_TW[x]))             
         
         if TopWidthPlausibleLimit < TopWidthMax:
             TopWidthMax = TopWidthPlausibleLimit
@@ -1599,11 +1583,11 @@ def DEM_Cleaner_Program(OutputID,
         #TopWidthMax = 400.0
         LocalFloodOption = False
         if os.path.isfile(FloodMapName):
-            print('Using Flood Map: ' + FloodMapName)
+            LOG.info('Using Flood Map: ' + FloodMapName)
             Flood = np.zeros((nrows+2,ncols+2))
             (Flood[1:nrows+1,1:ncols+1], ncols, nrows, cellsize, yll, yur, xll, xur, lat, dem_geotransform, dem_projection) = Read_Raster_GDAL(FloodMapName)
         else:
-            print('YOU NEED TO CREATE AN INITIAL FLOOD MAP!!!')
+            LOG.info('YOU NEED TO CREATE AN INITIAL FLOOD MAP!!!')
             return
             #Flood = CreateSimpleFloodMap(RR, CC, E, B, nrows, ncols, y_depth, search_dist_for_min_elev, TopWidthMax, dx, dy, LocalFloodOption, COMID_Unique, COMID_to_ID, MinCOMID, COMID_Unique_TW, COMID_Unique_Depth, WeightBox, ElipseMask, TW)
             #Write_Output_Raster(FloodMapName, Flood[1:nrows+1,1:ncols+1], ncols, nrows, dem_geotransform, dem_projection, "GTiff", gdal.GDT_Int32)
@@ -1611,22 +1595,22 @@ def DEM_Cleaner_Program(OutputID,
         #If warranted, write a Flood Impact File
         FloodImpact_File = os.path.join(Working_Folder, 'FLOOD_IMPACT_' + DEM_List[ddd])
         if os.path.isfile(FloodImpact_File):
-            print('Using Existing Flood Map: FLOOD_IMPACT_' + DEM_List[ddd])
+            LOG.info('Using Existing Flood Map: FLOOD_IMPACT_' + DEM_List[ddd])
             FloodImpact = np.zeros((nrows+2,ncols+2))
             (FloodImpact[1:nrows+1,1:ncols+1], ncols, nrows, cellsize, yll, yur, xll, xur, lat, dem_geotransform, dem_projection) = Read_Raster_GDAL(FloodImpact_File)
         else:
-            print('Creating Flood Impact Map: ' + FloodImpact_File)
+            LOG.info('Creating Flood Impact Map: ' + FloodImpact_File)
             COMID_Unique_TW_Reduced = COMID_Unique_TW * 0.75
             FloodImpact = CreateFloodImpactMap(Flood, RR, CC, E, B, nrows, ncols, search_dist_for_min_elev, TopWidthMax, dx, dy, LocalFloodOption, COMID_Unique, COMID_to_ID, MinCOMID, COMID_Unique_TW_Reduced, COMID_Unique_Depth, WeightBox, ElipseMask, TW)
             Write_Output_Raster(FloodImpact_File, FloodImpact[1:nrows+1,1:ncols+1], ncols, nrows, dem_geotransform, dem_projection, "GTiff", gdal.GDT_Int32)
         
         
-        print('Finding Stream Data: Length and Elevation Data')
+        LOG.info('Finding Stream Data: Length and Elevation Data')
         (E_Min, E_Avg, E_Max, N, L, SEED) = FindStreamCharacteristics(E, B, COMID_Unique, COMID_to_ID, MinCOMID, RR, CC, nrows, ncols, dx, dy, dz, num_comids)
         
         
         #Find SEED locations as well as where connections between streams occur.
-        print('Finding SEED and Connection Locations')
+        LOG.info('Finding SEED and Connection Locations')
         SEED_Val = 1 
         CON_Val = 2
         (SEED_r, SEED_c, SEED_Lat, SEED_Lon, SEED_COMID, SEEDCONNECT) = Find_SEED_and_CONNECTIONS(RR, CC, B, E_Min, E_Max, COMID_to_ID, MinCOMID, nrows, ncols, SEED_Val, CON_Val, yur, xll, dx, dy) 
@@ -1636,12 +1620,12 @@ def DEM_Cleaner_Program(OutputID,
         #(CON_r, CON_c) = SEEDCONNECT.nonzero()
         SEED_CONNECT_FILE = os.path.join(Working_Folder, 'SEED_CONNECT_' + DEM_List[ddd])
         if os.path.isfile(SEED_CONNECT_FILE):
-            print('File Already Exists:  ' + SEED_CONNECT_FILE)
+            LOG.info('File Already Exists:  ' + SEED_CONNECT_FILE)
         else:
             Write_Output_Raster(SEED_CONNECT_FILE, SEEDCONNECT, ncols, nrows, dem_geotransform, dem_projection, "GTiff", gdal.GDT_Int32)
         
         #Find the Connections between the Stream Reaches
-        print('Finding Where Each Stream Connects')
+        LOG.info('Finding Where Each Stream Connects')
         (Upstream_Connection, Downstream_Connection) = Assign_Connections(nrows, ncols, CON_r, CON_c, B, SEEDCONNECT, COMID_Unique, COMID_to_ID, MinCOMID, num_comids, E_Avg, CON_Val, 2)
 
         # todo: here is where an intervention needs to happen
@@ -1673,7 +1657,7 @@ def DEM_Cleaner_Program(OutputID,
         #Create Elevation Streams File
         ElevStreamsName = os.path.join(Working_Folder, 'Elev_Streams_' + DEM_List[ddd])
         if os.path.isfile(ElevStreamsName):
-            print('Using Existing Elevation-Streams File: ' + ElevStreamsName)
+            LOG.info('Using Existing Elevation-Streams File: ' + ElevStreamsName)
             (Elev_Streams, ncols, nrows, cellsize, yll, yur, xll, xur, lat, dem_geotransform, dem_projection) = Read_Raster_GDAL(ElevStreamsName)
         else:
             Elev_Streams = np.zeros((nrows,ncols))
@@ -1687,7 +1671,7 @@ def DEM_Cleaner_Program(OutputID,
                     #SEt the A_RC to zero for the Anchors we just evaluated.  This prevents redundantly evaluating the same stream cells
                     #aaa = np.where(A_RC==A1)
                     #A_RC[aaa]=0
-                    #print(str(B[A_R[i]+1,A_C[i]+1]) + '   E_Start=' + str(E_Start) + '   E_End=' + str(E_End) + '   Dist=' + str(sum(D_List)))
+                    #LOG.info(str(B[A_R[i]+1,A_C[i]+1]) + '   E_Start=' + str(E_Start) + '   E_End=' + str(E_End) + '   Dist=' + str(sum(D_List)))
                     #if A2>0:
                     #    aaa = np.where(A_RC==A2)
                     #    A_RC[aaa]=0
@@ -1699,35 +1683,35 @@ def DEM_Cleaner_Program(OutputID,
                     if search_dist_perp_cells>0:
                         E_Start = Adjust_Elevations_By_Perpendicular_Cells(E_Start, 0, R_List, C_List, nrows, ncols, B, DEM, search_dist_perp_cells, Flood)
                         E_End = Adjust_Elevations_By_Perpendicular_Cells(E_End, (len(R_List)-1), R_List, C_List, nrows, ncols, B, DEM, search_dist_perp_cells, Flood)
-                        print(str(COMID_to_Evaluate) + '  ' + str(E_Start) + ' vs ' + str(estart) + '  ' + str(E_End) + ' vs ' + str(eend))
+                        LOG.info(str(COMID_to_Evaluate) + '  ' + str(E_Start) + ' vs ' + str(estart) + '  ' + str(E_End) + ' vs ' + str(eend))
                     
                     #Set the Low elevation anchor based on the Minimum elevation in the path
-                    #print('E_Start=' + str(E_Start) + '  E_End=' + str(E_End) + '  E_Min_from_Path=' + str(E_Min_from_Path) )
+                    #LOG.info('E_Start=' + str(E_Start) + '  E_End=' + str(E_End) + '  E_Min_from_Path=' + str(E_Min_from_Path) )
                     if E_Start < E_End and E_Start>E_Min_from_Path:
-                        print('Updated E_Start From ' + str(E_Start) + ' to ' + str(E_Min_from_Path) )
+                        LOG.info('Updated E_Start From ' + str(E_Start) + ' to ' + str(E_Min_from_Path) )
                         E_Start = E_Min_from_Path
                         #asdfasdf
                     if E_Start > E_End and E_End>E_Min_from_Path:
-                        print('Updated E_End From ' + str(E_End) + ' to ' + str(E_Min_from_Path) )
+                        LOG.info('Updated E_End From ' + str(E_End) + ' to ' + str(E_Min_from_Path) )
                         E_End = E_Min_from_Path
                         #asdfasdf
                     
                     '''
                     if E_End<0.0:
-                        print(str(COMID_to_Evaluate) + '   E_Start=' + str(E_Start) + '   E_End=' + str(E_End) + '   Dist=' + str(sum(D_List)))
+                        LOG.info(str(COMID_to_Evaluate) + '   E_Start=' + str(E_Start) + '   E_End=' + str(E_End) + '   Dist=' + str(sum(D_List)))
                     else:
                         num_steps = len(R_List)
                         slope = (E_End - E_Start) / sum(D_List[0:num_steps-1])
                         E_Use = E_Start
                         Elev_Streams[R_List[0],C_List[0]] = E_Use
-                        if num_steps>1:
+                        if num_steps>1:`
                             for x in range(1,num_steps):
                                 #E_Use = E_Use + slope*D_List[x-1]
                                 E_Use = E_Start + slope * sum(D_List[0:x-1])
                                 Elev_Streams[R_List[x],C_List[x]] = E_Use
                     '''
                     if E_End<0.0:
-                        print(str(COMID_to_Evaluate) + '   E_Start=' + str(E_Start) + '   E_End=' + str(E_End) + '   Dist=' + str(sum(D_List)))
+                        LOG.info(str(COMID_to_Evaluate) + '   E_Start=' + str(E_Start) + '   E_End=' + str(E_End) + '   Dist=' + str(sum(D_List)))
                     else:
                         
                         #if E_End < E_Start and E_Min_from_Path < E_End:
@@ -1746,7 +1730,7 @@ def DEM_Cleaner_Program(OutputID,
                         E_Temp[0] = E_Start
                         E_Temp[num_steps-1] = E_End
                         
-                        #print('Slope = ' + str(slope))
+                        #LOG.info('Slope = ' + str(slope))
                         
                         if num_steps>2:
                             #Go through the list
@@ -1754,7 +1738,7 @@ def DEM_Cleaner_Program(OutputID,
                             #This is just for testing
                             #for x in range(0,num_steps-1):
                             #    E_Temp[x] = DEM[R_List[x],C_List[x]]
-                            #print(E_Temp)
+                            #LOG.info(E_Temp)
                             #E_Temp = np.zeros(num_steps)
                             #E_Temp = E_Temp - 100
                             #E_Temp[0] = E_Start
@@ -1806,7 +1790,7 @@ def DEM_Cleaner_Program(OutputID,
                                     E_Temp[x] = E_Start  #No slope, so they all should be the same elevation
                             
                             #if slope>0.0:
-                            #    print(E_Temp)
+                            #    LOG.info(E_Temp)
                             
                             #Now look for any cells that may need some interpolation
                             for x in range(1, num_steps - 1):
@@ -1815,25 +1799,25 @@ def DEM_Cleaner_Program(OutputID,
                                     i_end=x
                                     while(E_Temp[i_end]<-99):
                                         i_end = i_end+1
-                                    #print(str(x) + '  ' + str(i_end))
-                                    #print(str(E_Temp[x]) + '  ' + str(E_Temp[i_end]))
+                                    #LOG.info(str(x) + '  ' + str(i_end))
+                                    #LOG.info(str(E_Temp[x]) + '  ' + str(E_Temp[i_end]))
                                     slope_temp = (E_Temp[i_end] - E_Temp[i_start]) / sum(D_List[i_start:i_end])
                                     #E_Temp[x] = E_Temp[i_start] + slope_temp * D_List[x]
                                     for x_temp in range(x,i_end):
                                         E_Temp[x_temp] = E_Temp[x_temp-1] + slope_temp * D_List[x_temp]
-                                    #print(str(E_Temp[x-1]) + '  ' + str(E_Temp[x]) +  '  ' + str(E_Temp[i_end]))
-                            #print(E_Temp)
+                                    #LOG.info(str(E_Temp[x-1]) + '  ' + str(E_Temp[x]) +  '  ' + str(E_Temp[i_end]))
+                            #LOG.info(E_Temp)
                             #Fill in the Elev_Streams Raster
                             for x in range(0,num_steps-1):
                                 Elev_Streams[R_List[x],C_List[x]] = E_Temp[x] 
                             
                             #if slope>0.0:
-                            #    print(E_Temp)
+                            #    LOG.info(E_Temp)
                             #    asdfasdf
                     '''
                     COMIDs_To_Evaluate_List = [760748000, 760743009, 760703075]
                     if COMID_to_Evaluate in COMIDs_To_Evaluate_List:
-                        print(str(COMID_to_Evaluate) + '   E_Start=' + str(E_Start) + '   E_End=' + str(E_End) + '   Dist=' + str(sum(D_List)))
+                        LOG.info(str(COMID_to_Evaluate) + '   E_Start=' + str(E_Start) + '   E_End=' + str(E_End) + '   Dist=' + str(sum(D_List)))
                         Elev_from_DEM = []
                         Elev_from_ModDEM = []
                         Dist_Along_Profile = []
@@ -1850,7 +1834,7 @@ def DEM_Cleaner_Program(OutputID,
             Last_Ditch_Effort_To_Smooth_Stream_Bumps(Elev_Streams, nrows, ncols, CON_r, CON_c)
             
                 
-            print('Creating Elevation-Streams File...' + ElevStreamsName)
+            LOG.info('Creating Elevation-Streams File...' + ElevStreamsName)
             Write_Output_Raster(ElevStreamsName, Elev_Streams, ncols, nrows, dem_geotransform, dem_projection, "GTiff", gdal.GDT_Float32)
         
         
@@ -1924,9 +1908,9 @@ if __name__ == "__main__":
         FlowParam = 'qout_mean'
         MainFlowFile = 'GeoGLoWS_Flow_Data_714JLG.csv'
         FlowFileName = 'FLOW/NED_n39w090_Flow_COMID_Q.txt'
-        print('Creating initial flow input data using flow rates associated with ' + FlowParam)
-        print('  Input flow file: ' + MainFlowFile)
-        print('  Output flow file: ' + FlowFileName)
+        LOG.info('Creating initial flow input data using flow rates associated with ' + FlowParam)
+        LOG.info('  Input flow file: ' + MainFlowFile)
+        LOG.info('  Output flow file: ' + FlowFileName)
         Create_FlowFile(MainFlowFile, FlowFileName, OutputID, FlowParam)
         
         
@@ -1934,7 +1918,7 @@ if __name__ == "__main__":
         
         FloodMapName = 'FloodMap/NED_n39w090_ARC_Flood_Initial.tif'
         
-        print(DEM_List)
+        LOG.info(DEM_List)
         
         DEM_Cleaner_Program(OutputID, StreamShapefile, DEM_Folder, DEM_List, STRM_File_List, Working_Folder, FlowFileName, CurveParamFileName, FloodMapName, Q_Fraction, TopWidthPlausibleLimit, search_dist_for_min_elev, search_dist_perp_cells)
     

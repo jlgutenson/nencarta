@@ -19,6 +19,7 @@ import random
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from .logger import LOG
 
 from pyproj import CRS
 
@@ -40,15 +41,15 @@ def download_grid_with_retry(url, max_retries=10, wait_seconds=10):
     while attempt < max_retries:
         try:
             grid = gpd.read_file(url, crs="epsg:4326")
-            print(f"Successfully downloaded grid on attempt {attempt + 1}")
+            LOG.info(f"Successfully downloaded grid on attempt {attempt + 1}")
             return grid
         except urllib.error.URLError as e:
             attempt += 1
-            print(f"Attempt {attempt} failed: {e}")
+            LOG.warning(f"Attempt {attempt} failed: {e}")
             time.sleep(wait_seconds)
         except Exception as e:
             attempt += 1
-            print(f"Unexpected error on attempt {attempt}: {e}")
+            LOG.warning(f"Unexpected error on attempt {attempt}: {e}")
             time.sleep(wait_seconds)
 
     raise RuntimeError(f"Failed to download grid after {max_retries} attempts.")
@@ -233,7 +234,7 @@ def Download_ESA_WorldLandCover(output_folder, geom, year):
         merged = None
 
     if failures:
-        print(f"Warning: {len(failures)} tiles failed to download (first few): {failures[:5]}")
+        LOG.warning(f"{len(failures)} tiles failed to download (first few): {failures[:5]}")
 
     return LandCoverFile
 # def Download_ESA_WorldLandCover(output_folder, geom, year):
@@ -246,7 +247,7 @@ def Download_ESA_WorldLandCover(output_folder, geom, year):
     
 #     # get grid tiles intersecting AOI
 #     tiles = grid[grid.intersects(geom)]
-#     print(tiles)
+#     LOG.info(f"Tiles intersecting AOI: {tiles}")
     
 #     # select version tag, based on the year
 #     version = {2020: 'v100',
@@ -259,7 +260,7 @@ def Download_ESA_WorldLandCover(output_folder, geom, year):
 #         out_fn = Path(output_folder) / Path(url).name
 #         LC_List.append(str(out_fn))
 #         if os.path.isfile(out_fn):
-#             print('Already Exists: ' + str(out_fn))
+#             LOG.info('Already Exists: ' + str(out_fn))
 #         else:
 #             with open(out_fn, 'wb') as f:
 #                 f.write(r.content)
@@ -379,14 +380,14 @@ def Read_Raster_GDAL(InRAST_Name):
     lat = np.fabs((yll+yur)/2.0)
     Rast_Projection = dataset.GetProjectionRef()
     dataset = None
-    print('Spatial Data for Raster File:')
-    print('   ncols = ' + str(ncols))
-    print('   nrows = ' + str(nrows))
-    print('   cellsize = ' + str(cellsize))
-    print('   yll = ' + str(yll))
-    print('   yur = ' + str(yur))
-    print('   xll = ' + str(xll))
-    print('   xur = ' + str(xur))
+    LOG.info('Spatial Data for Raster File:')
+    LOG.info('   ncols = ' + str(ncols))
+    LOG.info('   nrows = ' + str(nrows))
+    LOG.info('   cellsize = ' + str(cellsize))
+    LOG.info('   yll = ' + str(yll))
+    LOG.info('   yur = ' + str(yur))
+    LOG.info('   xll = ' + str(xll))
+    LOG.info('   xur = ' + str(xur))
     return RastArray, ncols, nrows, cellsize, yll, yur, xll, xur, lat, geotransform, Rast_Projection
 
 
@@ -422,7 +423,7 @@ def Get_Raster_Details(DEM_File):
     Rast_Projection:str
         The projection system reference for the raster
     """
-    print(DEM_File)
+    LOG.info(DEM_File)
     gdal.Open(DEM_File, gdal.GA_ReadOnly)
     data = gdal.Open(DEM_File)
     geoTransform = data.GetGeoTransform()
@@ -481,10 +482,10 @@ if __name__ == "__main__":
     #Just leave blank if using Option 1 or 2 below
     if len(sys.argv) > 1:
         DEM_File = sys.argv[1]
-        print('Input DEM File: ' + DEM_File)
+        LOG.info('Input DEM File: ' + DEM_File)
     else:
         DEM_File = 'NED_n39w090_Clipped.tif'
-        print('Did not input DEM, going with default: ' + DEM_File)
+        LOG.info('Did not input DEM, going with default: ' + DEM_File)
     
     
     year = 2021  # setting this to 2020 will download the v100 product instead
@@ -522,18 +523,18 @@ if __name__ == "__main__":
         if DEM_File != '':
             LAND_File_Clipped = lc_file_str.replace('.tif','_Clipped.tif')
             if os.path.isfile(LAND_File_Clipped):
-                print('Already Exists: ' + str(LAND_File_Clipped))
+                LOG.info('Already Exists: ' + str(LAND_File_Clipped))
             else:
-                print('Creating: ' + str(LAND_File_Clipped))
+                LOG.info('Creating: ' + str(LAND_File_Clipped))
                 Create_AR_LandRaster(lc_file_str, LAND_File_Clipped, [lon_1, lat_2, lon_2, lat_1], ncols, nrows)
             lc_file_str = LAND_File_Clipped
             
         '''
         waterboundary_file = lc_file_str.replace('.tif','_wb.tif')
         if os.path.isfile(waterboundary_file):
-            print('Already Exists: ' + str(waterboundary_file))
+            LOG.info    ('Already Exists: ' + str(waterboundary_file))
         else:
-            print('Creating ' + str(waterboundary_file))
+            LOG.info('Creating ' + str(waterboundary_file))
             Create_Water_Mask(lc_file_str, waterboundary_file, 80)
         '''
     

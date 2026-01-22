@@ -4,14 +4,12 @@
 # built-in imports
 import gc
 import os
-import sys
 
 # third-party imports
 import dask.dataframe as dd
 from dask.diagnostics import ProgressBar
-import geopandas as gpd
 import numpy as np
-from osgeo import gdal, osr
+from osgeo import gdal
 import pandas as pd
 import requests
 import io
@@ -19,7 +17,7 @@ from shapely.geometry import box
 import s3fs
 import xarray as xr
 
-
+from .logger import LOG
 
 def get_nwm_rp(comids: list[int], nwm_api_key: str):
     rp_url = 'https://nwm-api.ciroh.org/return-period'
@@ -83,7 +81,7 @@ def GetMeanFlowValues(NetCDF_Directory):
     if all_mean_Qout_dfs:
         all_mean_Qout_df = pd.concat(all_mean_Qout_dfs, ignore_index=True).round(3)
     else:
-        print("No valid data found in the NetCDF files.")
+        LOG.error("No valid data found in the NetCDF files.")
         return None
     
     # Compute overall average by rivid
@@ -131,7 +129,7 @@ def GetMedianFlowValues(NetCDF_Directory):
     if all_median_Qout_dfs:
         all_median_Qout_df = pd.concat(all_median_Qout_dfs, ignore_index=True).round(3)
     else:
-        print("No valid data found in the NetCDF files.")
+        LOG.error("No valid data found in the NetCDF files.")
         return None
     
     # Compute overall median by rivid
@@ -178,7 +176,7 @@ def GetMaxFlowValues(NetCDF_Directory):
     if all_max_Qout_dfs:
         all_max_Qout_df = pd.concat(all_max_Qout_dfs, ignore_index=True).round(3)
     else:
-        print("No valid data found in the NetCDF files.")
+        LOG.error("No valid data found in the NetCDF files.")
         return None
     
     # Compute overall average by rivid
@@ -387,7 +385,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
     # if the StrmOrder_Field and StrmOrder_Lower or StrmOrder_Upper are not None use these to filter the StrmShp_gdf
     if StrmOrder_Field and (StrmOrder_Lower is not None or StrmOrder_Upper is not None):
         if StrmOrder_Field not in StrmShp_gdf.columns:
-            print(f"StrmOrder_Field '{StrmOrder_Field}' not found in stream shapefile; skipping stream order filter.")
+            LOG.warning(f"StrmOrder_Field '{StrmOrder_Field}' not found in stream shapefile; skipping stream order filter.")
         else:
             order_vals = pd.to_numeric(StrmShp_gdf[StrmOrder_Field], errors="coerce")
             mask = order_vals.notna()
@@ -423,7 +421,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
 
     # Check for at least some valid data
     if not np.any(valid_mask):
-        print(f"No valid data found in DEM tile: {DEM_Tile}")
+        LOG.error(f"No valid data found in DEM tile: {DEM_Tile}")
         return (None, None, None, None)
 
     # Get pixel indices of valid data
@@ -466,7 +464,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
 
     # Second attempt at fixing an empty StrmShp_filtered_gdf
     if StrmShp_filtered_gdf.empty:
-        print(f"Skipping processing for {DEM_Tile} because StrmShp_filtered_gdf is empty.")
+        LOG.warning(f"Skipping processing for {DEM_Tile} because StrmShp_filtered_gdf is empty.")
         CSV_File_Name = None
         OutShp_File_Name = None
         rivids_int = None
@@ -505,7 +503,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
         
         # Check if rp_df is empty
         if rp_df.empty:
-            print(f"Skipping processing for {DEM_Tile} because rp_df is empty.")
+            LOG.warning(f"Skipping processing for {DEM_Tile} because rp_df is empty.")
             CSV_File_Name = None
             OutShp_File_Name = None
             rivids_int = None
@@ -550,7 +548,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
 
             # Check if fdc_df is empty
             if fdc_df.empty:
-                print(f"Skipping processing for {DEM_Tile} because fdc_df is empty.")
+                LOG.warning(f"Skipping processing for {DEM_Tile} because fdc_df is empty.")
                 CSV_File_Name = None
                 OutShp_File_Name = None
                 rivids_int = None
@@ -567,7 +565,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
             fdc_df = fdc_pivot.round(3)
 
         except:
-            print("FDC data not available; falling back to daily data for FDC calculation.")
+            LOG.warning("FDC data not available; falling back to daily data for FDC calculation.")
             # Load daily data from S3 using Dask
             # Convert to a list of integers
             dailyflow_s3_uri = 's3://geoglows-v2/retrospective/daily.zarr'
@@ -578,7 +576,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
 
             # Check if daily_df is empty
             if daily_df.empty:
-                print(f"Skipping processing for {DEM_Tile} because daily_df is empty.")
+                LOG.warning(f"Skipping processing for {DEM_Tile} because daily_df is empty.")
                 CSV_File_Name = None
                 OutShp_File_Name = None
                 rivids_int = None
@@ -612,7 +610,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
             if col in ['p_exceed_0', 'rp100']:
                 final_df[f'{col}_premium'] = round(final_df[col]*10, 3)
         
-        print(final_df)
+        LOG.info(final_df)
 
     elif rivid_field == 'COMID':
 
@@ -632,7 +630,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
         columns = [target_column] + [col for col in final_df.columns if col != target_column]
         final_df = final_df[columns]
 
-        print(final_df)
+        LOG.info(final_df)
 
 
 

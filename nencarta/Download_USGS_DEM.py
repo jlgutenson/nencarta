@@ -1,6 +1,8 @@
 import os
 import requests
 
+from .logger import LOG
+
 # USGS Base URL for 1/3 Arc-Second DEM Data
 USGS_BASE_URL = "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/current"
 
@@ -35,23 +37,23 @@ def download_dem(lat, lon, bad_url_list, save_dir):
 
     # Check if we have already tried to download this URL and failed because of a 404 error
     if dem_url in bad_url_list:
-        print(f"DEM URL is in the bad URL list: {dem_url}. Skipping download.")
+        LOG.warning(f"DEM URL is in the bad URL list: {dem_url}. Skipping download.")
         return (None, None, bad_url_list)
 
     # Create the save directory if it doesn't exist
     os.makedirs(save_dir, exist_ok=True)
 
     if os.path.exists(save_path):    
-        print(f"Downloaded {save_path} already so, we will NOT redownload it.")
+        LOG.info(f"Downloaded {save_path} already so, we will NOT redownload it.")
         DEM_Filename = os.path.basename(save_path)
         return (save_path, DEM_Filename, bad_url_list)
 
-    print(f"Downloading DEM file: {filename} from {dem_url}")
+    LOG.info(f"Downloading DEM file: {filename} from {dem_url}")
 
     try:
         with requests.get(dem_url, stream=True) as response:
             if response.status_code == 404:
-                print(f"DEM not found (404) for {dem_url}. Skipping.")
+                LOG.warning(f"DEM not found (404) for {dem_url}. Skipping.")
                 bad_url_list.append(dem_url)  # Add to bad URL list
                 return (None, None, bad_url_list)
                 
@@ -64,14 +66,13 @@ def download_dem(lat, lon, bad_url_list, save_dir):
 
         # Verify download
         if os.path.exists(save_path) and os.path.getsize(save_path) == total_size:
-            print(f"Download complete: {save_path}")
+            LOG.info(f"Download complete: {save_path}")
             DEM_Filename = os.path.basename(save_path)
             return (save_path, DEM_Filename, bad_url_list)
         else:
-            print(f"Download may be incomplete! Expected: {total_size} bytes, Got: {os.path.getsize(save_path)} bytes")
-
+            LOG.warning(f"Download may be incomplete! Expected: {total_size} bytes, Got: {os.path.getsize(save_path)} bytes")
     except requests.exceptions.RequestException as e:
-        print(f"Error downloading {dem_url}: {e}")
+        LOG.error(f"Error downloading {dem_url}: {e}")
 
     return (None, None, bad_url_list)
 
