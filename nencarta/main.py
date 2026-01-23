@@ -21,6 +21,7 @@ from arc import Arc
 from arc.Create_GeoJSON import Run_Main_VDT_to_GEOJSON_Program_Stream_Vector
 from curve2flood import Curve2Flood_MainFunction
 from osgeo import gdal, osr
+from shapely.geometry import box
 import json
 import numpy as np
 import pandas as pd
@@ -81,9 +82,7 @@ def Process_FloodForecasting_Geospatial_Data(folder: FloodFolder, watershed_dict
         LOG.info(folder.LAND_File + ' Already Exists')
     else: 
         LOG.info('Creating ' + folder.LAND_File) 
-        # Let's make sure all the GIS data is using the same coordinate system as the DEM
-        LandCoverFile = Check_and_Change_Coordinate_Systems(folder.DEM_File, folder.LandCoverFile)
-        Create_AR_LandRaster(LandCoverFile, folder.LAND_File, projWin_extents, dem_projection, ncols, nrows)
+        Create_AR_LandRaster(folder.LandCoverFiles, folder.LAND_File, projWin_extents, dem_projection, ncols, nrows)
 
     streamflow_source = watershed_dict['streamflow_source']
     # set the ID used for the stream network
@@ -411,7 +410,7 @@ def Create_ARC_Model_Input_File_FloodForecast(ForecastFlowFile: str, folder: Flo
             os.remove(Forecast_Flood_WSE_Raster)
         if os.path.exists(Forecast_Flood_VEL_Raster):
             os.remove(Forecast_Flood_VEL_Raster)
-            
+
     out_file.write(f'\nOutFLD	' + Forecast_Flood_Map_Raster)
     out_file.write(f'\nOutSHP	' + Forecast_Flood_Map_Shapefile)
     out_file.write(f'\nOutDEP    ' + Forecast_Flood_Depth_Raster)
@@ -457,10 +456,19 @@ def Create_BaseLine_Manning_n_File_ESA(ManningN):
         out_file.write(f'\n95	Mangroves	0.100')
         out_file.write(f'\n100	MossLichen	0.100')
 
-def Create_AR_LandRaster(LandCoverFile, LAND_File, projWin_extents, out_projection, ncols, nrows):
-    ds = gdal.Open(LandCoverFile)
-    ds = gdal.Translate(LAND_File, ds, projWin = projWin_extents, width=ncols, height = nrows)
-    ds = None
+def Create_AR_LandRaster(LandCoverFiles, LAND_File, projWin_extents, out_projection, ncols, nrows):
+    options = gdal.WarpOptions(
+        format='GTiff',
+        outputBounds=projWin_extents,
+        outputBoundsSRS=out_projection,
+        width=ncols,
+        height=nrows,
+        dstSRS=out_projection,
+        resampleAlg='mode', # Best for categorical data
+        creationOptions=['COMPRESS=DEFLATE']
+    )
+
+    gdal.Warp(LAND_File, LandCoverFiles, options=options)
     return
 
 def Create_AR_StrmRaster(StrmSHP, STRM_File, outputBounds, minx, miny, maxx, maxy, dx, dy, ncols, nrows, Param):
@@ -716,32 +724,6 @@ def Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder: FloodFolder, wa
 
     return
 
-def Check_and_Change_Coordinate_Systems(DEM_File, LandCoverFile):
-    # Load the projection of the DEM file
-    with rasterio.open(DEM_File) as src:
-        dem_projection = src.crs
-    src.close()
-
-    # re-project the LAND file raster, if necessary
-    with rasterio.open(LandCoverFile) as src:
-        current_crs = src.crs
-    src.close()
-        
-    if current_crs != dem_projection:
-        input_raster = gdal.Open(LandCoverFile)
-        LandCoverFile_Update = f"{LandCoverFile[:-4]}_new.tif"
-        output_raster = LandCoverFile_Update
-        warp = gdal.Warp(output_raster,input_raster,dstSRS=dem_projection)
-        warp = None # Closes the files
-        input_raster = None
-
-    # delete the old LAND raster, if it was replaced and change the name
-    if current_crs != dem_projection:
-        os.remove(LandCoverFile)
-        LandCoverFile = LandCoverFile_Update
-
-    return (LandCoverFile)
-
 def Create_Go_Consequence_GeoJSON(Consequences_JSON_Path, Forecast_Flood_Depth_Raster_Name, Consequences_Output_GPKG_File):
     """
     Write a go-consequences config JSON using NSIAPI structures,
@@ -977,7 +959,7 @@ def DEM_Forecast(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Tim
         return
         
     folder.setup_folder_for_dem(DEM, watershed_dict['streamflow_source'], watershed_dict['clean_dem'])
-    folder.set_landcover_file(ESA.download_and_process_land_cover(folder))
+    folder.set_source_landcover_files(ESA.download_and_process_land_cover(folder))
 
     # This function sets-up the Input files for ARC and FloodSpreader
     # It also does some of the geospatial processing
@@ -1053,13 +1035,10 @@ def process_river_geometry(folder: FloodFolder, watershed_dict: dict, DEM: str):
         else:
             raise ValueError("Unsupported stream file format. Please provide a .gdb, .shp, .gpkg, or .parquet file.")
 
-    # removing any lingering NoneType geometries
-    StrmShp_gdf = StrmShp_gdf[~StrmShp_gdf.geometry.isna()]
-
     LOG.info('Converting the coordinate system of the stream file to match the DEM files, if necessary')
     test_dem_path = os.path.join(folder.dem_folder, DEM)
     # Load the DEM file and get its CRS using gdal
-    dem_dataset = gdal.Open(test_dem_path)
+    dem_dataset: gdal.Dataset = gdal.Open(test_dem_path)
     dem_proj = dem_dataset.GetProjection()  # Get the projection as a WKT string
     dem_spatial_ref = osr.SpatialReference()
     dem_spatial_ref.ImportFromWkt(dem_proj)
@@ -1067,13 +1046,31 @@ def process_river_geometry(folder: FloodFolder, watershed_dict: dict, DEM: str):
     # Get the EPSG code
     dem_spatial_ref.AutoIdentifyEPSG()
     dem_epsg_code = dem_spatial_ref.GetAuthorityCode(None)  # This extracts the EPSG code as a string
+    has_different_crs = int(str(StrmShp_gdf.crs)[5:]) != int(dem_epsg_code)
+
+    # get bounding box of the DEM
+    gt = dem_dataset.GetGeoTransform()
+    minx = gt[0]
+    maxx = gt[0] + (gt[1] * dem_dataset.RasterXSize)
+    miny = gt[3] + (gt[5] * dem_dataset.RasterYSize)
+    maxy = gt[3]
+
+    if has_different_crs:
+        minx, miny, maxx, maxy = gpd.GeoSeries(box(minx, miny, maxx, maxy), crs=dem_epsg_code).to_crs(StrmShp_gdf.crs).total_bounds
+
+    # Filter to area of interest; avoids heavy memory use and is faster
+    StrmShp_gdf = StrmShp_gdf.cx[minx:maxx, miny:maxy]
+
     # Check if the CRS of the shapefile matches the DEM's CRS
-    if int(str(StrmShp_gdf.crs)[5:]) != int(dem_epsg_code):
+    if has_different_crs:
         LOG.info("DEM and Stream Network have different coordinate systems...")
         LOG.info(f"Stream CRS: {str(StrmShp_gdf.crs)[5:]}")
         LOG.info(f"DEM CRS: {dem_epsg_code}")
         # Reproject the shapefile to match the DEM's CRS
         StrmShp_gdf = StrmShp_gdf.to_crs(dem_epsg_code)
+
+    # removing any lingering NoneType geometries
+    StrmShp_gdf = StrmShp_gdf[~StrmShp_gdf.geometry.isna()]
 
     return StrmShp_gdf
 
@@ -1120,9 +1117,9 @@ def process_dem(watershed_dict: dict):
     
     # delete the ESA_LC_Folder and the data in it
     # Loop through all files in the directory and remove them
-    for file in Path(folder.ESA_LC_Folder).glob("*"):
+    for file in folder.LandCoverFiles:
         try:
-            if file.is_file():
+            if os.path.isfile(file):
                 # Adjust file permissions before deletion
                 if platform.system() == "Windows":
                     os.chmod(file, stat.S_IWRITE)  # Remove read-only attribute on Windows
@@ -1132,6 +1129,7 @@ def process_dem(watershed_dict: dict):
                 LOG.info(f"process_dam: Deleted file: {file}")
         except Exception as e:
             LOG.error(f"Error deleting file {file}: {e}")
+
     if os.path.exists(folder.ESA_LC_Folder):
         # Adjust file permissions before deletion
         if platform.system() == "Windows":

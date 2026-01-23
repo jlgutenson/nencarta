@@ -7,6 +7,8 @@ import sys
 import time
 import urllib.error
 
+os.environ['AWS_NO_SIGN_REQUEST'] = 'YES'  # needed to access public S3 buckets without credentials
+
 # third party imports
 import geopandas as gpd   #conda install --channel conda-forge geopandas
 from osgeo import gdal
@@ -144,7 +146,7 @@ def _download_with_resume(session, url, dest, expected_size=None,
 
 
 # --- Main (sequential) function ----------------------------------------------
-def Download_ESA_WorldLandCover(output_folder, geom, year) -> str:
+def Download_ESA_WorldLandCover(output_folder, geom, year) -> list[str]:
     """
     Sequential (non-parallel) downloader for ESA WorldCover tiles intersecting `geom`.
     Adds retry/backoff, timeouts, resume, and size validation. Merges to a single GeoTIFF.
@@ -174,64 +176,23 @@ def Download_ESA_WorldLandCover(output_folder, geom, year) -> str:
         raise ValueError(f"Year {year} not supported. Available: {list(version_by_year)}")
     version = version_by_year[year]
 
-    session = _create_retry_session(total_retries=5, backoff_factor=1.0)
-
-    LC_List = []
-    failures = []
-
-    tile_ids = list(tiles["ll_tile"])
-    for tile in tqdm(tile_ids, desc="Downloading ESA tiles"):
-        url = f"{s3_url_prefix}/{version}/{year}/map/ESA_WorldCover_10m_{year}_{version}_{tile}_Map.tif"
+    landcover_files = []
+    for tile in tiles['ll_tile']:
+        url = f"/vsis3/esa-worldcover/{version}/{year}/map/ESA_WorldCover_10m_{year}_{version}_{tile}_Map.tif"
         out_fn = Path(output_folder) / Path(url).name
-
-        try:
-            remote_size, _ = _head(session, url, timeout=(10, 60))
-            if remote_size == 0:
-                failures.append((tile, "404 (not found)"))
+        if out_fn.exists():
+            try:
+                gdal.Open(str(out_fn))
+                landcover_files.append(str(out_fn))
                 continue
+            except Exception:
+                pass
+            
+        gdal.GetDriverByName('GTiff').CreateCopy(str(out_fn), gdal.Open(url))
+        landcover_files.append(str(out_fn))
 
-            if out_fn.exists():
-                local_size = out_fn.stat().st_size
-                if remote_size is not None and local_size == remote_size:
-                    LC_List.append(str(out_fn))  # already complete
-                    continue
-                # If local file is larger than remote, it's corrupt → remove and redownload
-                if remote_size is not None and local_size > remote_size:
-                    out_fn.unlink(missing_ok=True)
+    return landcover_files
 
-            ok = _download_with_resume(
-                session, url, out_fn, expected_size=remote_size,
-                timeout=(15, 180), max_attempts=5
-            )
-            if ok:
-                LC_List.append(str(out_fn))
-            else:
-                failures.append((tile, "failed after retries"))
-
-        except requests.HTTPError as e:
-            failures.append((tile, f"http_error {e.response.status_code if e.response else ''}"))
-        except Exception as e:
-            failures.append((tile, f"error {e}"))
-
-    if not LC_List:
-        raise RuntimeError(f"All downloads failed. Examples: {failures[:3]}")
-
-    # Merge rasters (explicitly keep GDAL single-threaded)
-    LandCoverFile = os.path.join(output_folder, "merged_ESA_LC.tif")
-    warp_opts = gdal.WarpOptions(
-        format="GTiff",
-        multithread=False,  # keep non-parallel
-        creationOptions=["TILED=YES", "COMPRESS=LZW", "BIGTIFF=YES"]
-    )
-    merged = gdal.Warp(LandCoverFile, LC_List, options=warp_opts)
-    if merged:
-        merged.FlushCache()
-        merged = None
-
-    if failures:
-        LOG.warning(f"{len(failures)} tiles failed to download (first few): {failures[:5]}")
-
-    return LandCoverFile
 # def Download_ESA_WorldLandCover(output_folder, geom, year):
 #     s3_url_prefix = "https://esa-worldcover.s3.eu-central-1.amazonaws.com"
 #     # load natural earth low res shapefile
@@ -533,8 +494,8 @@ if __name__ == "__main__":
             Create_Water_Mask(lc_file_str, waterboundary_file, 80)
         '''
     
-def download_and_process_land_cover(folder: FloodFolder) -> str:
-    LandCoverFile = ''
+def download_and_process_land_cover(folder: FloodFolder) -> list[str]:
+    LandCoverFiles = []
     if not os.path.exists(folder.LAND_File):
         (lon_1, lat_1, lon_2, lat_2, _, _, _, _, _, Rast_Projection) = Get_Raster_Details(folder.DEM_File)
         
@@ -550,6 +511,6 @@ def download_and_process_land_cover(folder: FloodFolder) -> str:
             transformer = Transformer.from_crs(raster_crs, wgs84_crs, always_xy=True)
             geom = transform(transformer.transform, geom)
 
-        LandCoverFile = Download_ESA_WorldLandCover(folder.ESA_LC_Folder, geom, 2021)
+        LandCoverFiles = Download_ESA_WorldLandCover(folder.ESA_LC_Folder, geom, 2021)
 
-    return LandCoverFile
+    return LandCoverFiles

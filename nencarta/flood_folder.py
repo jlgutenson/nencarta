@@ -66,8 +66,8 @@ class FloodFolder:
         self.FloodWSEFile = os.path.join(self.flood_folder, streamflow_source + '_' + self.FileName + '_ARC_FloodWSE.tif') 
         self.FloodVELFile = os.path.join(self.flood_folder, streamflow_source + '_' + self.FileName + '_ARC_FloodVEL.tif')
 
-    def set_landcover_file(self, LandCoverFile: str):
-        self.LandCoverFile = LandCoverFile
+    def set_source_landcover_files(self, LandCoverFiles: list[str]):
+        self.LandCoverFiles = LandCoverFiles
 
     def setup_fldpln_files(self):
         self.flowdir_orig = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.DEM_File).replace(".tif","_flowdir_orig_crs.tif"))
