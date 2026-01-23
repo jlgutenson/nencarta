@@ -9,6 +9,7 @@ import os
 import dask.dataframe as dd
 from dask.diagnostics import ProgressBar
 import numpy as np
+import geopandas as gpd
 from osgeo import gdal
 import pandas as pd
 import requests
@@ -17,6 +18,7 @@ from shapely.geometry import box
 import s3fs
 import xarray as xr
 
+from .flood_folder import FloodFolder
 from .logger import LOG
 
 def get_nwm_rp(comids: list[int], nwm_api_key: str):
@@ -374,29 +376,29 @@ class PatchedZarrStore(dict):
         return list(self.__iter__())
 
 
-def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, DEM_Tile, CSV_File_Name, OutShp_File_Name, stream_ids_in_lake_list, StrmOrder_Field, StrmOrder_Lower, StrmOrder_Upper, nwm_api_key=None):
+def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFrame, rivid_field, folder: FloodFolder, watershed_dict: dict):
 
 
     # First let's remove the stream reaches that are in the stream_ids_in_lake_list
     # filter out the streams that are in the stream_ids_in_lake_list by using the "LINKNO values in stream_ids_in_lake_list"
-    if stream_ids_in_lake_list is not None:
-        StrmShp_gdf = StrmShp_gdf[~StrmShp_gdf[rivid_field].isin(stream_ids_in_lake_list)]
+    if watershed_dict.get("stream_ids_in_lake_list") is not None:
+        StrmShp_gdf = StrmShp_gdf[~StrmShp_gdf[rivid_field].isin(watershed_dict["stream_ids_in_lake_list"])]
 
     # if the StrmOrder_Field and StrmOrder_Lower or StrmOrder_Upper are not None use these to filter the StrmShp_gdf
-    if StrmOrder_Field and (StrmOrder_Lower is not None or StrmOrder_Upper is not None):
-        if StrmOrder_Field not in StrmShp_gdf.columns:
-            LOG.warning(f"StrmOrder_Field '{StrmOrder_Field}' not found in stream shapefile; skipping stream order filter.")
+    if watershed_dict.get("StrmOrder_Field") and (watershed_dict.get("StrmOrder_Lower") is not None or watershed_dict.get("StrmOrder_Upper") is not None):
+        if watershed_dict["StrmOrder_Field"] not in StrmShp_gdf.columns:
+            LOG.warning(f"StrmOrder_Field '{watershed_dict['StrmOrder_Field']}' not found in stream shapefile; skipping stream order filter.")
         else:
-            order_vals = pd.to_numeric(StrmShp_gdf[StrmOrder_Field], errors="coerce")
+            order_vals = pd.to_numeric(StrmShp_gdf[watershed_dict["StrmOrder_Field"]], errors="coerce")
             mask = order_vals.notna()
-            if StrmOrder_Lower is not None:
-                mask &= order_vals >= StrmOrder_Lower
-            if StrmOrder_Upper is not None:
-                mask &= order_vals <= StrmOrder_Upper
+            if watershed_dict.get("StrmOrder_Lower") is not None:
+                mask &= order_vals >= watershed_dict["StrmOrder_Lower"]
+            if watershed_dict.get("StrmOrder_Upper") is not None:
+                mask &= order_vals <= watershed_dict["StrmOrder_Upper"]
             StrmShp_gdf = StrmShp_gdf.loc[mask].copy()
 
     # Load the raster tile and get its bounds using gdal
-    raster_dataset = gdal.Open(DEM_Tile)
+    raster_dataset = gdal.Open(folder.DEM_File)
     gt = raster_dataset.GetGeoTransform()
 
     # # Get the bounds of the raster (xmin, ymin, xmax, ymax)
@@ -421,7 +423,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
 
     # Check for at least some valid data
     if not np.any(valid_mask):
-        LOG.error(f"No valid data found in DEM tile: {DEM_Tile}")
+        LOG.error(f"No valid data found in DEM tile: {folder.DEM_File}")
         return (None, None, None, None)
 
     # Get pixel indices of valid data
@@ -464,18 +466,13 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
 
     # Second attempt at fixing an empty StrmShp_filtered_gdf
     if StrmShp_filtered_gdf.empty:
-        LOG.warning(f"Skipping processing for {DEM_Tile} because StrmShp_filtered_gdf is empty.")
-        CSV_File_Name = None
-        OutShp_File_Name = None
-        rivids_int = None
-        StrmShp_filtered_gdf = None
-        return (CSV_File_Name, OutShp_File_Name, rivids_int, StrmShp_filtered_gdf)
+        LOG.warning(f"Skipping processing for {folder.DEM_File} because StrmShp_filtered_gdf is empty.")
+        return (None, None, None, None)
 
-    StrmShp_filtered_gdf.to_file(OutShp_File_Name, driver="GPKG")
+    StrmShp_filtered_gdf.to_file(folder.DEM_StrmShp, driver="GPKG")
     StrmShp_filtered_gdf[rivid_field] = StrmShp_filtered_gdf[rivid_field].astype(int)
 
     # create a list of river IDs to throw to AWS
-    rivids_str = StrmShp_filtered_gdf[rivid_field].astype(str).to_list()
     rivids_int = StrmShp_filtered_gdf[rivid_field].astype(int).to_list()
 
     # Column to move to the front
@@ -503,12 +500,8 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
         
         # Check if rp_df is empty
         if rp_df.empty:
-            LOG.warning(f"Skipping processing for {DEM_Tile} because rp_df is empty.")
-            CSV_File_Name = None
-            OutShp_File_Name = None
-            rivids_int = None
-            StrmShp_filtered_gdf = None
-            return (CSV_File_Name, OutShp_File_Name, rivids_int, StrmShp_filtered_gdf)
+            LOG.warning(f"Skipping processing for {folder.DEM_File} because rp_df is empty.")
+            return (None, None, None, None)
 
         # Convert 'return_period' to category dtype
         rp_df['return_period'] = rp_df['return_period'].astype('category')
@@ -548,13 +541,9 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
 
             # Check if fdc_df is empty
             if fdc_df.empty:
-                LOG.warning(f"Skipping processing for {DEM_Tile} because fdc_df is empty.")
-                CSV_File_Name = None
-                OutShp_File_Name = None
-                rivids_int = None
-                StrmShp_filtered_gdf = None
-                return (CSV_File_Name, OutShp_File_Name, rivids_int, StrmShp_filtered_gdf)
-
+                LOG.warning(f"Skipping processing for {folder.DEM_File} because fdc_df is empty.")
+                return (None, None, None, None)
+            
             fdc_pivot = fdc_df.pivot_table(
                 index='river_id',
                 columns='p_exceed',
@@ -576,12 +565,8 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
 
             # Check if daily_df is empty
             if daily_df.empty:
-                LOG.warning(f"Skipping processing for {DEM_Tile} because daily_df is empty.")
-                CSV_File_Name = None
-                OutShp_File_Name = None
-                rivids_int = None
-                StrmShp_filtered_gdf = None
-                return (CSV_File_Name, OutShp_File_Name, rivids_int, StrmShp_filtered_gdf)
+                LOG.warning(f"Skipping processing for {folder.DEM_File} because daily_df is empty.")
+                return (None, None, None, None)
             
             # creating exceedance percentiles with the daily data
             p_exceedance = [float(v) for v in range(5, 101, 5)]
@@ -615,7 +600,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
     elif rivid_field == 'COMID':
 
         # Fetch return periods (rp2, rp100, etc.)
-        final_df = get_nwm_rp(rivids_int, nwm_api_key)
+        final_df = get_nwm_rp(rivids_int, watershed_dict["nwm_api_key"])
 
         # Add derived flows directly to rp_df without dropping anything
         final_df["rp100_premium"] = (final_df["rp100"] * 10).round(3)
@@ -637,7 +622,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, rivid_field, 
 
 
     # Write the final Dask DataFrame to CSV
-    final_df.to_csv(CSV_File_Name, index=False)
+    final_df.to_csv(folder.DEM_Reanalsyis_FlowFile, index=False)
     
     # Return the combined DataFrame as a Dask DataFrame
-    return (CSV_File_Name, OutShp_File_Name, rivids_int, StrmShp_filtered_gdf)
+    return rivids_int, StrmShp_filtered_gdf

@@ -13,21 +13,16 @@ from osgeo import gdal
 import requests   #conda install anaconda::requests
 from tqdm.auto import tqdm  # provides a progressbar     #conda install conda-forge::tqdm
 from pathlib import Path    #conda install anaconda::pathlib
-from shapely.geometry import LineString, Polygon    #conda install conda-forge::shapely
+from shapely.geometry import Polygon    #conda install conda-forge::shapely
 import numpy as np
 import random
+from shapely.ops import transform
+from pyproj import CRS, Transformer
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from .flood_folder import FloodFolder
 from .logger import LOG
-
-from pyproj import CRS
-
-try:
-    import gdal     #conda install conda-forge::gdal
-except: 
-    from osgeo import gdal
-
 
 def Geom_Based_On_Country(country, Shapefile_Use):
     ne = gpd.read_file(Shapefile_Use)
@@ -149,7 +144,7 @@ def _download_with_resume(session, url, dest, expected_size=None,
 
 
 # --- Main (sequential) function ----------------------------------------------
-def Download_ESA_WorldLandCover(output_folder, geom, year):
+def Download_ESA_WorldLandCover(output_folder, geom, year) -> str:
     """
     Sequential (non-parallel) downloader for ESA WorldCover tiles intersecting `geom`.
     Adds retry/backoff, timeouts, resume, and size validation. Merges to a single GeoTIFF.
@@ -538,3 +533,23 @@ if __name__ == "__main__":
             Create_Water_Mask(lc_file_str, waterboundary_file, 80)
         '''
     
+def download_and_process_land_cover(folder: FloodFolder) -> str:
+    LandCoverFile = ''
+    if not os.path.exists(folder.LAND_File):
+        (lon_1, lat_1, lon_2, lat_2, _, _, _, _, _, Rast_Projection) = Get_Raster_Details(folder.DEM_File)
+        
+        # Get geometry in original projection
+        geom = Get_Polygon_Geometry(lon_1, lat_1, lon_2, lat_2)
+
+        # Check if raster projection is WGS 84
+        raster_crs = CRS.from_wkt(Rast_Projection)
+        wgs84_crs = CRS.from_epsg(4326)
+
+        if raster_crs != wgs84_crs:
+            # Convert geometry to WGS 84
+            transformer = Transformer.from_crs(raster_crs, wgs84_crs, always_xy=True)
+            geom = transform(transformer.transform, geom)
+
+        LandCoverFile = Download_ESA_WorldLandCover(folder.esa_lc_folder, geom, 2021)
+
+    return LandCoverFile
