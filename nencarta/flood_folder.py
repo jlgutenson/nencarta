@@ -51,6 +51,7 @@ class FloodFolder:
         self.STRM_File = os.path.join(self.strm_folder, match.group(0) + '_' + self.FileName + '_STRM_Raster.tif')
         self.STRM_File_Clean = self.STRM_File.replace('.tif','_Clean.tif')
         self.VDT_File = os.path.join(self.VDT_Folder, match.group(0) + '_' + self.FileName + '_VDT_Database.txt')
+        self.VDT_File_Bathy = self.VDT_File.replace('.txt', '_Bathy.txt')
         self.Curve_File = os.path.join(self.VDT_Folder, match.group(0) + '_' + self.FileName + '_CurveFile.csv')
         self.FloodMapFile_Initial = os.path.join(self.flood_folder, match.group(0) + '_' + self.FileName + '_ARC_Flood_Initial.tif')
         self.DepthMapFile = os.path.join(self.flood_folder, match.group(0) + '_' + self.FileName + '_ARC_Depth.tif')

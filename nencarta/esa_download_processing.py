@@ -35,7 +35,7 @@ def download_grid_with_retry(url, max_retries=10, wait_seconds=10):
     attempt = 0
     while attempt < max_retries:
         try:
-            grid = gpd.read_file(url, crs="epsg:4326")
+            grid = gpd.read_file(url).to_crs(epsg=4326)
             LOG.info(f"Successfully downloaded grid on attempt {attempt + 1}")
             return grid
         except urllib.error.URLError as e:
@@ -550,6 +550,6 @@ def download_and_process_land_cover(folder: FloodFolder) -> str:
             transformer = Transformer.from_crs(raster_crs, wgs84_crs, always_xy=True)
             geom = transform(transformer.transform, geom)
 
-        LandCoverFile = Download_ESA_WorldLandCover(folder.esa_lc_folder, geom, 2021)
+        LandCoverFile = Download_ESA_WorldLandCover(folder.ESA_LC_Folder, geom, 2021)
 
     return LandCoverFile

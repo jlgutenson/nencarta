@@ -32,6 +32,16 @@ class Timer:
     def get_minutes(self, label: str) -> float:
         return round(self.times.get(label, 0.0) / 60.0, 2)
     
+    def get_seconds(self, label: str) -> float:
+        return round(self.times.get(label, 0.0), 2)
+    
+    def get_time_string(self, label: str) -> str:
+        if self.times.get(label, 0.0) >= 60.0:
+            remaining_seconds = self.times[label] % 60
+            return f"{self.get_minutes(label)} minutes, {round(remaining_seconds, 2)} seconds"
+        
+        return f"{self.get_seconds(label)} seconds"
+    
     def __call__(self, label: str) -> _TimerContextManager:
         return _TimerContextManager(self, label)
     
