@@ -5,7 +5,6 @@
 import argparse
 from contextlib import redirect_stdout, redirect_stderr
 from datetime import datetime, timedelta
-import gc
 import multiprocessing as mp
 import sys
 import os
@@ -14,7 +13,6 @@ import platform
 import re
 import stat
 import subprocess
-import time
 import pprint
 from typing import TextIO
 
@@ -26,11 +24,10 @@ from osgeo import gdal, osr
 import json
 import numpy as np
 import pandas as pd
-from pyproj import CRS, Transformer
 import rasterio
 import geopandas as gpd
-from shapely.ops import transform
 import numpy as np
+from line_profiler import profile # TODO remove after debugging
 
 
 # local imports
@@ -73,7 +70,7 @@ def _resolve_parallel_settings(data, cli_parallel=None, cli_num_workers=None):
     return bool(parallel), num_workers
 
 
-def Process_FloodForecasting_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, StrmShp_gdf):
+def Process_FloodForecasting_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str):
     #Get the Spatial Information from the DEM Raster
     (minx, miny, maxx, maxy, dx, dy, ncols, nrows, _, dem_projection) = Get_Raster_Details(folder.DEM_File)
     projWin_extents = [minx, maxy, maxx, miny]
@@ -107,6 +104,8 @@ def Process_FloodForecasting_Geospatial_Data(folder: FloodFolder, watershed_dict
         DEM_StrmShp_gdf = gpd.read_file(folder.DEM_StrmShp)
         rivids = DEM_StrmShp_gdf[stream_id_field].values
     else:
+        # Before we get too far ahead, let's make sure that our DEM and Flowlines have the same coordinate system
+        StrmShp_gdf = process_river_geometry(folder, watershed_dict, DEM) 
         rivids, DEM_StrmShp_gdf = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, stream_id_field, folder, watershed_dict)
 
     if DEM_StrmShp_gdf is None or DEM_StrmShp_gdf.empty:
@@ -399,19 +398,20 @@ def Create_ARC_Model_Input_File_FloodForecast(ForecastFlowFile: str, folder: Flo
         out_file.write(f'\nLU_Raster_SameRes	' + folder.LAND_File)
         out_file.write(f'\nLAND_WaterValue\t{str(watershed_dict["land_watervalue"])}')
 
-    # delete the old FloodSpreader outputs, it can cause issues otherwise
-    if os.path.exists(Forecast_Flood_Map_Raster):
-        os.remove(Forecast_Flood_Map_Raster)
     Forecast_Flood_Map_Shapefile = Forecast_Flood_Map_Raster.replace('.tif','.shp')
-    # Forecast_Flood_Map_Shapefile = Forecast_Flood_Map_Raster.replace('.tif','.gpkg')
-    if os.path.exists(Forecast_Flood_Map_Shapefile):
-        os.remove(Forecast_Flood_Map_Shapefile)
-    if os.path.exists(Forecast_Flood_Depth_Raster):
-        os.remove(Forecast_Flood_Depth_Raster)
-    if os.path.exists(Forecast_Flood_WSE_Raster):
-        os.remove(Forecast_Flood_WSE_Raster)
-    if os.path.exists(Forecast_Flood_VEL_Raster):
-        os.remove(Forecast_Flood_VEL_Raster)
+    if watershed_dict['remove_old_forecast_files']:
+        # delete the old FloodSpreader outputs, it can cause issues otherwise
+        if os.path.exists(Forecast_Flood_Map_Raster):
+            os.remove(Forecast_Flood_Map_Raster)
+        if os.path.exists(Forecast_Flood_Map_Shapefile):
+            os.remove(Forecast_Flood_Map_Shapefile)
+        if os.path.exists(Forecast_Flood_Depth_Raster):
+            os.remove(Forecast_Flood_Depth_Raster)
+        if os.path.exists(Forecast_Flood_WSE_Raster):
+            os.remove(Forecast_Flood_WSE_Raster)
+        if os.path.exists(Forecast_Flood_VEL_Raster):
+            os.remove(Forecast_Flood_VEL_Raster)
+            
     out_file.write(f'\nOutFLD	' + Forecast_Flood_Map_Raster)
     out_file.write(f'\nOutSHP	' + Forecast_Flood_Map_Shapefile)
     out_file.write(f'\nOutDEP    ' + Forecast_Flood_Depth_Raster)
@@ -596,12 +596,8 @@ def Read_Raster_GDAL(InRAST_Name):
 
 def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
     LOG.info('\nCleaning up the Stream File.')
-    (SN, ncols, nrows, cellsize, yll, yur, xll, xur, lat, dem_geotransform, dem_projection) = Read_Raster_GDAL(STRM_File)
+    (SN, ncols, nrows, _, _, _, _, _, _, dem_geotransform, dem_projection) = Read_Raster_GDAL(STRM_File)
 
-    # delete the variables from Read_Raster_GDAL we are not using
-    del yll, yur, xll, xur, lat, cellsize
-    gc.collect()
-    
     #Create an array that is slightly larger than the STRM Raster Array
     B = np.zeros((nrows+2,ncols+2), dtype=np.int64)
     
@@ -687,12 +683,9 @@ def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
     return
 
 def Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder: FloodFolder, watervalue):
-    (LC, ncols, nrows, cellsize, yll, yur, xll, xur, lat, lc_geotransform, lc_projection) = Read_Raster_GDAL(folder.LAND_File)
-    (SN, ncols, nrows, cellsize, yll, yur, xll, xur, lat, sn_geotransform, sn_projection) = Read_Raster_GDAL(folder.STRM_File_Clean)
-
-    # delete the variables we are not using
-    del yll, yur, xll, xur, lat, cellsize, lc_geotransform, lc_projection
-    gc.collect()
+    LOG.info('Cannot find initial flood file, so creating ' + folder.FloodMapFile_Initial)
+    (LC, ncols, nrows, _, _, _, _, _, _, _, _) = Read_Raster_GDAL(folder.LAND_File)
+    (SN, ncols, nrows, _, _, _, _, _, _, sn_geotransform, sn_projection) = Read_Raster_GDAL(folder.STRM_File_Clean)
     
     '''
     # Streams identified in LC
@@ -721,15 +714,9 @@ def Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder: FloodFolder, wa
     
     Write_Output_Raster(folder.FloodMapFile_Initial, F, ncols, nrows, sn_geotransform, sn_projection, "GTiff", gdal.GDT_Int32)
 
-    # delete all the variables we are not using
-    del LC, SN, F
-    del sn_geotransform, sn_projection
-    gc.collect()
-
     return
 
 def Check_and_Change_Coordinate_Systems(DEM_File, LandCoverFile):
-
     # Load the projection of the DEM file
     with rasterio.open(DEM_File) as src:
         dem_projection = src.crs
@@ -792,7 +779,30 @@ def Create_Go_Consequence_GeoJSON(Consequences_JSON_Path, Forecast_Flood_Depth_R
 
     return
 
+def create_fist_inputs(folder: FloodFolder, watershed_dict: dict, timer: Timer):
+    # FIST Input Creation
+    OutProjection = "EPSG:4269"
+    # SEED file for creating a GEOJSON for FIST
+    SEED_File = os.path.join(folder.FIST_Folder, folder.FileName + '_Seed.shp') 
+    # ForecastFlowFile  = r"C:\Projects\2023_MultiModelFloodMapping\Yellowstone_HydroDEM\Yellowstone_flood_2022_max_streamflow_estimate.csv"
+    streamflow_forecast_df = pd.read_csv(folder.ForecastFlowFile)
+    
+    streamflow_columns = streamflow_forecast_df.select_dtypes(include=['float']).columns.tolist()
+    stream_id_field, ds_stream_id_field = get_streamids_from_source(watershed_dict['streamflow_source'])
+
+    for streamflow_column in streamflow_columns:
+        streamflow_forecast_filtered_df = streamflow_forecast_df[['rivid', streamflow_column]]
+        GeoJSON_File = os.path.join(folder.FIST_Folder, f"{folder.FileName}_{watershed_dict['forensic_forecast_date']}_{streamflow_column}.geojson") 
+        if not os.path.exists(GeoJSON_File):
+            LOG.info('Creating FIST Input: ' + GeoJSON_File)
+            with timer('geojson_forecast_simulation_time'):
+                Run_Main_VDT_to_GEOJSON_Program_Stream_Vector(folder.VDT_File_Bathy, folder.STRM_File_Clean, GeoJSON_File, OutProjection, folder.DEM_StrmShp, stream_id_field, ds_stream_id_field, SEED_File, Thin_Output=True, comid_q_df=streamflow_forecast_filtered_df)
+
+
 def remove_old_forecast_files(folder: FloodFolder, watershed_dict: dict):
+    if not watershed_dict['remove_old_forecast_files']:
+        return
+    
     # check and see if forecasts past a specified date exist and if so, delete them
     forecast_dir = os.path.dirname(folder.Forecast_Flood_Map)
     forecast_file = os.path.basename(folder.Forecast_Flood_Map)
@@ -906,8 +916,12 @@ def create_bathymetry(folder: FloodFolder, watershed_dict: dict, timer: Timer):
                 Curve2Flood_MainFunction(folder.ARC_FileName_Bathy)
     else:
         LOG.info(f"{folder.FS_BathyFile} exists and we aren't making it again...")
-
+@profile
 def run_forecast_floodmapping(folder: FloodFolder, watershed_dict: dict, timer: Timer):
+    if not watershed_dict.get('overwrite_forecast_floodmaps', True) and os.path.exists(folder.Forecast_Flood_Map):
+        LOG.info(f"{folder.Forecast_Flood_Map} exists and we aren't overwriting it...")
+        return
+    
     # (May want to look here to do a reduced flow file to only flows that exceed a threshold.  Could also do in the forecast flow function)
     LOG.info('Creating Forecast Flood Event to be stored here: ' + folder.Forecast_Flood_Map)
     if watershed_dict['mapper'] == "FloodSpreader":
@@ -957,8 +971,8 @@ def run_go_consequences(watershed_dict: dict, folder: FloodFolder, timer: Timer)
             subprocess.call(docker_command, shell=True)
     else:
         LOG.info("Evidently, you don't want to run Go-Consequences, so we aren't make the consequences files...")
-
-def DEM_Forecast(DEM: str, folder: FloodFolder, watershed_dict: dict, StrmShp_gdf: gpd.GeoDataFrame | None, timer: Timer):
+@profile
+def DEM_Forecast(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Timer):
     if not (DEM.endswith(".tif") or DEM.endswith(".img")):
         return
         
@@ -967,7 +981,7 @@ def DEM_Forecast(DEM: str, folder: FloodFolder, watershed_dict: dict, StrmShp_gd
 
     # This function sets-up the Input files for ARC and FloodSpreader
     # It also does some of the geospatial processing
-    Process_FloodForecasting_Geospatial_Data(folder, watershed_dict, StrmShp_gdf)  
+    Process_FloodForecasting_Geospatial_Data(folder, watershed_dict, DEM)  
 
     # if the DEM_StrmShp file is empty, then we can't do anything
     if not folder.DEM_StrmShp:
@@ -985,14 +999,12 @@ def DEM_Forecast(DEM: str, folder: FloodFolder, watershed_dict: dict, StrmShp_gd
     # # creat the initial flood map with the stream raster and land cover data
     if watershed_dict['use_specified_depth_for_bathy_mask'] is False:
         if folder.FloodMapFile_Initial is not None and not os.path.exists(folder.FloodMapFile_Initial):
-            LOG.info('Cannot find initial flood file, so creating ' + folder.FloodMapFile_Initial)
             #Create an Initial Flood Map Based on Stream Raster and Land Cover Dataset
             Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder, 80)
         else:
             LOG.info(f"{folder.FloodMapFile_Initial} exists and we aren't making it again...")
     
     if watershed_dict['clean_dem'] and not os.path.exists(folder.FloodMapFile_Initial):
-        LOG.info('Cannot find initial flood file, so creating ' + folder.FloodMapFile_Initial)
         #Create an Initial Flood Map Based on Stream Raster and Land Cover Dataset
         Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder, 80)
 
@@ -1008,56 +1020,44 @@ def DEM_Forecast(DEM: str, folder: FloodFolder, watershed_dict: dict, StrmShp_gd
             Hydroterrain_Processing.create_flow_direction_raster(folder.FS_BathyFile, folder.output_dir, folder.flowdir_bathy)
     
     run_forecast_floodmapping(folder, watershed_dict, timer)
-
-    # FIST Input Creation
-    OutProjection = "EPSG:4269"
-    # SEED file for creating a GEOJSON for FIST
-    SEED_File = os.path.join(folder.FIST_Folder, folder.FileName + '_Seed.shp') 
-    # ForecastFlowFile  = r"C:\Projects\2023_MultiModelFloodMapping\Yellowstone_HydroDEM\Yellowstone_flood_2022_max_streamflow_estimate.csv"
-    streamflow_forecast_df = pd.read_csv(folder.ForecastFlowFile)
-    
-    streamflow_columns = streamflow_forecast_df.select_dtypes(include=['float']).columns.tolist()
-    stream_id_field, ds_stream_id_field = get_streamids_from_source(watershed_dict['streamflow_source'])
-
-    for streamflow_column in streamflow_columns:
-        streamflow_forecast_filtered_df = streamflow_forecast_df[['rivid', streamflow_column]]
-        GeoJSON_File = os.path.join(folder.FIST_Folder, f"{folder.FileName}_{watershed_dict['forensic_forecast_date']}_{streamflow_column}.geojson") 
-        LOG.info('Creating FIST Input: ' + GeoJSON_File)
-        # start time for the simulation
-        with timer('geojson_forecast_simulation_time'):
-            Run_Main_VDT_to_GEOJSON_Program_Stream_Vector(folder.VDT_File_Bathy, folder.STRM_File_Clean, GeoJSON_File, OutProjection, folder.DEM_StrmShp, stream_id_field, ds_stream_id_field, SEED_File, Thin_Output=True, comid_q_df=streamflow_forecast_filtered_df)
-
+    create_fist_inputs(folder, watershed_dict, timer)
     run_go_consequences(watershed_dict, folder, timer)
 
     return
 
-def process_river_geometry(folder: FloodFolder, watershed_dict: dict, DEM_List: list[str]):
+_STREAMS_GDF_CACHE: dict[str, gpd.GeoDataFrame] = {}
+
+@profile
+def process_river_geometry(folder: FloodFolder, watershed_dict: dict, DEM: str):
     if not watershed_dict['process_stream_network']:
         return None
     
     #Datasets that can be good for a large domain
     StrmSHP: str = watershed_dict['flowline']
-    LOG.info('Reading in stream file: ' + StrmSHP)
-    if StrmSHP.endswith(".gdb"):
-        # Specify the layer you want to access
-        layer_name = "geoglowsv2"
-        # Read the layer from the geodatabase
-        StrmShp_gdf = gpd.read_file(StrmSHP, layer=layer_name)    
-    elif StrmSHP.endswith(".shp") or StrmSHP.endswith(".gpkg"):
-        # Read the layer from the shapefile
-        StrmShp_gdf = gpd.read_file(StrmSHP)
-    elif StrmSHP.endswith(".parquet"):
-        # Read the layer from the shapefile
-        StrmShp_gdf = gpd.read_parquet(StrmSHP)
+    if StrmSHP in _STREAMS_GDF_CACHE:
+        LOG.info('Using cached stream file: ' + StrmSHP)
+        StrmShp_gdf = _STREAMS_GDF_CACHE[StrmSHP]
     else:
-        raise ValueError("Unsupported stream file format. Please provide a .gdb, .shp, .gpkg, or .parquet file.")
+        LOG.info('Reading in stream file: ' + StrmSHP)
+        if StrmSHP.endswith(".gdb"):
+            # Specify the layer you want to access
+            layer_name = "geoglowsv2"
+            # Read the layer from the geodatabase
+            StrmShp_gdf = gpd.read_file(StrmSHP, layer=layer_name)    
+        elif StrmSHP.endswith((".shp", ".gpkg")):
+            # Read the layer from the shapefile
+            StrmShp_gdf = gpd.read_file(StrmSHP)
+        elif StrmSHP.endswith(".parquet"):
+            # Read the layer from the shapefile
+            StrmShp_gdf = gpd.read_parquet(StrmSHP)
+        else:
+            raise ValueError("Unsupported stream file format. Please provide a .gdb, .shp, .gpkg, or .parquet file.")
 
     # removing any lingering NoneType geometries
     StrmShp_gdf = StrmShp_gdf[~StrmShp_gdf.geometry.isna()]
 
     LOG.info('Converting the coordinate system of the stream file to match the DEM files, if necessary')
-    test_dem = next((file for file in DEM_List if file.endswith('.tif')), None)
-    test_dem_path = os.path.join(folder.dem_folder, test_dem)
+    test_dem_path = os.path.join(folder.dem_folder, DEM)
     # Load the DEM file and get its CRS using gdal
     dem_dataset = gdal.Open(test_dem_path)
     dem_proj = dem_dataset.GetProjection()  # Get the projection as a WKT string
@@ -1077,6 +1077,7 @@ def process_river_geometry(folder: FloodFolder, watershed_dict: dict, DEM_List: 
 
     return StrmShp_gdf
 
+@profile
 def process_dem(watershed_dict: dict):
     LOG.info(f"Estimate consequences is set to {watershed_dict['estimate_consequences']}")
 
@@ -1110,16 +1111,12 @@ def process_dem(watershed_dict: dict):
     if len(DEM_List) == 0:
         LOG.info("No DEMs found in the specified folder.")
         return
-
-    # Before we get too far ahead, let's make sure that our DEMs and Flowlines have the same coordinate system
-    # we will assume that all DEMs in the DEM list have the same coordinate system
-    StrmShp_gdf = process_river_geometry(folder, watershed_dict, DEM_List) 
     
     timer = Timer()
 
     #Now go through each DEM dataset
     for DEM in DEM_List:
-        DEM_Forecast(DEM, folder, watershed_dict, StrmShp_gdf, timer)
+        DEM_Forecast(DEM, folder, watershed_dict, timer)
     
     # delete the ESA_LC_Folder and the data in it
     # Loop through all files in the directory and remove them
@@ -1245,6 +1242,9 @@ def process_json_input_serial(json_file):
             elif len(specify_depths_for_bathy_mask) > 1 and clean_dem is False:
                 raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of one float when 'clean_dem' is False.")
             
+        overwrite_forecast_floodmaps = watershed.get("overwrite_forecast_floodmaps", True)
+        remove_old_forecast_files = watershed.get("remove_old_forecast_files", False)
+            
         watershed_dict = {
             "name": watershed_name,
             "flowline": flowline,
@@ -1275,6 +1275,8 @@ def process_json_input_serial(json_file):
             "estimate_consequences": watershed.get("estimate_consequences", False),
             "streamflow_source": watershed.get("streamflow_source", "GEOGLOWS"),
             "nwm_api_key": nwm_api_key,
+            "overwrite_forecast_floodmaps": overwrite_forecast_floodmaps,
+            "remove_old_forecast_files": remove_old_forecast_files
         }
 
         # Ensure the output directory exists
