@@ -234,9 +234,9 @@ def Create_FlowFile(MainFlowFile, FlowFileName, OutputID, Qparam):
     outfile.close()
     return
 
-def _write_arc_input_section(out_file: TextIO, folder: FloodFolder, watershed_dict: dict, COMID_Param: str):
+def _write_arc_input_section(out_file: TextIO, folder: FloodFolder, watershed_dict: dict, COMID_Param: str, maybe_use_clean_dem: bool):
     out_file.write('#ARC_Inputs')
-    out_file.write(f'\nDEM_File\t{folder.DEM_File_Clean}') # This will be either the cleaned DEM or the original DEM based upon prior user choice
+    out_file.write(f'\nDEM_File\t{folder.DEM_File_Clean if maybe_use_clean_dem else folder.DEM_File}') # use_clean_dem will auto pick the cleaned DEM if it exists, else we force using the original DEM
     out_file.write(f'\nStream_File\t{folder.STRM_File_Clean}')
     out_file.write(f'\nLU_Raster_SameRes\t{folder.LAND_File}')
     out_file.write(f'\nLU_Manning_n\t{folder.mannings_n_text_file}')
@@ -268,7 +268,7 @@ def _write_fldpln_section(out_file: TextIO, folder: FloodFolder, watershed_dict:
 
 def Create_ARC_Model_Input_File_Initial(folder: FloodFolder, watershed_dict: dict, COMID_Param: str):
     with open(folder.ARC_FileName_Initial, 'w') as out_file:
-        _write_arc_input_section(out_file, folder, watershed_dict, COMID_Param)
+        _write_arc_input_section(out_file, folder, watershed_dict, COMID_Param, False)
 
         out_file.write('\n\n#VDT_Output_File_and_CurveFile')
         out_file.write(f'\nVDT_Database_NumIterations	30')
@@ -298,7 +298,7 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
     LOG.info('Creating ARC Input File: ' + folder.ARC_FileName_Bathy)
 
     out_file = open(folder.ARC_FileName_Bathy,'w')
-    _write_arc_input_section(out_file, folder, watershed_dict, COMID_Param)
+    _write_arc_input_section(out_file, folder, watershed_dict, COMID_Param, True)
     
     out_file.write('\n\n#VDT_Output_File_and_CurveFile')
     out_file.write(f'\nVDT_Database_NumIterations	30')
@@ -816,7 +816,7 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
         return
     
     Curve_File_Initial = folder.Curve_File.replace('_CurveFile.csv','_CurveFile_Initial.csv')
-    if os.path.exists(Curve_File_Initial) is False:
+    if not os.path.exists(Curve_File_Initial):
         # start time for the simulation
         with timer('arc_initial'):
             arc = Arc(folder.ARC_FileName_Initial)
