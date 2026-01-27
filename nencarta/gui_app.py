@@ -26,10 +26,6 @@ FLOW_FIELD_OPTIONS = (
     + ["rp2", "rp5", "rp10", "rp25", "rp50", "rp100", "rp100_premium"]
 )
 
-
-
-# --- MOCK SIMULATION CORE (Integrated for self-containment) ---
-
 # Map of output keys to friendly names (from main.py output structure)
 SIMULATION_TIMES_MAP = {
     'arc_initial_simulation_time': "ARC Initial Flood",
@@ -44,88 +40,6 @@ SIMULATION_TIMES_MAP = {
     'geojson_forecast_simulation_time': "GeoJSON Forecast (FIST)",
     'go_consequences_simulation_time': "Go-Consequences Estimation",
 }
-
-def _mock_geospatial_process(duration_base=5, variance=2):
-    """Simulates the time taken by a complex geospatial step in minutes."""
-    # Return a time in minutes
-    return max(0.1, duration_base + random.uniform(-variance, variance))
-
-def _mock_process_dem(watershed_dict, log_callback=None):
-    """
-    Simulates the execution flow based on parameters, calculating mock times.
-    """
-    if log_callback is None:
-        log_callback = print
-
-    watershed = watershed_dict['name']
-    clean_dem = watershed_dict.get('clean_dem', False)
-    mapper = watershed_dict.get('mapper', 'FloodSpreader')
-    estimate_consequences = watershed_dict.get('estimate_consequences', False)
-
-    # Initialize simulation times
-    times = {k: 0.0 for k in SIMULATION_TIMES_MAP.keys()}
-    total_sleep_time_s = 0
-
-    def run_step(key, base_duration_m):
-        nonlocal total_sleep_time_s
-        # Calculate time in minutes
-        duration_m = _mock_geospatial_process(base_duration_m)
-        times[key] += duration_m
-        
-        # Convert to seconds for simulation delay
-        duration_s = duration_m * 0.1 # Scale down for a quicker demo
-        total_sleep_time_s += duration_s
-
-        log_callback(f"-> {SIMULATION_TIMES_MAP[key]}: simulating for {duration_m:.2f} min (delay: {duration_s:.1f}s)")
-        
-        # Simulate time passing (critical for not freezing the GUI but respecting the thread)
-        time.sleep(duration_s)
-        QCoreApplication.processEvents() # Keep GUI responsive
-
-    
-    log_callback(f"[INFO] Starting simulated execution flow for {watershed}")
-
-    # 1. Initial Flood Map Creation (if needed for cleaning)
-    if clean_dem:
-        log_callback("\n[STEP 1/6] Simulating Initial Flood Map (ARC/Mapper)...")
-        run_step('arc_initial_simulation_time', 5)
-        if mapper == "FloodSpreader":
-            run_step('floodpsreaderpy_initial_simulation_time', 8)
-        elif mapper == "Curve2Flood":
-            run_step('curve2flood_initial_simulation_time', 12)
-        
-        # 2. DEM Cleaning
-        log_callback("\n[STEP 2/6] Simulating DEM Cleaner Program...")
-        run_step('dem_cleaner_simulation_time', 15)
-
-    # 3. Bathymetry Creation
-    log_callback("\n[STEP 3/6] Simulating Bathymetry (ARC/Mapper)...")
-    run_step('arc_bathy_simulation_time', 10)
-    if mapper == "FloodSpreader":
-        run_step('floodpsreaderpy_bathy_simulation_time', 15)
-    elif mapper == "Curve2Flood":
-        run_step('curve2flood_bathy_simulation_time', 20)
-
-    # 4. Forecast Flood Map
-    log_callback("\n[STEP 4/6] Simulating Forecast Flood Map (Mapper)...")
-    if mapper == "FloodSpreader":
-        run_step('floodpsreaderpy_forecast_simulation_time', 10)
-    elif mapper == "Curve2Flood":
-        run_step('curve2flood_forecast_simulation_time', 18)
-
-    # 5. FIST Input Creation (GeoJSON)
-    log_callback("\n[STEP 5/6] Simulating FIST GeoJSON Creation...")
-    run_step('geojson_forecast_simulation_time', 7)
-
-    # 6. Consequences Estimation
-    if estimate_consequences:
-        log_callback("\n[STEP 6/6] Simulating Go-Consequences Estimation...")
-        run_step('go_consequences_simulation_time', 10)
-
-    total_time = sum(times.values())
-    log_callback(f"\n[SUCCESS] Simulated total process time: {total_time:.2f} minutes.")
-
-    return times
 
 class QtLogStream(io.TextIOBase):
     """
@@ -237,6 +151,9 @@ class WorkerThread(QThread):
             "estimate_consequences": params["estimate_consequences"],
             "streamflow_source": params["streamflow_source"],
             "nwm_api_key": params.get("nwm_api_key"),
+            "overwrite_forecast_floodmaps": params.get("overwrite_forecast_floodmaps", True),
+            "remove_old_forecast_files": params.get("remove_old_forecast_files", False),
+            "make_fist_inputs": params.get("make_fist_inputs", True)
         }
 
         return watershed_dict
@@ -419,6 +336,21 @@ class FilePicker(QWidget):
     def setText(self, value):
         self.line_edit.setText(value)
 
+class FormSection:
+    def __init__(self, title):
+        self.group = QGroupBox(title)
+        self.layout = QGridLayout(self.group)
+        self.fields = {}
+
+    def add(self, key, label, widget: QWidget):
+        row = self.layout.rowCount()
+        self.layout.addWidget(QLabel(label), row, 0)
+        self.layout.addWidget(widget, row, 1)
+
+        self.fields[key] = (
+            widget.line_edit if hasattr(widget, "line_edit") else widget
+        )
+
 # --- GUI CLASS ---
 
 class FloodSimulationGUI(QMainWindow):
@@ -506,7 +438,6 @@ class FloodSimulationGUI(QMainWindow):
 
     def _add_input_fields(self):
         """Adds all GUI controls based on the script's arguments."""
-        
         row = 0
 
         # 1. Required Path Inputs (Mocked paths as defaults)
@@ -652,6 +583,17 @@ class FloodSimulationGUI(QMainWindow):
         self.lake_filter_json.setPlaceholderText("Path to JSON (Optional)")
         group_adv_layout.addWidget(QLabel("Lake Filter JSON"), i+1, 0); group_adv_layout.addWidget(self.lake_filter_json, i+1, 1); self.input_fields['lake_filter_json'] = self.lake_filter_json; i+=2
 
+        self.overwrite_forecast_floodmaps = QCheckBox("Overwrite Forecast Floodmaps")
+        self.overwrite_forecast_floodmaps.setChecked(True)
+        group_adv_layout.addWidget(self.overwrite_forecast_floodmaps, i, 0, 1, 2); self.input_fields['overwrite_forecast_floodmaps'] = self.overwrite_forecast_floodmaps; i+=1
+
+        self.remove_old_forecast_files = QCheckBox("Remove Old Forecast Files")
+        self.remove_old_forecast_files.setChecked(True)
+        group_adv_layout.addWidget(self.remove_old_forecast_files, i, 0, 1, 2); self.input_fields['remove_old_forecast_files'] = self.remove_old_forecast_files; i+=1
+
+        self.make_fist_inputs = QCheckBox("Make FIST Inputs")
+        self.make_fist_inputs.setChecked(True)
+        group_adv_layout.addWidget(self.make_fist_inputs, i, 0, 1, 2); self.input_fields['make_fist_inputs'] = self.make_fist_inputs; i+=1
 
         self.input_grid.addWidget(group_adv, row, 0, 1, 2); row += 1
 

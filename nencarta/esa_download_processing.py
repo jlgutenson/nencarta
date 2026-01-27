@@ -13,7 +13,6 @@ os.environ['AWS_NO_SIGN_REQUEST'] = 'YES'  # needed to access public S3 buckets 
 import geopandas as gpd   #conda install --channel conda-forge geopandas
 from osgeo import gdal
 import requests   #conda install anaconda::requests
-from tqdm.auto import tqdm  # provides a progressbar     #conda install conda-forge::tqdm
 from pathlib import Path    #conda install anaconda::pathlib
 from shapely.geometry import Polygon    #conda install conda-forge::shapely
 import numpy as np
