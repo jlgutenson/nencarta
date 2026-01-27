@@ -5,10 +5,10 @@
 import argparse
 from contextlib import redirect_stdout, redirect_stderr
 from datetime import datetime, timedelta
+import glob
 import multiprocessing as mp
 import sys
 import os
-from pathlib import Path
 import platform
 import re
 import stat
@@ -25,11 +25,8 @@ from shapely.geometry import box
 import json
 import numpy as np
 import pandas as pd
-import rasterio
 import geopandas as gpd
 import numpy as np
-from line_profiler import profile # TODO remove after debugging
-
 
 # local imports
 from . import streamflow_processing as HistFlows
@@ -70,6 +67,24 @@ def _resolve_parallel_settings(data, cli_parallel=None, cli_num_workers=None):
 
     return bool(parallel), num_workers
 
+def get_rivids(folder: FloodFolder, watershed_dict: dict, DEM: str, stream_id_field: str) -> np.ndarray | None:
+    # now we need to figure out if our DEM_StrmShp and DEM_Reanalysis_Flowfile exists and if not, create it
+    if os.path.isfile(folder.DEM_StrmShp) and os.path.isfile(folder.DEM_Reanalsyis_FlowFile):
+        LOG.info(folder.DEM_StrmShp + ' Already Exists')
+        LOG.info(folder.DEM_Reanalsyis_FlowFile + ' Already Exists')
+        rivids = gpd.read_file(folder.DEM_StrmShp, columns=[stream_id_field], use_arrow=True).values
+    else:
+        # Before we get too far ahead, let's make sure that our DEM and Flowlines have the same coordinate system
+        StrmShp_gdf = process_river_geometry(folder, watershed_dict, DEM) 
+        rivids, _ = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, stream_id_field, folder, watershed_dict)
+
+    if rivids is None or len(rivids) == 0:
+        LOG.info('DEM_StrmShp is empty, returning None values')
+        return None
+
+    return rivids
+
+
 
 def Process_FloodForecasting_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str):
     #Get the Spatial Information from the DEM Raster
@@ -88,28 +103,15 @@ def Process_FloodForecasting_Geospatial_Data(folder: FloodFolder, watershed_dict
     # set the ID used for the stream network
     if streamflow_source.upper().startswith("NWM"):
         stream_id_field = 'COMID'
-        ds_stream_id_field = 'TOCOMID'
     elif streamflow_source.upper() == "GEOGLOWS":
         stream_id_field = 'LINKNO'
-        ds_stream_id_field = 'DSLINKNO'
     else:
         LOG.error(f"streamflow_source {streamflow_source} not recognized, please use either 'NWM' or 'GEOGLOWS'")
         sys.exit()
 
-    # now we need to figure out if our DEM_StrmShp and DEM_Reanalysis_Flowfile exists and if not, create it
-    if os.path.isfile(folder.DEM_StrmShp) and os.path.isfile(folder.DEM_Reanalsyis_FlowFile):
-        LOG.info(folder.DEM_StrmShp + ' Already Exists')
-        LOG.info(folder.DEM_Reanalsyis_FlowFile + ' Already Exists')
-        DEM_StrmShp_gdf = gpd.read_file(folder.DEM_StrmShp)
-        rivids = DEM_StrmShp_gdf[stream_id_field].values
-    else:
-        # Before we get too far ahead, let's make sure that our DEM and Flowlines have the same coordinate system
-        StrmShp_gdf = process_river_geometry(folder, watershed_dict, DEM) 
-        rivids, DEM_StrmShp_gdf = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, stream_id_field, folder, watershed_dict)
-
-    if DEM_StrmShp_gdf is None or DEM_StrmShp_gdf.empty:
-        LOG.info('DEM_StrmShp is empty, returning None values')
-        return None, None, None, None, None, None, None, None, None
+    rivids = get_rivids(folder, watershed_dict, DEM, stream_id_field)
+    if rivids is None:
+        return
 
     if os.path.isfile(folder.STRM_File):
         LOG.info(folder.STRM_File + ' Already Exists')
@@ -156,7 +158,6 @@ def Process_FloodForecasting_Geospatial_Data(folder: FloodFolder, watershed_dict
             elif streamflow_source.upper().startswith("NWM"):
                 ForecastFlowFile = os.path.join(folder.FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{forecasthour}_{streamflow_source}_forecast.csv')
             if not os.path.exists(ForecastFlowFile):
-                # rivids = ForecastFlows.Get_RIVID_Values('Shapefile', parquet_file_from_geoglows, -9999, DEM_StrmShp)
                 ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, ForecastFlowFile, streamflow_source, watershed_dict['nwm_api_key'])
         except Exception as e:
             LOG.error('Could not process forensic forecast streamflow download, please check your date or try again later...')
@@ -175,7 +176,6 @@ def Process_FloodForecasting_Geospatial_Data(folder: FloodFolder, watershed_dict
                     elif streamflow_source.upper().startswith("NWM"):
                         ForecastFlowFile = os.path.join(folder.FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{forecasthour}_{streamflow_source}_forecast.csv')
                     if not os.path.exists(ForecastFlowFile):
-                        # rivids = ForecastFlows.Get_RIVID_Values('Shapefile', parquet_file_from_geoglows, -9999, DEM_StrmShp)
                         ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, ForecastFlowFile, streamflow_source, watershed_dict['nwm_api_key'])
                     found = True
                     break
@@ -185,14 +185,6 @@ def Process_FloodForecasting_Geospatial_Data(folder: FloodFolder, watershed_dict
                 break  # break outer
     LOG.info('Forecast data save here: ' + ForecastFlowFile)
     
-    
-    #Get the unique values for all the stream ids
-    (S, ncols, nrows, _, _, _, _, _, _, _, dem_projection) = Read_Raster_GDAL(folder.STRM_File_Clean)
-
-    COMID_Unique = np.unique(S)
-    COMID_Unique = COMID_Unique[np.where(COMID_Unique > 0)]
-    COMID_Unique = np.sort(COMID_Unique).astype(int)
-
     # if the mapper is "FLDPLN", we need to create a flow direction raster using the bathymetry based DEM.
     if watershed_dict['mapper'] == "FLDPLN":
         folder.setup_fldpln_files()
@@ -200,7 +192,6 @@ def Process_FloodForecasting_Geospatial_Data(folder: FloodFolder, watershed_dict
             LOG.info("The flow direction raster already exists and will not be recreated...")
         else:
             Hydroterrain_Processing.create_flow_direction_raster(folder.DEM_File, folder.Flow_Direction_Folder, folder.flowdir_orig)
-
     
     #Create a Starting AutoRoute Input File
     LOG.info('Creating ARC Input File: ' + folder.ARC_FileName_Initial)
@@ -777,7 +768,7 @@ def create_fist_inputs(folder: FloodFolder, watershed_dict: dict, timer: Timer):
         GeoJSON_File = os.path.join(folder.FIST_Folder, f"{folder.FileName}_{watershed_dict['forensic_forecast_date']}_{streamflow_column}.geojson") 
         if not os.path.exists(GeoJSON_File):
             LOG.info('Creating FIST Input: ' + GeoJSON_File)
-            with timer('geojson_forecast_simulation_time'):
+            with timer('geojson_forecast'):
                 Run_Main_VDT_to_GEOJSON_Program_Stream_Vector(folder.VDT_File_Bathy, folder.STRM_File_Clean, GeoJSON_File, OutProjection, folder.DEM_StrmShp, stream_id_field, ds_stream_id_field, SEED_File, Thin_Output=True, comid_q_df=streamflow_forecast_filtered_df)
 
 
@@ -827,7 +818,7 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
     Curve_File_Initial = folder.Curve_File.replace('_CurveFile.csv','_CurveFile_Initial.csv')
     if os.path.exists(Curve_File_Initial) is False:
         # start time for the simulation
-        with timer('arc_initial_simulation_time'):
+        with timer('arc_initial'):
             arc = Arc(folder.ARC_FileName_Initial)
             arc.run() 
     else:
@@ -838,12 +829,12 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
         script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of main.py
         floodspreader_path = os.path.join(script_dir, "floodspreader.py")
         # Build the subprocess call with the full path
-        with timer('floodpsreaderpy_initial_simulation_time'):
+        with timer('floodspreaderpy_initial'):
             call_mapper = f'python "{floodspreader_path}" {folder.ARC_FileName_Initial}'
             subprocess.call(call_mapper, shell=True)
     elif (watershed_dict['mapper'] in ["Curve2Flood", "FLDPLN"]) and watershed_dict['use_specified_depth_for_bathy_mask']:
         # start time for the simulation
-        with timer('curve2flood_initial_simulation_time'):
+        with timer('curve2flood_initial'):
             LOG.info(f"Executing Curve2Flood using {folder.ARC_FileName_Initial}")
             Curve2Flood_MainFunction(folder.ARC_FileName_Initial)
     
@@ -855,7 +846,7 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
     FlowFileName = os.path.join(folder.FLOW_Folder, folder.FileName + '_Flow_COMID_Q.txt')
     Create_FlowFile(folder.DEM_Reanalsyis_FlowFile, FlowFileName, OutputID, 'p_exceed_50')
     # start time for the simulation
-    with timer('dem_cleaner_simulation_time'):
+    with timer('dem_cleaner'):
         DEM_Cleaner.DEM_Cleaner_Program(OutputID, 
                                         folder.DEM_StrmShp, 
                                         folder.dem_folder, 
@@ -876,7 +867,7 @@ def create_bathymetry(folder: FloodFolder, watershed_dict: dict, timer: Timer):
         LOG.info('Cannot find bathy file, so creating ' + folder.FS_BathyFile)
         if not os.path.exists(folder.ARC_BathyFile):
             # start time for the simulation
-            with timer('arc_bathy_simulation_time'):
+            with timer('arc_bathy'):
                 arc = Arc(folder.ARC_FileName_Bathy)
                 arc.run()
         else:
@@ -889,16 +880,16 @@ def create_bathymetry(folder: FloodFolder, watershed_dict: dict, timer: Timer):
             # Build the subprocess call with the full path
             call_mapper = f'python "{floodspreader_path}" {folder.ARC_FileName_Bathy}'
             # start time for the simulation
-            with timer('floodpsreaderpy_bathy_simulation_time'):
+            with timer('floodspreaderpy_bathy'):
                     subprocess.call(call_mapper, shell=True)
         elif (watershed_dict['mapper'] in ["Curve2Flood", "FLDPLN"]):
             LOG.info(f"Executing Curve2Flood using {folder.ARC_FileName_Bathy}")
             # start time for the simulation
-            with timer('curve2flood_bathy_simulation_time'):
+            with timer('curve2flood_bathy'):
                 Curve2Flood_MainFunction(folder.ARC_FileName_Bathy)
     else:
         LOG.info(f"{folder.FS_BathyFile} exists and we aren't making it again...")
-@profile
+
 def run_forecast_floodmapping(folder: FloodFolder, watershed_dict: dict, timer: Timer):
     if not watershed_dict.get('overwrite_forecast_floodmaps', True) and os.path.exists(folder.Forecast_Flood_Map):
         LOG.info(f"{folder.Forecast_Flood_Map} exists and we aren't overwriting it...")
@@ -913,12 +904,12 @@ def run_forecast_floodmapping(folder: FloodFolder, watershed_dict: dict, timer: 
         # Build the subprocess call with the full path
         call_mapper = f'python "{floodspreader_path}" {folder.ARC_FileName_FloodForecast}'
         # start time for the simulation
-        with timer('floodpsreaderpy_forecast_simulation_time'):
+        with timer('floodspreaderpy_forecast'):
             subprocess.call(call_mapper, shell=True)
     elif (watershed_dict['mapper'] == "Curve2Flood" or watershed_dict['mapper'] == "FLDPLN"):
         LOG.info(f"Executing Curve2Flood using {folder.ARC_FileName_FloodForecast}")
         # start time for the simulation
-        with timer('curve2flood_forecast_simulation_time'):
+        with timer('curve2flood_forecast'):
             Curve2Flood_MainFunction(folder.ARC_FileName_FloodForecast)
     LOG.info('Forecast Flood Raster saved here : ' + folder.Forecast_Flood_Map)
     LOG.info('Forecast Flood Shapefile saved here : ' + folder.Forecast_Flood_Map.replace('.tif','.shp'))
@@ -934,26 +925,24 @@ def get_streamids_from_source(streamflow_source: str):
     LOG.error(f"streamflow_source {streamflow_source} not recognized, please use either 'NWM' or 'GEOGLOWS'")
     raise ValueError(f"streamflow_source {streamflow_source} not recognized, please use either 'NWM' or 'GEOGLOWS'")
 
-def run_go_consequences(watershed_dict: dict, folder: FloodFolder, timer: Timer):
-    if watershed_dict['estimate_consequences']:
-        LOG.info("Creating the Go-Consequences JSON file and running the Go-Consequences Docker container...")
+def run_go_consequences(folder: FloodFolder, timer: Timer):
+    LOG.info("Creating the Go-Consequences JSON file and running the Go-Consequences Docker container...")
 
-        with timer('go_consequences_simulation_time'):
-            Forecast_Flood_Depth_Raster_Name = os.path.basename(folder.Forecast_Flood_Depth_Raster)
-            Consequences_JSON_File = Forecast_Flood_Depth_Raster_Name.replace('.tif','_consequences.json') 
-            Consequences_JSON_Path = os.path.join(folder.Consequences_Folder, Consequences_JSON_File)
-            Consequences_Output_GPKG_File = Consequences_JSON_File.replace('.json','.gpkg')
-            LOG.info(f"Creating consequences file {Consequences_JSON_Path}")
-            Create_Go_Consequence_GeoJSON(Consequences_JSON_Path, Forecast_Flood_Depth_Raster_Name, Consequences_Output_GPKG_File)
-            # run the go-consequences Docker container
-            source_dir = os.path.join(folder.output_dir, folder.watershed)
-            # docker run --rm --mount type=bind,source="D:\nencarta",target=/data go-consequences /data/results/streams_715_WseBanks_NotClean_Curve2Flood/consequences/USGS_13_n37w106_ARC_FloodDepth_Forecast_20250807_consequences.json
-            docker_command = f'docker run --rm --mount type=bind,source="{source_dir}",target=/data go-consequences:latest /data/Consequences/{Consequences_JSON_File}'
-            # run the docker command
-            subprocess.call(docker_command, shell=True)
-    else:
-        LOG.info("Evidently, you don't want to run Go-Consequences, so we aren't make the consequences files...")
-@profile
+    with timer('go_consequences'):
+        Forecast_Flood_Depth_Raster_Name = os.path.basename(folder.Forecast_Flood_Depth_Raster)
+        Consequences_JSON_File = Forecast_Flood_Depth_Raster_Name.replace('.tif','_consequences.json') 
+        Consequences_JSON_Path = os.path.join(folder.Consequences_Folder, Consequences_JSON_File)
+        Consequences_Output_GPKG_File = Consequences_JSON_File.replace('.json','.gpkg')
+        LOG.info(f"Creating consequences file {Consequences_JSON_Path}")
+        Create_Go_Consequence_GeoJSON(Consequences_JSON_Path, Forecast_Flood_Depth_Raster_Name, Consequences_Output_GPKG_File)
+        # run the go-consequences Docker container
+        source_dir = os.path.join(folder.output_dir, folder.watershed)
+        # docker run --rm --mount type=bind,source="D:\nencarta",target=/data go-consequences /data/results/streams_715_WseBanks_NotClean_Curve2Flood/consequences/USGS_13_n37w106_ARC_FloodDepth_Forecast_20250807_consequences.json
+        docker_command = f'docker run --rm --mount type=bind,source="{source_dir}",target=/data go-consequences:latest /data/Consequences/{Consequences_JSON_File}'
+        # run the docker command
+        subprocess.call(docker_command, shell=True)
+
+
 def DEM_Forecast(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Timer):
     if not (DEM.endswith(".tif") or DEM.endswith(".img")):
         return
@@ -972,7 +961,7 @@ def DEM_Forecast(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Tim
     
     # read in the reanalysis streamflow and break the code if the dataframe is empty or if the streamflow is all 0
     DEM_Reanalsyis_FlowFile_df = pd.read_csv(folder.DEM_Reanalsyis_FlowFile, usecols=[watershed_dict['specified_highflow_field']])
-    if DEM_Reanalsyis_FlowFile_df.empty or DEM_Reanalsyis_FlowFile_df[watershed_dict['specified_highflow_field']].mean() <= 0 or len(DEM_Reanalsyis_FlowFile_df.index)==0:
+    if DEM_Reanalsyis_FlowFile_df.empty or DEM_Reanalsyis_FlowFile_df[watershed_dict['specified_highflow_field']].values.mean() <= 0 or len(DEM_Reanalsyis_FlowFile_df.index)==0:
         LOG.info(f"Results for {DEM} are not possible because we don't have streamflow estimates...")
         return
 
@@ -1002,14 +991,16 @@ def DEM_Forecast(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Tim
             Hydroterrain_Processing.create_flow_direction_raster(folder.FS_BathyFile, folder.output_dir, folder.flowdir_bathy)
     
     run_forecast_floodmapping(folder, watershed_dict, timer)
-    create_fist_inputs(folder, watershed_dict, timer)
-    run_go_consequences(watershed_dict, folder, timer)
+    if watershed_dict['make_fist_inputs']:
+        create_fist_inputs(folder, watershed_dict, timer)
+    if watershed_dict['estimate_consequences']:
+        run_go_consequences(folder, timer)
 
     return
 
 _STREAMS_GDF_CACHE: dict[str, gpd.GeoDataFrame] = {}
 
-@profile
+
 def process_river_geometry(folder: FloodFolder, watershed_dict: dict, DEM: str):
     if not watershed_dict['process_stream_network']:
         return None
@@ -1025,10 +1016,10 @@ def process_river_geometry(folder: FloodFolder, watershed_dict: dict, DEM: str):
             # Specify the layer you want to access
             layer_name = "geoglowsv2"
             # Read the layer from the geodatabase
-            StrmShp_gdf = gpd.read_file(StrmSHP, layer=layer_name)    
+            StrmShp_gdf = gpd.read_file(StrmSHP, layer=layer_name, use_arrow=True)    
         elif StrmSHP.endswith((".shp", ".gpkg")):
             # Read the layer from the shapefile
-            StrmShp_gdf = gpd.read_file(StrmSHP)
+            StrmShp_gdf = gpd.read_file(StrmSHP, use_arrow=True)
         elif StrmSHP.endswith(".parquet"):
             # Read the layer from the shapefile
             StrmShp_gdf = gpd.read_parquet(StrmSHP)
@@ -1074,7 +1065,49 @@ def process_river_geometry(folder: FloodFolder, watershed_dict: dict, DEM: str):
 
     return StrmShp_gdf
 
-@profile
+def remove_landcover_tiles(folder: FloodFolder):
+    # delete the ESA_LC_Folder and the data in it
+    # Loop through all files in the directory and remove them
+    for file in glob.glob(os.path.join(folder.ESA_LC_Folder, '*')):
+        try:
+            if os.path.isfile(file):
+                # Adjust file permissions before deletion
+                if platform.system() == "Windows":
+                    os.chmod(file, stat.S_IWRITE)  # Remove read-only attribute on Windows
+                else:
+                    os.chmod(file, stat.S_IWUSR)   # Give user write permission on Unix systems
+                os.remove(file)
+                LOG.info(f"remove_landcover_tiles: Deleted file: {file}")
+        except Exception as e:
+            LOG.error(f"Error deleting file {file}: {e}")
+
+    if os.path.exists(folder.ESA_LC_Folder):
+        # Adjust file permissions before deletion
+        if platform.system() == "Windows":
+            os.chmod(folder.ESA_LC_Folder, stat.S_IWRITE)  # Remove read-only attribute on Windows
+        else:
+            os.chmod(folder.ESA_LC_Folder, stat.S_IWUSR)   # Give user write permission on Unix systems
+        os.rmdir(folder.ESA_LC_Folder)
+        LOG.info(f"remove_landcover_tiles: Deleted empty folder: {folder.ESA_LC_Folder}")
+    else:
+        LOG.info(f"remove_landcover_tiles: Folder {folder.ESA_LC_Folder} does not exist.")
+
+def print_simulation_times(watershed_dict: dict, timer: Timer):
+    # here are the simulation times for each of the processes for the watershed
+    LOG.info(f"Here are the simulation times for each of the processes for the watershed {watershed_dict['name']}:\n")
+    LOG.info(f"ARC Initial Flood Simulation Time: {timer.get_time_string('arc_initial')}")
+    LOG.info(f"Curve2Flood Initial Flood Simulation Time: {timer.get_time_string('curve2flood_initial')}")
+    LOG.info(f"FloodSpreaderPy Initial Flood Simulation Time: {timer.get_time_string('floodspreaderpy_initial')}")
+    LOG.info(f"DEM Cleaner Simulation Time: {timer.get_time_string('dem_cleaner')}")
+    LOG.info(f"ARC Bathymetry Simulation Time: {timer.get_time_string('arc_bathy')}")
+    LOG.info(f"Curve2Flood Bathymetry Simulation Time: {timer.get_time_string('curve2flood_bathy')}")
+    LOG.info(f"FloodSpreaderPy Bathymetry Simulation Time: {timer.get_time_string('floodspreaderpy_bathy')}")
+    LOG.info(f"Curve2Flood Forecast Simulation Time: {timer.get_time_string('curve2flood_forecast')}")
+    LOG.info(f"FloodSpreaderPy Forecast Simulation Time: {timer.get_time_string('floodspreaderpy_forecast')}")
+    LOG.info(f"GeoJSON Forecast Simulation Time: {timer.get_time_string('geojson_forecast')}")
+    LOG.info(f"Go-Consequences Simulation Time: {timer.get_time_string('go_consequences')}")
+
+
 def process_dem(watershed_dict: dict):
     LOG.info(f"Estimate consequences is set to {watershed_dict['estimate_consequences']}")
 
@@ -1115,46 +1148,8 @@ def process_dem(watershed_dict: dict):
     for DEM in DEM_List:
         DEM_Forecast(DEM, folder, watershed_dict, timer)
     
-    # delete the ESA_LC_Folder and the data in it
-    # Loop through all files in the directory and remove them
-    for file in folder.LandCoverFiles:
-        try:
-            if os.path.isfile(file):
-                # Adjust file permissions before deletion
-                if platform.system() == "Windows":
-                    os.chmod(file, stat.S_IWRITE)  # Remove read-only attribute on Windows
-                else:
-                    os.chmod(file, stat.S_IWUSR)   # Give user write permission on Unix systems
-                os.remove(file)
-                LOG.info(f"process_dam: Deleted file: {file}")
-        except Exception as e:
-            LOG.error(f"Error deleting file {file}: {e}")
-
-    if os.path.exists(folder.ESA_LC_Folder):
-        # Adjust file permissions before deletion
-        if platform.system() == "Windows":
-            os.chmod(folder.ESA_LC_Folder, stat.S_IWRITE)  # Remove read-only attribute on Windows
-        else:
-            os.chmod(folder.ESA_LC_Folder, stat.S_IWUSR)   # Give user write permission on Unix systems
-        os.rmdir(folder.ESA_LC_Folder)
-        LOG.info(f"process_dam: Deleted empty folder: {folder.ESA_LC_Folder}")
-    else:
-        LOG.info(f"process_dam: Folder {folder.ESA_LC_Folder} does not exist.")
-    
-    # here are the simulation times for each of the processes for the watershed
-    LOG.info(f"Here are the simulation times for each of the processes for the watershed {watershed_dict['name']}:\n")
-    LOG.info(f"ARC Initial Flood Simulation Time: {timer.get_time_string('arc_initial')}")
-    LOG.info(f"Curve2Flood Initial Flood Simulation Time: {timer.get_time_string('curve2flood_initial')}")
-    LOG.info(f"FloodSpreaderPy Initial Flood Simulation Time: {timer.get_time_string('floodspreaderpy_initial')}")
-    LOG.info(f"DEM Cleaner Simulation Time: {timer.get_time_string('dem_cleaner')}")
-    LOG.info(f"ARC Bathymetry Simulation Time: {timer.get_time_string('arc_bathy')}")
-    LOG.info(f"Curve2Flood Bathymetry Simulation Time: {timer.get_time_string('curve2flood_bathy')}")
-    LOG.info(f"FloodSpreaderPy Bathymetry Simulation Time: {timer.get_time_string('floodspreaderpy_bathy')}")
-    LOG.info(f"Curve2Flood Forecast Simulation Time: {timer.get_time_string('curve2flood_forecast')}")
-    LOG.info(f"FloodSpreaderPy Forecast Simulation Time: {timer.get_time_string('floodspreaderpy_forecast')}")
-    LOG.info(f"GeoJSON Forecast Simulation Time: {timer.get_time_string('geojson_forecast')}")
-    LOG.info(f"Go-Consequences Simulation Time: {timer.get_time_string('go_consequences')}")
-    
+    remove_landcover_tiles(folder)
+    print_simulation_times(watershed_dict, timer)
     return
     
 def process_json_input_serial(json_file):
@@ -1242,6 +1237,7 @@ def process_json_input_serial(json_file):
             
         overwrite_forecast_floodmaps = watershed.get("overwrite_forecast_floodmaps", True)
         remove_old_forecast_files = watershed.get("remove_old_forecast_files", False)
+        make_fist_inputs = watershed.get("make_fist_inputs", True)
             
         watershed_dict = {
             "name": watershed_name,
@@ -1274,7 +1270,8 @@ def process_json_input_serial(json_file):
             "streamflow_source": watershed.get("streamflow_source", "GEOGLOWS"),
             "nwm_api_key": nwm_api_key,
             "overwrite_forecast_floodmaps": overwrite_forecast_floodmaps,
-            "remove_old_forecast_files": remove_old_forecast_files
+            "remove_old_forecast_files": remove_old_forecast_files,
+            "make_fist_inputs": make_fist_inputs
         }
 
         # Ensure the output directory exists

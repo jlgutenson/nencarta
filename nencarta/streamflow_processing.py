@@ -375,10 +375,7 @@ class PatchedZarrStore(dict):
     def keys(self):
         return list(self.__iter__())
 
-
 def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFrame, rivid_field, folder: FloodFolder, watershed_dict: dict):
-
-
     # First let's remove the stream reaches that are in the stream_ids_in_lake_list
     # filter out the streams that are in the stream_ids_in_lake_list by using the "LINKNO values in stream_ids_in_lake_list"
     if watershed_dict.get("stream_ids_in_lake_list") is not None:
@@ -467,7 +464,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
     # Second attempt at fixing an empty StrmShp_filtered_gdf
     if StrmShp_filtered_gdf.empty:
         LOG.warning(f"Skipping processing for {folder.DEM_File} because StrmShp_filtered_gdf is empty.")
-        return (None, None, None, None)
+        return (None, None)
 
     StrmShp_filtered_gdf.to_file(folder.DEM_StrmShp, driver="GPKG")
     StrmShp_filtered_gdf[rivid_field] = StrmShp_filtered_gdf[rivid_field].astype(int)
@@ -501,7 +498,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
         # Check if rp_df is empty
         if rp_df.empty:
             LOG.warning(f"Skipping processing for {folder.DEM_File} because rp_df is empty.")
-            return (None, None, None, None)
+            return (None, None)
 
         # Convert 'return_period' to category dtype
         rp_df['return_period'] = rp_df['return_period'].astype('category')
@@ -542,7 +539,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
             # Check if fdc_df is empty
             if fdc_df.empty:
                 LOG.warning(f"Skipping processing for {folder.DEM_File} because fdc_df is empty.")
-                return (None, None, None, None)
+                return (None, None)
             
             fdc_pivot = fdc_df.pivot_table(
                 index='river_id',
@@ -566,7 +563,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
             # Check if daily_df is empty
             if daily_df.empty:
                 LOG.warning(f"Skipping processing for {folder.DEM_File} because daily_df is empty.")
-                return (None, None, None, None)
+                return (None, None)
             
             # creating exceedance percentiles with the daily data
             p_exceedance = [float(v) for v in range(5, 101, 5)]
@@ -616,10 +613,6 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
         final_df = final_df[columns]
 
         LOG.info(final_df)
-
-
-
-
 
     # Write the final Dask DataFrame to CSV
     final_df.to_csv(folder.DEM_Reanalsyis_FlowFile, index=False)

@@ -19,7 +19,6 @@ import xarray as xr
 # built-in imports
 from datetime import datetime, timedelta, datetime, timezone
 import os
-import sys
 
 
 #Hydroviewer=>  https://apps.geoglows.org/apps/geoglows-hydroviewer/      https://beta.apps.geoglows.org/
@@ -71,7 +70,7 @@ def Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File
         new_col_num = len(df.columns)
         riv_ens = df.rivid.values.astype(int)
         df.insert(new_col_num,'riv_ens',riv_ens)
-        df['riv_ens'] = df['riv_ens'].apply(lambda x: x*100) + df['ensemble']
+        df['riv_ens'] = df['riv_ens'] * 100 + df['ensemble']
         
         #Find the max value for each ensemble for each rivid
         maxflows = df.reset_index().groupby('riv_ens').max()['Qout']

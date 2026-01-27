@@ -17,6 +17,7 @@ def _utm_epsg_from_lonlat(lon, lat):
 def create_flow_direction_raster(dem: str, out_dir: str, flowdir_orig: str):
     wbt = WhiteboxTools()
     wbt.set_verbose_mode(False)
+    wbt.set_compress_rasters(True)
     wbt.work_dir = out_dir
 
     projected_dem = tempfile.NamedTemporaryFile(suffix=".tif", delete=False).name

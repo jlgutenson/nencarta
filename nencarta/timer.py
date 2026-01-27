@@ -1,3 +1,4 @@
+from math import floor
 import time
 from collections import defaultdict
 
@@ -11,21 +12,24 @@ class _TimerContextManager:
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
-        self.timer.stop(self.label)
+        if self.label in self.timer.starts:
+            self.timer.stop(self.label)
 
 class Timer:
     def __init__(self):
-        self.timers: dict[str, float] = {}
+        self.starts: dict[str, float] = {}
         self.times: dict[str, float] = defaultdict(float)
 
     def start(self, label: str):
-        self.timers[label] = time.time()
+        if label in self.starts:
+            raise ValueError(f"Timer for '{label}' is already running.")
+        self.starts[label] = time.perf_counter()
 
     def stop(self, label: str):
-        if label not in self.timers:
+        if label not in self.starts:
             raise ValueError(f"Timer for '{label}' was not started.")
-        elapsed_seconds = (time.time() - self.timers[label])
-        del self.timers[label]
+        elapsed_seconds = (time.perf_counter() - self.starts[label])
+        del self.starts[label]
 
         self.times[label] += elapsed_seconds
 
@@ -36,11 +40,11 @@ class Timer:
         return round(self.times.get(label, 0.0), 2)
     
     def get_time_string(self, label: str) -> str:
-        if self.times.get(label, 0.0) >= 60.0:
-            remaining_seconds = self.times[label] % 60
-            return f"{self.get_minutes(label)} minutes, {round(remaining_seconds, 2)} seconds"
+        seconds = self.get_seconds(label)
+        if seconds >= 60:
+            return f"{floor(self.get_minutes(label))} minutes, {round(seconds % 60, 2)} seconds"
         
-        return f"{self.get_seconds(label)} seconds"
+        return f"{seconds} seconds"
     
     def __call__(self, label: str) -> _TimerContextManager:
         return _TimerContextManager(self, label)
