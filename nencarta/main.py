@@ -84,7 +84,52 @@ def get_rivids(folder: FloodFolder, watershed_dict: dict, DEM: str, stream_id_fi
 
     return rivids
 
+def download_forecast_streamflows(watershed_dict: dict, folder: FloodFolder, rivids: np.ndarray, streamflow_source: str) -> str:
+    # now lets download the forecast streamflows
+    #Forecast flow data from GeoGLOWS
+    # parquet_file_from_geoglows = 'v2-model-table.parquet'     #http://geoglows-v2.s3-website-us-west-2.amazonaws.com/#tables/
+    if (forecastdate := watershed_dict.get('forensic_forecast_date')):
+        LOG.info(f"Using forensic forecast date: {forecastdate}")
+        if streamflow_source.upper().startswith("NWM"):
+            forecasthour = watershed_dict.get('forensic_forecast_hour')
+            LOG.info(f"Using forensic forecast hour: {forecasthour}")
+        elif streamflow_source.upper() == "GEOGLOWS":
+            forecasthour = None
+        try:
+            demfilename = os.path.basename(folder.DEM_File)
+            if streamflow_source.upper() == "GEOGLOWS":
+                ForecastFlowFile = os.path.join(folder.FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{streamflow_source}_forecast.csv')
+            elif streamflow_source.upper().startswith("NWM"):
+                ForecastFlowFile = os.path.join(folder.FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{forecasthour}_{streamflow_source}_forecast.csv')
+            if not os.path.exists(ForecastFlowFile):
+                ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, ForecastFlowFile, streamflow_source, watershed_dict['nwm_api_key'])
+        except Exception as e:
+            LOG.error('Could not process forensic forecast streamflow download, please check your date or try again later...')
+            raise e
+    else:
+        # cycle through today through 12 days ago to find the most recent day with a forecast
+        found = False
+        for fd in range(0,13):
+            for fh in range(0,24):
+                try:
+                    demfilename = os.path.basename(folder.DEM_File)
+                    forecastdate, forecasthour = ForecastFlows.Get_Date_For_Forecast(fd, fh, streamflow_source) 
+                    # we only need the forecast date for GEOGLOWS, for NWM we need the forecast hour as well               
+                    if streamflow_source.upper() == "GEOGLOWS":
+                        ForecastFlowFile = os.path.join(folder.FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{streamflow_source}_forecast.csv')
+                    elif streamflow_source.upper().startswith("NWM"):
+                        ForecastFlowFile = os.path.join(folder.FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{forecasthour}_{streamflow_source}_forecast.csv')
+                    if not os.path.exists(ForecastFlowFile):
+                        ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, ForecastFlowFile, streamflow_source, watershed_dict['nwm_api_key'])
+                    found = True
+                    break
+                except Exception as e:
+                    LOG.error(f'Could not process forecast, moving back another day.. ({e})')
+            if found:
+                break  # break outer
+    LOG.info('Forecast data save here: ' + ForecastFlowFile)
 
+    return ForecastFlowFile
 
 def Process_FloodForecasting_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str):
     #Get the Spatial Information from the DEM Raster
@@ -139,51 +184,7 @@ def Process_FloodForecasting_Geospatial_Data(folder: FloodFolder, watershed_dict
     # # the long range should have a forecast every 24 hours  
     # elif forecast_type == 'long_range' and forensic_forecast_hour is None:
     #     forecasthour = '00'
-
-    
-    # now lets download the forecast streamflows
-    #Forecast flow data from GeoGLOWS
-    # parquet_file_from_geoglows = 'v2-model-table.parquet'     #http://geoglows-v2.s3-website-us-west-2.amazonaws.com/#tables/
-    if (forecastdate := watershed_dict.get('forensic_forecast_date')):
-        LOG.info(f"Using forensic forecast date: {forecastdate}")
-        if streamflow_source.upper().startswith("NWM"):
-            forecasthour = watershed_dict.get('forensic_forecast_hour')
-            LOG.info(f"Using forensic forecast hour: {forecasthour}")
-        elif streamflow_source.upper() == "GEOGLOWS":
-            forecasthour = None
-        try:
-            demfilename = os.path.basename(folder.DEM_File)
-            if streamflow_source.upper() == "GEOGLOWS":
-                ForecastFlowFile = os.path.join(folder.FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{streamflow_source}_forecast.csv')
-            elif streamflow_source.upper().startswith("NWM"):
-                ForecastFlowFile = os.path.join(folder.FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{forecasthour}_{streamflow_source}_forecast.csv')
-            if not os.path.exists(ForecastFlowFile):
-                ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, ForecastFlowFile, streamflow_source, watershed_dict['nwm_api_key'])
-        except Exception as e:
-            LOG.error('Could not process forensic forecast streamflow download, please check your date or try again later...')
-            raise e
-    else:
-        # cycle through today through 12 days ago to find the most recent day with a forecast
-        found = False
-        for fd in range(0,13):
-            for fh in range(0,24):
-                try:
-                    demfilename = os.path.basename(folder.DEM_File)
-                    forecastdate, forecasthour = ForecastFlows.Get_Date_For_Forecast(fd, fh, streamflow_source) 
-                    # we only need the forecast date for GEOGLOWS, for NWM we need the forecast hour as well               
-                    if streamflow_source.upper() == "GEOGLOWS":
-                        ForecastFlowFile = os.path.join(folder.FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{streamflow_source}_forecast.csv')
-                    elif streamflow_source.upper().startswith("NWM"):
-                        ForecastFlowFile = os.path.join(folder.FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{forecasthour}_{streamflow_source}_forecast.csv')
-                    if not os.path.exists(ForecastFlowFile):
-                        ForecastFlows.Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, ForecastFlowFile, streamflow_source, watershed_dict['nwm_api_key'])
-                    found = True
-                    break
-                except Exception as e:
-                    LOG.error(f'Could not process forecast, moving back another day.. ({e})')
-            if found:
-                break  # break outer
-    LOG.info('Forecast data save here: ' + ForecastFlowFile)
+    ForecastFlowFile = download_forecast_streamflows(watershed_dict, folder, rivids, streamflow_source)
     
     # if the mapper is "FLDPLN", we need to create a flow direction raster using the bathymetry based DEM.
     if watershed_dict['mapper'] == "FLDPLN":
@@ -998,33 +999,26 @@ def DEM_Forecast(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Tim
 
     return
 
-_STREAMS_GDF_CACHE: dict[str, gpd.GeoDataFrame] = {}
-
-
 def process_river_geometry(folder: FloodFolder, watershed_dict: dict, DEM: str):
     if not watershed_dict['process_stream_network']:
         return None
     
     #Datasets that can be good for a large domain
     StrmSHP: str = watershed_dict['flowline']
-    if StrmSHP in _STREAMS_GDF_CACHE:
-        LOG.info('Using cached stream file: ' + StrmSHP)
-        StrmShp_gdf = _STREAMS_GDF_CACHE[StrmSHP]
+    LOG.info('Reading in stream file: ' + StrmSHP)
+    if StrmSHP.endswith(".gdb"):
+        # Specify the layer you want to access
+        layer_name = "geoglowsv2"
+        # Read the layer from the geodatabase
+        StrmShp_gdf = gpd.read_file(StrmSHP, layer=layer_name, use_arrow=True)    
+    elif StrmSHP.endswith((".shp", ".gpkg")):
+        # Read the layer from the shapefile
+        StrmShp_gdf = gpd.read_file(StrmSHP, use_arrow=True)
+    elif StrmSHP.endswith(".parquet"):
+        # Read the layer from the shapefile
+        StrmShp_gdf = gpd.read_parquet(StrmSHP)
     else:
-        LOG.info('Reading in stream file: ' + StrmSHP)
-        if StrmSHP.endswith(".gdb"):
-            # Specify the layer you want to access
-            layer_name = "geoglowsv2"
-            # Read the layer from the geodatabase
-            StrmShp_gdf = gpd.read_file(StrmSHP, layer=layer_name, use_arrow=True)    
-        elif StrmSHP.endswith((".shp", ".gpkg")):
-            # Read the layer from the shapefile
-            StrmShp_gdf = gpd.read_file(StrmSHP, use_arrow=True)
-        elif StrmSHP.endswith(".parquet"):
-            # Read the layer from the shapefile
-            StrmShp_gdf = gpd.read_parquet(StrmSHP)
-        else:
-            raise ValueError("Unsupported stream file format. Please provide a .gdb, .shp, .gpkg, or .parquet file.")
+        raise ValueError("Unsupported stream file format. Please provide a .gdb, .shp, .gpkg, or .parquet file.")
 
     LOG.info('Converting the coordinate system of the stream file to match the DEM files, if necessary')
     test_dem_path = os.path.join(folder.dem_folder, DEM)
@@ -1355,6 +1349,10 @@ def _process_watershed(watershed):
             raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of two floats when 'clean_dem' is True.")
         elif len(specify_depths_for_bathy_mask) > 1 and clean_dem is False:
             raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of one float when 'clean_dem' is False.")
+        
+    overwrite_forecast_floodmaps = watershed.get("overwrite_forecast_floodmaps", True)
+    remove_old_forecast_files = watershed.get("remove_old_forecast_files", False)
+    make_fist_inputs = watershed.get("make_fist_inputs", True)
 
     watershed_dict = {
         "name": watershed_name,
@@ -1386,7 +1384,9 @@ def _process_watershed(watershed):
         "estimate_consequences": watershed.get("estimate_consequences", False),
         "streamflow_source": streamflow_source,
         "nwm_api_key": nwm_api_key,
-
+        "overwrite_forecast_floodmaps": overwrite_forecast_floodmaps,
+        "remove_old_forecast_files": remove_old_forecast_files,
+        "make_fist_inputs": make_fist_inputs
     }
 
     os.makedirs(output_dir, exist_ok=True)
@@ -1539,6 +1539,9 @@ def process_cli_arguments(args):
         "estimate_consequences": args.estimate_consequences,
         "streamflow_source": args.streamflow_source,
         "nwm_api_key": nwm_api_key,
+        "overwrite_forecast_floodmaps": args.overwrite_forecast_floodmaps,
+        "remove_old_forecast_files": args.remove_old_forecast_files,
+        "make_fist_inputs": args.make_fist_inputs,
     }
 
     # Ensure the output directory exists
@@ -1611,6 +1614,9 @@ def main():
     cli_parser.add_argument("--estimate_consequences", action="store_true", help="Estimate consequences using go-consequences")
     cli_parser.add_argument("--streamflow_source", type=str, default="GEOGLOWS", choices=["NWM", "GEOGLOWS"], help="Streamflow source for NenCarta (defaults to GEOGLOWS)")
     cli_parser.add_argument("--nwm_api_key", type=str, default=None, help="NWM API key (required when --streamflow_source is NWM)")
+    cli_parser.add_argument("--overwrite_forecast_floodmaps", action="store_true", help="Overwrite existing forecast flood maps")
+    cli_parser.add_argument("--remove_old_forecast_files", action="store_true", help="Remove old forecast files before processing")
+    cli_parser.add_argument("--make_fist_inputs", action="store_true", help="Make FIST inputs after processing")
 
     # add subcommand for GUI
     gui_parser = subparsers.add_parser("gui", help="Summon the GUI application")

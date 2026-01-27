@@ -11,7 +11,8 @@ import json          # <-- add this
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLineEdit, QLabel, QPushButton, QCheckBox, QComboBox,
-    QTextEdit, QGroupBox, QSpinBox, QMessageBox, QScrollArea, QLabel
+    QTextEdit, QGroupBox, QSpinBox, QMessageBox, QScrollArea, QLabel,
+    QFileDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QCoreApplication
 from PyQt5.QtGui import QFont, QColor, QPalette, QIcon
@@ -351,6 +352,72 @@ class WorkerThread(QThread):
             # Send both summary + full traceback to the GUI
             self.error_signal.emit(summary + "\n\nDETAILS:\n" + details)
 
+class DirectoryPicker(QWidget):
+    def __init__(self, parent=None, default_path="", dialog_title="Select Directory"):
+        super().__init__(parent)
+
+        self.line_edit = QLineEdit(default_path)
+        browse_btn = QPushButton("Browse…")
+
+        browse_btn.clicked.connect(self._browse)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.line_edit)
+        layout.addWidget(browse_btn)
+
+        self.dialog_title = dialog_title
+
+    def _browse(self):
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            self.dialog_title,
+            self.line_edit.text()
+        )
+        if directory:
+            self.line_edit.setText(directory)
+
+    def text(self):
+        return self.line_edit.text()
+
+class FilePicker(QWidget):
+    def __init__(
+        self,
+        parent=None,
+        default_path="",
+        dialog_title="Select File",
+        file_filter="All Files (*)"
+    ):
+        super().__init__(parent)
+
+        self.line_edit = QLineEdit(default_path)
+        browse_btn = QPushButton("Browse…")
+
+        browse_btn.clicked.connect(self._browse)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.line_edit)
+        layout.addWidget(browse_btn)
+
+        self.dialog_title = dialog_title
+        self.file_filter = file_filter
+
+    def _browse(self):
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            self.dialog_title,
+            self.line_edit.text(),
+            self.file_filter
+        )
+        if filename:
+            self.line_edit.setText(filename)
+
+    def text(self):
+        return self.line_edit.text()
+
+    def setText(self, value):
+        self.line_edit.setText(value)
 
 # --- GUI CLASS ---
 
@@ -450,14 +517,23 @@ class FloodSimulationGUI(QMainWindow):
         self.watershed_name = QLineEdit("Yellowstone_DEM")
         group_req_layout.addWidget(QLabel("Watershed Name"), i, 0); group_req_layout.addWidget(self.watershed_name, i, 1); self.input_fields['watershed_name'] = self.watershed_name; i+=1
         
-        self.flowline = QLineEdit(os.path.join('data/flowline.gpkg'))
-        group_req_layout.addWidget(QLabel("Flowline File"), i, 0); group_req_layout.addWidget(self.flowline, i, 1); self.input_fields['flowline'] = self.flowline; i+=1
+        self.flowline = FilePicker(self, "data/flowline.gpkg", "Select Flowline File", "Geometry Files (*.gpkg *.shp *.gdb *.parquet *.geoparquet);;All Files (*)")
+        group_req_layout.addWidget(QLabel("Flowline File"), i, 0)
+        group_req_layout.addWidget(self.flowline, i, 1)
+        self.input_fields["flowline"] = self.flowline.line_edit
+        i += 1
 
-        self.dem_dir = QLineEdit(os.path.join('data/dems'))
-        group_req_layout.addWidget(QLabel("DEM Directory"), i, 0); group_req_layout.addWidget(self.dem_dir, i, 1); self.input_fields['dem_dir'] = self.dem_dir; i+=1
-        
-        self.output_dir = QLineEdit(os.path.join('output/results'))
-        group_req_layout.addWidget(QLabel("Output Directory"), i, 0); group_req_layout.addWidget(self.output_dir, i, 1); self.input_fields['output_dir'] = self.output_dir; i+=1
+        self.dem_dir = DirectoryPicker(self, "data/dems", "Select DEM Directory")
+        group_req_layout.addWidget(QLabel("DEM Directory"), i, 0)
+        group_req_layout.addWidget(self.dem_dir, i, 1)
+        self.input_fields["dem_dir"] = self.dem_dir.line_edit
+        i += 1
+
+        self.output_dir = DirectoryPicker(self, "data/output", "Select Output Directory")
+        group_req_layout.addWidget(QLabel("Output Directory"), i, 0)
+        group_req_layout.addWidget(self.output_dir, i, 1)
+        self.input_fields["output_dir"] = self.output_dir.line_edit
+        i += 1
 
         self.input_grid.addWidget(group_req, row, 0, 1, 2); row += 1
 
