@@ -367,7 +367,7 @@ def Create_ARC_Model_Input_File_Initial(ARC_Input_File_Initial,
     out_file.write('\n' + 'X_Section_Dist	5000.0')
     out_file.write('\n' + 'Degree_Manip	6.1')
     out_file.write('\n' + 'Degree_Interval	1.5')
-    out_file.write('\n' + 'Low_Spot_Range	2')
+    out_file.write('\n' + 'Low_Spot_Range	5')
     out_file.write('\n' + 'Str_Limit_Val	1')
     out_file.write('\n' + 'Gen_Dir_Dist	10')
     out_file.write('\n' + 'Gen_Slope_Dist	10')
@@ -959,7 +959,7 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
                  curve2flood_forecast_simulation_time, floodpsreaderpy_forecast_simulation_time, geojson_forecast_simulation_time,
                  estimate_consequences, go_consequences_simulation_time,
                  forensic_forecast_date, forensic_forecast_hour, specified_bathyflow_field, specified_highflow_field, stream_ids_in_lake_list,
-                 Consequences_Folder, streamflow_source, StrmOrder_Field, Downstream_Link_Field,
+                 Consequences_Folder, streamflow_source, nwm_api_key, StrmOrder_Field, Downstream_Link_Field,
                  StrmOrder_Lower, StrmOrder_Upper, StrmShp_gdf=None):
 
     if DEM.endswith(".tif") or DEM.endswith(".img"):
@@ -1524,7 +1524,7 @@ def process_dem(watershed_dict):
                                                                                                                                             curve2flood_forecast_simulation_time, floodpsreaderpy_forecast_simulation_time, geojson_forecast_simulation_time,
                                                                                                                                             estimate_consequences, go_consequences_simulation_time,
                                                                                                                                             forensic_forecast_date, forensic_forecast_hour, specified_bathyflow_field, specified_highflow_field, stream_ids_in_lake_list, 
-                                                                                                                                            Consequences_Folder, streamflow_source, StrmOrder_Field, Downstream_Link_Field,
+                                                                                                                                            Consequences_Folder, streamflow_source, nwm_api_key, StrmOrder_Field, Downstream_Link_Field,
                                                                                                                                             StrmOrder_Lower, StrmOrder_Upper, StrmShp_gdf)
     
     # delete the ESA_LC_Folder and the data in it
