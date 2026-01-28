@@ -489,7 +489,15 @@ class FloodSimulationGUI(QMainWindow):
 
         self.nwm_api_key = QLineEdit()
         self.nwm_api_key.setPlaceholderText("Required for NWM")
-        group_wf_layout.addWidget(QLabel("NWM API Key"), i+1, 0); group_wf_layout.addWidget(self.nwm_api_key, i+1, 1); self.input_fields['nwm_api_key'] = self.nwm_api_key; i+=2
+        self.nwm_api_key.setVisible(False)  # Hide by default
+        self.nwm_api_key_label = QLabel("NWM API Key")
+        self.nwm_api_key_label.setVisible(False)
+        group_wf_layout.addWidget(self.nwm_api_key_label, i+1, 0); group_wf_layout.addWidget(self.nwm_api_key, i+1, 1); self.input_fields['nwm_api_key'] = self.nwm_api_key; i+=2
+        def toggle_nwm_api_key(value: str):
+            is_nwm = (value == "NWM")
+            self.nwm_api_key.setVisible(is_nwm)
+            self.nwm_api_key_label.setVisible(is_nwm)
+        self.streamflow_source.currentTextChanged.connect(toggle_nwm_api_key)
 
         self.input_grid.addWidget(group_wf, row, 0, 1, 2); row += 1
 

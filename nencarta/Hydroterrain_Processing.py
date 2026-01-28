@@ -61,8 +61,7 @@ def create_flow_direction_raster(dem: str, out_dir: str, flowdir_orig: str):
                         dst_transform=transform,
                         dst_crs=dst_crs,
                         resampling=Resampling.bilinear,
-                        src_nodata=src.nodata,
-                        dst_nodata=src.nodata,
+                        src_nodata=src.nodata
                     )
 
                 dem_for_routing = projected_dem
@@ -92,6 +91,5 @@ def create_flow_direction_raster(dem: str, out_dir: str, flowdir_orig: str):
                     dst_transform=src_transform,
                     dst_crs=src_crs,
                     resampling=Resampling.nearest,
-                    src_nodata=src.nodata,
-                    dst_nodata=src.nodata,
+                    src_nodata=src.nodata
                 )

@@ -23,6 +23,7 @@ class FloodFolder:
         self.mannings_n_text_file = os.path.join(self.land_folder, 'AR_Manning_n_MED.txt')
         self.flowdir_orig = ''
         self.flowdir_bathy = ''
+        self.floodmap_mode = configs.get('floodmap_mode', 'forecast')
 
     def _create_and_get_folder(self, subfolder_name: str) -> str:
         folder_path = os.path.join(self.output_dir, self.watershed, subfolder_name)
@@ -77,4 +78,23 @@ class FloodFolder:
         self.Forecast_Flood_Map = Forecast_Flood_Map
         self.Forecast_Flood_Depth_Raster = Forecast_Flood_Depth_Raster
         self.ForecastFlowFile = ForecastFlowFile
+
+    def setup_flood_user_files(self, Flood_Maps: list[str], Depth_Maps: list[str], UserFlowFiles: list[str], Model_Input_Files: list[str]):
+        self.User_Flood_Maps = Flood_Maps
+        self.User_Depth_Maps = Depth_Maps
+        self.UserFlowFiles = UserFlowFiles
+        self.Model_Input_Files = Model_Input_Files
+
+    def get_final_floodmap_file(self):
+        if self.floodmap_mode == 'forecast':
+            return self.Forecast_Flood_Map
+        else:
+            raise NotImplementedError(f"Floodmap mode '{self.floodmap_mode}' is not implemented.")
+        
+    def get_final_depthmap_file(self):
+        if self.floodmap_mode == 'forecast':
+            return self.Forecast_Flood_Depth_Raster
+        else:
+            raise NotImplementedError(f"Floodmap mode '{self.floodmap_mode}' is not implemented.")
+        
     
