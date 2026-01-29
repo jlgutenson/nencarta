@@ -1,4 +1,4 @@
-from .logger import LOG
+from .logger import LOG, set_log_level
 from .main import *
 from .DEM_Cleaner import *
 from .Download_Process_ForecastData import *

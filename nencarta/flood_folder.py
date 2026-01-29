@@ -20,7 +20,12 @@ class FloodFolder:
         self.Consequences_Folder = self._create_and_get_folder('Consequences')
         self.Flow_Direction_Folder = self._create_and_get_folder('FlowDirection')
 
-        self.mannings_n_text_file = os.path.join(self.land_folder, 'AR_Manning_n_MED.txt')
+        if configs.get('mannings_text_file'):
+            if not os.path.isfile(configs.get('mannings_text_file')):
+                raise FileNotFoundError(f"Provided Manning's n text file not found: {configs.get('mannings_text_file')}")
+            self.mannings_n_text_file = configs.get('mannings_text_file')
+        else:
+            self.mannings_n_text_file = os.path.join(self.land_folder, 'AR_Manning_n_MED.txt')
         self.flowdir_orig = ''
         self.flowdir_bathy = ''
         self.floodmap_mode = configs.get('floodmap_mode', 'forecast')
@@ -101,15 +106,19 @@ class FloodFolder:
         self.UserFlowFiles = UserFlowFiles
         self.Model_Input_Files = Model_Input_Files
 
-    def get_final_floodmap_file(self):
+    def get_flow_files(self) -> list[str]:
         if self.floodmap_mode == 'forecast':
-            return self.Forecast_Flood_Map
+            return [self.ForecastFlowFile]
+        elif self.floodmap_mode == 'user':
+            return self.UserFlowFiles
         else:
             raise NotImplementedError(f"Floodmap mode '{self.floodmap_mode}' is not implemented.")
         
-    def get_final_depthmap_file(self):
+    def get_depth_files(self):
         if self.floodmap_mode == 'forecast':
-            return self.Forecast_Flood_Depth_Raster
+            return [self.Forecast_Flood_Depth_Raster]
+        elif self.floodmap_mode == 'user':
+            return self.User_Depth_Maps
         else:
             raise NotImplementedError(f"Floodmap mode '{self.floodmap_mode}' is not implemented.")
         
