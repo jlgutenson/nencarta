@@ -203,7 +203,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
 
     # Create the Initial input file which is only used if cleaning the DEM
     if watershed_dict['clean_dem']: 
-        Create_ARC_Model_Input_File_Initial(folder, watershed_dict, 'COMID')
+        Create_ARC_Model_Input_File_Initial_for_cleaning_dem(folder, watershed_dict, 'COMID')
 
     Create_ARC_Model_Input_File_Bathy(folder, watershed_dict, 'COMID')
 
@@ -248,7 +248,7 @@ def Create_FlowFile(MainFlowFile, FlowFileName, OutputID, Qparam):
 
 def _write_arc_input_section(out_file: TextIO, folder: FloodFolder, watershed_dict: dict, COMID_Param: str, maybe_use_clean_dem: bool):
     out_file.write('#ARC_Inputs')
-    out_file.write(f'\nDEM_File\t{folder.DEM_File_Clean if maybe_use_clean_dem else folder.DEM_File}') # use_clean_dem will auto pick the cleaned DEM if it exists, else we force using the original DEM
+    out_file.write(f'\nDEM_File\t{folder.DEM_File_Clean if maybe_use_clean_dem else folder.DEM_File}') # use_clean_dem will auto pick the cleaned DEM if it was created, else we force using the original DEM
     out_file.write(f'\nStream_File\t{folder.STRM_File_Clean}')
     out_file.write(f'\nLU_Raster_SameRes\t{folder.LAND_File}')
     out_file.write(f'\nLU_Manning_n\t{folder.mannings_n_text_file}')
@@ -278,14 +278,14 @@ def _write_fldpln_section(out_file: TextIO, folder: FloodFolder, watershed_dict:
     out_file.write(f'\nFLDPLN_mxht0\t0.0')
     out_file.write(f'\nFLDPLN_ssflg\t1')
 
-def Create_ARC_Model_Input_File_Initial(folder: FloodFolder, watershed_dict: dict, COMID_Param: str):
+def Create_ARC_Model_Input_File_Initial_for_cleaning_dem(folder: FloodFolder, watershed_dict: dict, COMID_Param: str):
     with open(folder.ARC_FileName_Initial, 'w') as out_file:
         _write_arc_input_section(out_file, folder, watershed_dict, COMID_Param, False)
 
         out_file.write('\n\n#VDT_Output_File_and_CurveFile')
         out_file.write(f'\nVDT_Database_NumIterations\t30')
-        out_file.write(f'\nPrint_VDT_Database\t{folder.VDT_File.replace(".txt", "_Initial.txt")}')
-        out_file.write(f'\nPrint_Curve_File\t{folder.Curve_File.replace(".csv", "_Initial.csv")}')
+        out_file.write(f'\nPrint_VDT_Database\t{folder.VDT_File_Initial}')
+        out_file.write(f'\nPrint_Curve_File\t{folder.Curve_File_Initial}')
         out_file.write(f'\nReach_Average_Curve_File\t{watershed_dict["create_reach_average_curve_file"]}')
         
         out_file.write('\n\n#Mapper Input Data')
@@ -301,8 +301,8 @@ def Create_ARC_Model_Input_File_Initial(folder: FloodFolder, watershed_dict: dic
         if watershed_dict['use_specified_depth_for_bathy_mask']:
             if watershed_dict['mapper'] == "FLDPLN":
                 _write_fldpln_section(out_file, folder, watershed_dict)
-            out_file.write(f'\nOutFLD\t' + folder.FloodMapFile.replace('.tif', '_Initial.tif'))
-            out_file.write(f'\nOutSHP\t' + folder.FloodMapFile.replace('.tif', '_Initial.shp'))
+            out_file.write(f'\nOutFLD\t{folder.FloodMapFile_Initial}')
+            out_file.write(f'\nOutSHP\t' + folder.FloodMapFile_Initial.replace('.tif', '.shp'))
             out_file.write(f'\nFloodSpreader_SpecifyDepth\t{watershed_dict["specify_depths_for_bathy_mask"][0]}')    
 
 
@@ -315,9 +315,11 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
     out_file.write('\n\n#VDT_Output_File_and_CurveFile')
     out_file.write(f'\nVDT_Database_NumIterations\t30')
     out_file.write(f'\nPrint_VDT_Database\t{folder.VDT_File_Bathy}')
-    out_file.write(f'\nPrint_Curve_File\t{folder.Curve_File.replace(".csv", "_Bathy.csv")}')
-    out_file.write(f'\nPrint_VDT_Test_File\t{folder.VDT_Test_File.replace(".txt", "_Bathy.txt")}')
-    out_file.write(f'\nPrint_AP_Database\t{folder.VDT_File.replace("VDT_", "AP_").replace(".txt", "_Bathy.txt")}')
+    if watershed_dict['make_curvefile']:
+        out_file.write(f'\nPrint_Curve_File\t{folder.Curve_File_Bathy}')
+    out_file.write(f'\nPrint_VDT_Test_File\t{folder.VDT_Test_File_Bathy}')
+    if watershed_dict['make_ap_database']:
+        out_file.write(f'\nPrint_AP_Database\t{folder.AP_File}')
     out_file.write(f'\nReach_Average_Curve_File\t{watershed_dict["create_reach_average_curve_file"]}')
     
     out_file.write('\n\n#Mapper Input Data')
@@ -325,8 +327,8 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
     out_file.write(f'\nStrmShp_File\t{folder.DEM_StrmShp}')
     out_file.write(f'\nFS_ADJUST_FLOW_BY_FRACTION\t1.0')
     # out_file.write(f'\nFloodLocalOnly')
-    out_file.write(f'\nOutFLD\t' + folder.FloodMapFile.replace('.tif', '_Bathy.tif'))
-    out_file.write(f'\nOutSHP\t' + folder.FloodMapFile.replace('.tif', '_Bathy.shp'))
+    out_file.write(f'\nOutFLD\t{folder.FloodMapFile_Bathy}')
+    out_file.write(f'\nOutSHP\t{folder.FloodMapFile_Bathy_SHP}')
     # out_file.write(f'\nOutSHP	' + FloodMapFile.replace('.tif', '_Bathy.gpkg'))
     out_file.write(f'\nTopWidthDistanceFactor' + '\t' +	'1.5')
     out_file.write(f'\nTW_MultFact\t1.5')
@@ -341,7 +343,7 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
             specified_depth = watershed_dict['specify_depths_for_bathy_mask'][1]
         out_file.write('\n' + f'FloodSpreader_SpecifyDepth\t{specified_depth}')
     elif watershed_dict['use_specified_depth_for_bathy_mask'] is False:
-        out_file.write(f'\nBathyWaterMask\t{folder.FloodMapFile.replace('.tif', '_Initial.tif')}')
+        out_file.write(f'\nBathyWaterMask\t{folder.FloodMapFile_Initial}')
     out_file.write('\n\n#Bathymetry_Information')
     out_file.write(f'\nBathy_Trap_H\t0.20')
     out_file.write(f'\nBathy_Use_Banks\t{watershed_dict['bathy_use_banks']}')
@@ -368,7 +370,8 @@ def create_input_file_for_user_flowfiles(folder: FloodFolder, watershed_dict: di
         
         f.write('\n\n#VDT_Output_File_and_CurveFile')
         f.write(f'\nPrint_VDT_Database\t{folder.VDT_File_Bathy}')
-        f.write(f'\nPrint_Curve_File\t{folder.Curve_File.replace(".csv", "_Bathy.csv")}')
+        if watershed_dict['make_curvefile']:
+            f.write(f'\nPrint_Curve_File\t{folder.Curve_File_Bathy}')
         
         f.write('\n\n#Mapper Input Data')
         f.write(f'\nStrmShp_File\t{folder.DEM_StrmShp}')
@@ -414,7 +417,8 @@ def Create_ARC_Model_Input_File_FloodForecast(ForecastFlowFile: str, folder: Flo
     
     out_file.write('\n\n#VDT_Output_File_and_CurveFile')
     out_file.write(f'\nPrint_VDT_Database\t{folder.VDT_File_Bathy}')
-    out_file.write(f'\nPrint_Curve_File\t{folder.Curve_File.replace(".csv", "_Bathy.csv")}')
+    if watershed_dict['make_curvefile']:
+        out_file.write(f'\nPrint_Curve_File\t{folder.Curve_File_Bathy}')
     
     out_file.write('\n\n#Mapper Input Data')
     out_file.write(f'\nStrmShp_File\t{folder.DEM_StrmShp}')
@@ -551,7 +555,8 @@ def Create_AR_StrmRaster(StrmSHP, STRM_File, outputBounds, minx, miny, maxx, max
         STRM_File, source_ds, format="GTiff", outputType=gdal.GDT_Int32,
         outputBounds=outputBounds, width=ncols, height=nrows,
         noData=-9999, attribute=Param,
-        layers=[layer_name] if StrmSHP.lower().endswith(".gpkg") else None  # Fix layers param
+        layers=[layer_name] if StrmSHP.lower().endswith(".gpkg") else None,  # Fix layers param
+        creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=2"]
     )
 
     # Clean up
@@ -571,10 +576,10 @@ def Create_AR_StrmRaster(StrmSHP, STRM_File, outputBounds, minx, miny, maxx, max
 #     return
 
 def Write_Output_Raster(s_output_filename, raster_data, ncols, nrows, dem_geotransform, dem_projection, s_file_format, s_output_type):   
-    o_driver = gdal.GetDriverByName(s_file_format)  #Typically will be a GeoTIFF "GTiff"
+    o_driver: gdal.Driver = gdal.GetDriverByName(s_file_format)  #Typically will be a GeoTIFF "GTiff"
     
     # Construct the file with the appropriate data shape
-    o_output_file = o_driver.Create(s_output_filename, xsize=ncols, ysize=nrows, bands=1, eType=s_output_type)
+    o_output_file: gdal.Dataset = o_driver.Create(s_output_filename, xsize=ncols, ysize=nrows, bands=1, eType=s_output_type, options=['COMPRESS=DEFLATE'])
 
     # Get the first band (assuming a single-band raster)
     band = o_output_file.GetRasterBand(1)
@@ -734,7 +739,11 @@ def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
     return
 
 def Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder: FloodFolder, watervalue):
-    LOG.info('Cannot find initial flood file, so creating ' + folder.FloodMapFile_Initial)
+    if os.path.exists(folder.LU_and_Streams_Water_Map):
+        LOG.info(f"{folder.LU_and_Streams_Water_Map} exists and we aren't making it again...")
+        return
+    
+    LOG.info('Cannot find initial flood file, so creating ' + folder.LU_and_Streams_Water_Map)
     (LC, ncols, nrows, _, _, _, _, _, _, _, _) = Read_Raster_GDAL(folder.LAND_File)
     (SN, ncols, nrows, _, _, _, _, _, _, sn_geotransform, sn_projection) = Read_Raster_GDAL(folder.STRM_File_Clean)
     
@@ -763,7 +772,7 @@ def Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder: FloodFolder, wa
     # Mark non-stream areas as -9999 in the final flood map
     F[F <= 0] = -9999
     
-    Write_Output_Raster(folder.FloodMapFile_Initial, F, ncols, nrows, sn_geotransform, sn_projection, "GTiff", gdal.GDT_Int32)
+    Write_Output_Raster(folder.LU_and_Streams_Water_Map, F, ncols, nrows, sn_geotransform, sn_projection, "GTiff", gdal.GDT_Int32)
 
     return
 
@@ -866,14 +875,13 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
     if os.path.exists(folder.DEM_File_Clean) or not watershed_dict['clean_dem']:
         return
     
-    Curve_File_Initial = folder.Curve_File.replace('_CurveFile.csv','_CurveFile_Initial.csv')
-    if not os.path.exists(Curve_File_Initial):
+    if not os.path.exists(folder.Curve_File_Initial):
         # start time for the simulation
         with timer('arc_initial'):
             arc = Arc(folder.ARC_FileName_Initial)
             arc.run() 
     else:
-        LOG.info(f"{Curve_File_Initial} exists and we aren't making it again...")
+        LOG.info(f"{folder.Curve_File_Initial} exists and we aren't making it again...")
 
     with timer('initial_flood_for_cleaner'):
         if watershed_dict['mapper'] == "FloodSpreader" and watershed_dict['use_specified_depth_for_bathy_mask']:
@@ -902,8 +910,8 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
                                         [folder.STRM_File_Clean], 
                                         folder.dem_updated_folder, 
                                         FlowFileName, 
-                                        folder.Curve_File.replace('_CurveFile.csv','_CurveFile_Initial.csv'), 
-                                        folder.FloodMapFile_Initial, 
+                                        folder.Curve_File_Initial, 
+                                        folder.LU_and_Streams_Water_Map, 
                                         Q_Fraction, 
                                         TopWidthPlausibleLimit, 
                                         search_dist_for_min_elev, 
@@ -1002,7 +1010,7 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
     if not (DEM.endswith(".tif") or DEM.endswith(".img")):
         return
         
-    folder.setup_folder_for_dem(DEM, watershed_dict['streamflow_source'], watershed_dict['clean_dem'])
+    folder.setup_folder_for_dem(DEM, watershed_dict)
     folder.set_source_landcover_files(ESA.download_and_process_land_cover(folder))
 
     # This function sets-up the Input files for ARC and FloodSpreader
@@ -1023,15 +1031,7 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
     remove_old_forecast_files(folder, watershed_dict)
 
     # # creat the initial flood map with the stream raster and land cover data
-    if watershed_dict['use_specified_depth_for_bathy_mask'] is False:
-        if folder.FloodMapFile_Initial is not None and not os.path.exists(folder.FloodMapFile_Initial):
-            #Create an Initial Flood Map Based on Stream Raster and Land Cover Dataset
-            Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder, 80)
-        else:
-            LOG.info(f"{folder.FloodMapFile_Initial} exists and we aren't making it again...")
-    
-    if watershed_dict['clean_dem'] and not os.path.exists(folder.FloodMapFile_Initial):
-        #Create an Initial Flood Map Based on Stream Raster and Land Cover Dataset
+    if not watershed_dict['use_specified_depth_for_bathy_mask'] or watershed_dict['clean_dem']:
         Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder, 80)
 
     run_dem_cleaner(folder, watershed_dict, timer, DEM)
@@ -1044,6 +1044,7 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
             LOG.info("The flow direction raster we are using to run FLDPLN already exists and we are not making it again...\n")
         else:
             Hydroterrain_Processing.create_flow_direction_raster(folder.FS_BathyFile, folder.output_dir, folder.flowdir_bathy)
+
     if watershed_dict['floodmap_mode'] == 'forecast':
         run_forecast_floodmapping(folder, watershed_dict, timer)
     elif watershed_dict['floodmap_mode'] == 'user':
@@ -1199,140 +1200,12 @@ def process_json_input_serial(json_file):
     """Process input from a JSON file."""
     with open(json_file, 'r') as file:
         LOG.info(f'Opening JSON file: {json_file}')
-        data = json.load(file)
+        data: dict = json.load(file)
         LOG.info(f"{os.linesep}{pprint.pformat(data)}")
     
-    watersheds = data.get("watersheds", [])
+    watersheds: list[dict] = data.get("watersheds", [])
     for watershed in watersheds:
-        watershed_name = watershed.get("name")
-        flowline = os.path.normpath(watershed.get("flowline"))
-        dem_dir = os.path.normpath(watershed.get("dem_dir"))
-        output_dir = os.path.normpath(watershed.get("output_dir"))
-
-        # loading these early to do some preprocessing checks
-        clean_dem = watershed.get("clean_dem", False)
-        use_specified_depth_for_bathy_mask = watershed.get("use_specified_depth_for_bathy_mask", True)
-        specify_depths_for_bathy_mask = watershed.get("specify_depths_for_bathy_mask", None)
-
-        # Check for flood_waterlc_and_strm_cells and land_watervalue
-        flood_waterlc_and_strm_cells = watershed.get("flood_waterlc_and_strm_cells", False)
-        land_watervalue = watershed.get("land_watervalue", 80)
-        
-        # check if forensic_forecast_date and forensic_forecast_hour is provided in the watershed dictionary and if not set forensic_forecast_date=None
-        # get forensic forecast date (string like "20231125" or "2023-11-25 06:00:00 UTC")
-        forensic_forecast_date = watershed.get("forensic_forecast_date", None)
-        if forensic_forecast_date:
-            try:
-                # First try YYYYMMDD format
-                forensic_forecast_date_dt = datetime.strptime(forensic_forecast_date, '%Y%m%d')
-            except ValueError:
-                try:
-                    # Fallback for full timestamp
-                    forensic_forecast_date_dt = datetime.strptime(forensic_forecast_date, '%Y-%m-%d %H:%M:%S %Z')
-                except ValueError:
-                    raise ValueError(f"Invalid forensic_forecast_date format: {forensic_forecast_date}")
-            
-            # sanity check (only if you want to enforce July 1, 2024 rule)
-            if forensic_forecast_date_dt < datetime(2024, 7, 1):
-                LOG.warning(f"Warning: Forensic forecast date {forensic_forecast_date} is earlier than July 1, 2024. Exiting...")
-                sys.exit()
-        else:
-            forensic_forecast_date = None
-            LOG.info("Forensic forecast date not provided; defaulting to None.")
-
-        # get forensic forecast hour (needed for NWM)
-        forensic_forecast_hour = watershed.get("forensic_forecast_hour", None)
-        if forensic_forecast_hour is not None:
-            try:
-                forensic_forecast_hour = int(forensic_forecast_hour)
-                if forensic_forecast_hour not in range(0, 24):
-                    raise ValueError("forensic_forecast_hour must be between 0 and 23")
-            except ValueError:
-                raise ValueError(f"Invalid forensic_forecast_hour: {forensic_forecast_hour}")
-                
-        # read "streamflow_source" from the watershed dictionary, default to "GEOGLOWS" if not provided
-        streamflow_source = watershed.get("streamflow_source", "GEOGLOWS")
-        short_range_forecast_hours = [f"{i:02d}" for i in range(0, 24)]
-        medium_range_forecast_hours = ["00", "06", "12", "18"]
-        long_range_forecast_hours = ["00"]
-        # if the streamflow_source is "NWM_short_range" the forensic_forecast_hour can be between 0 and 23
-        if streamflow_source == "NWM_short_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in short_range_forecast_hours):
-            raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be between 0 and 23 when 'streamflow_source' is 'NWM_short_range'.")
-        # if the streamflow_source is "NWM_medium_range" the forensic_forecast_hour can be between one of 0, 6, 12, or 18
-        if streamflow_source == "NWM_medium_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in medium_range_forecast_hours):
-            raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be one of 0, 6, 12, or 18 when 'streamflow_source' is 'NWM_medium_range'.")
-        # if the streamflow_source is "NWM_long_range" the forensic_forecast_hour can be only 0
-        if streamflow_source == "NWM_long_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in long_range_forecast_hours):
-            raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be 0 when 'streamflow_source' is 'NWM_long_range'.")
-
-        nwm_api_key = watershed.get("nwm_api_key")
-        if streamflow_source.upper().startswith("NWM") and not nwm_api_key:
-            raise ValueError(f"Watershed '{watershed_name}' requires 'nwm_api_key' when 'streamflow_source' is NWM.")
-
-        # Validation for `use_specified_depth_for_bathy_mask` and `specify_depths_for_bathy_mask`
-        if use_specified_depth_for_bathy_mask is True:
-            if not specify_depths_for_bathy_mask or not isinstance(specify_depths_for_bathy_mask, list) or len(specify_depths_for_bathy_mask) < 1:
-                raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of two floats when 'use_specified_depth_for_bathy_mask' is True.")
-            elif len(specify_depths_for_bathy_mask) < 2 and clean_dem is True:
-                raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of two floats when 'clean_dem' is True.")
-            elif len(specify_depths_for_bathy_mask) > 1 and clean_dem is False:
-                raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of one float when 'clean_dem' is False.")
-            
-        overwrite_floodmaps = watershed.get("overwrite_floodmaps", True)
-        remove_old_forecast_files = watershed.get("remove_old_forecast_files", False)
-        make_fist_inputs = watershed.get("make_fist_inputs", True)
-        floodmap_mode = watershed.get("floodmap_mode", "forecast")
-        dem_filter = watershed.get("dem_filter", "*")
-        user_flow_files = watershed.get("user_flow_files", None)
-        if floodmap_mode == "user" and (not user_flow_files or not isinstance(user_flow_files, list) or len(user_flow_files) < 1):
-            raise ValueError(f"Watershed '{watershed_name}' requires 'user_flow_files' as either a filepath string or a list of file paths when 'floodmap_mode' is 'user'.")
-            
-        watershed_dict = {
-            "name": watershed_name,
-            "flowline": flowline,
-            "dem_dir": dem_dir,
-            "output_dir": output_dir,
-            "bathy_use_banks": watershed.get("bathy_use_banks", False),
-            "flood_waterlc_and_strm_cells":flood_waterlc_and_strm_cells,
-            "land_watervalue": land_watervalue,
-            "clean_dem": clean_dem,
-            "mapper": watershed.get("mapper", "FloodSpreader"),
-            "process_stream_network": watershed.get("process_stream_network", False),
-            "use_specified_depth_for_bathy_mask": use_specified_depth_for_bathy_mask,
-            "age_of_forecast_days": watershed.get("age_of_forecast_days", 7),
-            "find_banks_based_on_landcover": watershed.get("find_banks_based_on_landcover", True),
-            "specify_depths_for_bathy_mask": specify_depths_for_bathy_mask,
-            "create_reach_average_curve_file": watershed.get("create_reach_average_curve_file", False),
-            "use_warning_flags_to_download_dem": watershed.get("use_warning_flags_to_download_dem", False),
-            "geoglows_vpu":watershed.get("geoglows_vpu", None),
-            "forensic_forecast_date": forensic_forecast_date,
-            "forensic_forecast_hour": forensic_forecast_hour,
-            "specified_bathyflow_field":watershed.get("specified_bathyflow_field", "p_exceed_50"),
-            "specified_highflow_field":watershed.get("specified_highflow_field", "rp100_premium"),
-            "StrmOrder_Field": watershed.get("StrmOrder_Field", None),
-            "Downstream_Link_Field": watershed.get("Downstream_Link_Field", None),
-            "StrmOrder_Lower": watershed.get("StrmOrder_Lower", None),
-            "StrmOrder_Upper": watershed.get("StrmOrder_Upper", None),
-            "lake_filter_json": watershed.get("lake_filter_json", None),
-            "estimate_consequences": watershed.get("estimate_consequences", False),
-            "streamflow_source": watershed.get("streamflow_source", "GEOGLOWS"),
-            "nwm_api_key": nwm_api_key,
-            "overwrite_floodmaps": overwrite_floodmaps,
-            "remove_old_forecast_files": remove_old_forecast_files,
-            "make_fist_inputs": make_fist_inputs,
-            "floodmap_mode": floodmap_mode,
-            "dem_filter": dem_filter,
-            "user_flow_files": user_flow_files
-        }
-
-        # Ensure the output directory exists
-        os.makedirs(output_dir, exist_ok=True)
-
-        LOG.info(f"Processing watershed: {watershed_name} with parameters:{os.linesep}{pprint.pformat(watershed_dict)}")
-
-        # Call your existing processing logic here
-        process_dem(watershed_dict)
-
+        process_watershed(watershed)
 
 def process_single_watershed(watershed):
     """Run a single watershed processing job and log to a file."""
@@ -1348,8 +1221,8 @@ def process_single_watershed(watershed):
         except Exception as e:
             LOG.error(f"Exception during processing {watershed_name}: {e}")
 
-def process_watershed(watershed):
-    """The core logic for processing a watershed. Assumes quiet context."""
+def process_watershed(watershed: dict):
+    """The core logic for processing a watershed."""
     watershed_name = watershed.get("name")
     flowline = os.path.normpath(watershed.get("flowline"))
     dem_dir = os.path.normpath(watershed.get("dem_dir"))
@@ -1362,21 +1235,38 @@ def process_watershed(watershed):
     flood_waterlc_and_strm_cells = watershed.get("flood_waterlc_and_strm_cells", False)
     land_watervalue = watershed.get("land_watervalue", 80)
 
-    # check if forensic_forecast_date is provided in the watershed dictionary and if not set forensic_forecast_date=None
-    if "forensic_forecast_date" in watershed:
-        forensic_forecast_date = watershed["forensic_forecast_date"]
-        if not isinstance(forensic_forecast_date, str):
-            forensic_forecast_date = None
-    elif "forensic_forecast_date" not in watershed:
+    # check if forensic_forecast_date and forensic_forecast_hour is provided in the watershed dictionary and if not set forensic_forecast_date=None
+    # get forensic forecast date (string like "20231125" or "2023-11-25 06:00:00 UTC")
+    forensic_forecast_date = watershed.get("forensic_forecast_date", None)
+    if forensic_forecast_date:
+        try:
+            # First try YYYYMMDD format
+            forensic_forecast_date_dt = datetime.strptime(forensic_forecast_date, '%Y%m%d')
+        except ValueError:
+            try:
+                # Fallback for full timestamp
+                forensic_forecast_date_dt = datetime.strptime(forensic_forecast_date, '%Y-%m-%d %H:%M:%S %Z')
+            except ValueError:
+                raise ValueError(f"Invalid forensic_forecast_date format: {forensic_forecast_date}")
+        
+        # sanity check (only if you want to enforce July 1, 2024 rule)
+        if forensic_forecast_date_dt < datetime(2024, 7, 1):
+            LOG.warning(f"Warning: Forensic forecast date {forensic_forecast_date} is earlier than July 1, 2024. Exiting...")
+            sys.exit()
+    else:
         forensic_forecast_date = None
+        LOG.info("Forensic forecast date not provided; defaulting to None.")
 
-    # check if forensic_forecast_date is provided in the watershed dictionary and if not set forensic_forecast_date=None
-    if "forensic_forecast_hour" in watershed:
-        forensic_forecast_hour = watershed["forensic_forecast_hour"]
-        if not isinstance(forensic_forecast_hour, str):
-            forensic_forecast_hour = None
-    elif "forensic_forecast_hour" not in watershed:
-        forensic_forecast_hour = None
+    # get forensic forecast hour (needed for NWM)
+    forensic_forecast_hour = watershed.get("forensic_forecast_hour", None)
+    if forensic_forecast_hour is not None:
+        try:
+            forensic_forecast_hour = int(forensic_forecast_hour)
+            if forensic_forecast_hour not in range(0, 24):
+                raise ValueError("forensic_forecast_hour must be between 0 and 23")
+        except ValueError:
+            raise ValueError(f"Invalid forensic_forecast_hour: {forensic_forecast_hour}")
+            
     
     # read "streamflow_source" from the watershed dictionary, default to "GEOGLOWS" if not provided
     streamflow_source = watershed.get("streamflow_source", "GEOGLOWS")
@@ -1415,6 +1305,9 @@ def process_watershed(watershed):
     user_flow_files = watershed.get("user_flow_files", None)
     if floodmap_mode == "user" and (not user_flow_files or not isinstance(user_flow_files, list) or len(user_flow_files) < 1):
         raise ValueError(f"Watershed '{watershed_name}' requires 'user_flow_files' as either a filepath string or a list of file paths when 'floodmap_mode' is 'user'.")
+    make_curvefile = watershed.get("make_curvefile", True)
+    make_ap_database = watershed.get("make_ap_database", True)
+    vdt_file_extension = watershed.get("vdt_file_extension", 'txt')
 
     watershed_dict = {
         "name": watershed_name,
@@ -1451,7 +1344,10 @@ def process_watershed(watershed):
         "make_fist_inputs": make_fist_inputs,
         "dem_filter": dem_filter,
         "floodmap_mode": floodmap_mode,
-        "user_flow_files": user_flow_files
+        "user_flow_files": user_flow_files,
+        "make_curvefile": make_curvefile,
+        "make_ap_database": make_ap_database,
+        "vdt_file_extension": vdt_file_extension
     }
 
     os.makedirs(output_dir, exist_ok=True)

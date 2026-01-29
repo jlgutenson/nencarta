@@ -30,7 +30,7 @@ class FloodFolder:
         os.makedirs(folder_path, exist_ok=True)
         return folder_path
 
-    def setup_folder_for_dem(self, DEM: str, streamflow_source: str, clean_dem: bool):
+    def setup_folder_for_dem(self, DEM: str, watershed_dict: dict):
         self.FileName = DEM.replace('.tif','').replace('.img','')
         self.DEM_File = os.path.join(self.dem_folder, DEM)
 
@@ -38,6 +38,7 @@ class FloodFolder:
         self.LAND_File = os.path.join(self.land_folder, self.FileName + '_LAND_Raster.tif')
 
         #Datasets to be Created
+        streamflow_source = watershed_dict['streamflow_source']
         self.DEM_StrmShp = os.path.join(self.strm_folder, f"{streamflow_source}_{self.FileName}_StrmShp.gpkg")
         self.DEM_Reanalsyis_FlowFile = os.path.join(self.FLOW_Folder,f"{streamflow_source}_{self.FileName}_Reanalysis.csv")
         self.COMID_Q_File = os.path.join(os.path.dirname(self.DEM_Reanalsyis_FlowFile), f"{os.path.basename(self.DEM_File[:-4])}_2yr_flow_initial.txt")
@@ -45,27 +46,42 @@ class FloodFolder:
         # isolating the NWM or GEOGLOWS text in the streamflow_source variable
         match = re.search(r"(NWM|GEOGLOWS)", streamflow_source)
         # these will only vary based upon if they are NWM or GEOGLOWS
-        self.ARC_FileName_Bathy = os.path.join(self.ARC_Folder, match.group(0) + '_ARC_Input_' + self.FileName + '_Bathy.txt')
-        self.ARC_FileName_Initial = os.path.join(self.ARC_Folder, match.group(0) + '_ARC_Input_' + self.FileName + '_InitialFlood.txt')
-        self.DEM_File_Clean = os.path.join(self.dem_updated_folder, match.group(0) + '_' + self.FileName + '_Clean.tif') if clean_dem else self.DEM_File
-        self.VDT_Test_File = os.path.join(self.VDT_Folder, match.group(0) + '_' + self.FileName + '_VDT_FS.csv')
-        self.STRM_File = os.path.join(self.strm_folder, match.group(0) + '_' + self.FileName + '_STRM_Raster.tif')
+        self.ARC_FileName_Bathy = os.path.join(self.ARC_Folder, f"{match.group(0)}_ARC_Input_{self.FileName}_Bathy.txt")
+        self.ARC_FileName_Initial = os.path.join(self.ARC_Folder, f"{match.group(0)}_ARC_Input_{self.FileName}_InitialFlood.txt")
+        self.DEM_File_Clean = os.path.join(self.dem_updated_folder, f"{match.group(0)}_{self.FileName}_Clean.tif") if watershed_dict['clean_dem'] else self.DEM_File
+        self.VDT_Test_File = os.path.join(self.VDT_Folder, f"{match.group(0)}_{self.FileName}_VDT_FS.csv")
+        self.VDT_Test_File_Bathy = self.VDT_Test_File.replace(".csv", "_Bathy.csv")
+        self.STRM_File = os.path.join(self.strm_folder, f"{match.group(0)}_{self.FileName}_STRM_Raster.tif")
         self.STRM_File_Clean = self.STRM_File.replace('.tif','_Clean.tif')
-        self.VDT_File = os.path.join(self.VDT_Folder, match.group(0) + '_' + self.FileName + '_VDT_Database.txt')
-        self.VDT_File_Bathy = self.VDT_File.replace('.txt', '_Bathy.txt')
-        self.Curve_File = os.path.join(self.VDT_Folder, match.group(0) + '_' + self.FileName + '_CurveFile.csv')
-        self.FloodMapFile_Initial = os.path.join(self.flood_folder, match.group(0) + '_' + self.FileName + '_ARC_Flood_Initial.tif')
-        self.DepthMapFile = os.path.join(self.flood_folder, match.group(0) + '_' + self.FileName + '_ARC_Depth.tif')
-        self.ARC_BathyFile = os.path.join(self.bathy_file_folder, match.group(0) + '_' + self.FileName + '_ARC_Bathy.tif')
-        self.FS_BathyFile = os.path.join(self.bathy_file_folder, match.group(0) +'_' +  self.FileName + '_FS_Bathy.tif')  
-        self.FloodMapFile = os.path.join(self.flood_folder, match.group(0) + '_' + self.FileName + '_ARC_Flood.tif')
+
+        vdt_ext = watershed_dict['vdt_file_extension']
+        self.VDT_File = os.path.join(self.VDT_Folder, f"{match.group(0)}_{self.FileName}_VDT_Database.{vdt_ext}")
+        self.VDT_File_Initial = self.VDT_File.replace(f".{vdt_ext}", f"_Initial.{vdt_ext}")
+        self.VDT_File_Bathy = self.VDT_File.replace(f".{vdt_ext}", f"_Bathy.{vdt_ext}")
+
+        self.AP_File = self.VDT_File.replace("VDT_", "AP_").replace(f".{vdt_ext}", f"_Bathy.txt")
+
+        self.Curve_File = os.path.join(self.VDT_Folder, f"{match.group(0)}_{self.FileName}_CurveFile.csv")
+        self.Curve_File_Initial = self.Curve_File.replace(".csv", "_Initial.csv")
+        self.Curve_File_Bathy = self.Curve_File.replace(".csv", "_Bathy.csv")
+
+        self.LU_and_Streams_Water_Map = os.path.join(self.flood_folder, f"{match.group(0)}_{self.FileName}_ARC_Flood_Initial.tif")
+        self.DepthMapFile = os.path.join(self.flood_folder, f"{match.group(0)}_{self.FileName}_ARC_Depth.tif")
+        self.ARC_BathyFile = os.path.join(self.bathy_file_folder, f"{match.group(0)}_{self.FileName}_ARC_Bathy.tif")
+        self.FS_BathyFile = os.path.join(self.bathy_file_folder, f"{match.group(0)}_{self.FileName}_FS_Bathy.tif")  
+
+        self.FloodMapFile = os.path.join(self.flood_folder, f"{match.group(0)}_{self.FileName}_ARC_Flood.tif")
+        self.FloodMapFile_Initial = self.FloodMapFile.replace('.tif', '_Initial.tif')
+        self.FloodMapFile_Initial_SHP = self.FloodMapFile.replace('.tif', '_Initial.shp')
+        self.FloodMapFile_Bathy = self.FloodMapFile.replace('.tif', '_Bathy.tif')
+        self.FloodMapFile_Bathy_SHP = self.FloodMapFile.replace('.tif', '_Bathy.shp')
 
 
         # these variables will have the full specifics of the streamflow source 
-        self.ARC_FileName_FloodForecast = os.path.join(self.ARC_Folder, streamflow_source + '_ARC_Input_' + self.FileName + '_FloodForecast.txt')
-        self.FloodDepthFile = os.path.join(self.flood_folder, streamflow_source + '_' + self.FileName + '_ARC_FloodDepth.tif')
-        self.FloodWSEFile = os.path.join(self.flood_folder, streamflow_source + '_' + self.FileName + '_ARC_FloodWSE.tif') 
-        self.FloodVELFile = os.path.join(self.flood_folder, streamflow_source + '_' + self.FileName + '_ARC_FloodVEL.tif')
+        self.ARC_FileName_FloodForecast = os.path.join(self.ARC_Folder, f"{streamflow_source}_ARC_Input_{self.FileName}_FloodForecast.txt")
+        self.FloodDepthFile = os.path.join(self.flood_folder, f"{streamflow_source}_{self.FileName}_ARC_FloodDepth.tif")
+        self.FloodWSEFile = os.path.join(self.flood_folder, f"{streamflow_source}_{self.FileName}_ARC_FloodWSE.tif") 
+        self.FloodVELFile = os.path.join(self.flood_folder, f"{streamflow_source}_{self.FileName}_ARC_FloodVEL.tif")
 
     def set_source_landcover_files(self, LandCoverFiles: list[str]):
         self.LandCoverFiles = LandCoverFiles
