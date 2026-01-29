@@ -1221,23 +1221,50 @@ def process_single_watershed(watershed):
         except Exception as e:
             LOG.error(f"Exception during processing {watershed_name}: {e}")
 
-def process_watershed(watershed: dict):
-    """The core logic for processing a watershed."""
-    watershed_name = watershed.get("name")
-    flowline = os.path.normpath(watershed.get("flowline"))
-    dem_dir = os.path.normpath(watershed.get("dem_dir"))
-    output_dir = os.path.normpath(watershed.get("output_dir"))
+def validate_forecast_hour(forensic_forecast_hour):
+    if forensic_forecast_hour is not None:
+        try:
+            forensic_forecast_hour = int(forensic_forecast_hour)
+            if forensic_forecast_hour not in range(0, 24):
+                raise ValueError("forensic_forecast_hour must be between 0 and 23")
+        except ValueError:
+            raise ValueError(f"Invalid forensic_forecast_hour: {forensic_forecast_hour}")
+            
+    return forensic_forecast_hour
 
-    clean_dem = watershed.get("clean_dem", False)
-    use_specified_depth_for_bathy_mask = watershed.get("use_specified_depth_for_bathy_mask", True)
-    specify_depths_for_bathy_mask = watershed.get("specify_depths_for_bathy_mask", None)
+def validate_forecast_hours(streamflow_source: str, forensic_forecast_hour: str, watershed_name: str):
+    # if the streamflow_source is "NWM_short_range" the forensic_forecast_hour can be between 0 and 23, the forensic_forecast_hour must be provided as a two-digit string
+    short_range_forecast_hours = [f"{i:02d}" for i in range(0, 24)]
+    medium_range_forecast_hours = ["00", "06", "12", "18"]
+    long_range_forecast_hours = ["00"]
+    if streamflow_source == "NWM_short_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in short_range_forecast_hours):
+        raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be between 0 and 23 when 'streamflow_source' is 'NWM_short_range'.")
+    # if the streamflow_source is "NWM_medium_range" the forensic_forecast_hour can be between one of 0, 6, 12, or 18
+    if streamflow_source == "NWM_medium_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in medium_range_forecast_hours):
+        raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be one of 0, 6, 12, or 18 when 'streamflow_source' is 'NWM_medium_range'.")
+    # if the streamflow_source is "NWM_long_range" the forensic_forecast_hour can be only 0
+    if streamflow_source == "NWM_long_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in long_range_forecast_hours):
+        raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be 0 when 'streamflow_source' is 'NWM_long_range'.")
 
-    flood_waterlc_and_strm_cells = watershed.get("flood_waterlc_and_strm_cells", False)
-    land_watervalue = watershed.get("land_watervalue", 80)
+def validate_nwm_api_key(nwm_api_key: str, watershed_name: str, streamflow_source: str):
+     if streamflow_source.upper().startswith("NWM") and not nwm_api_key:
+        raise ValueError(f"Watershed '{watershed_name}' requires 'nwm_api_key' when 'streamflow_source' is NWM.")
 
+def validate_specified_depths(use_specified_depth_for_bathy_mask: bool, 
+                              specify_depths_for_bathy_mask: list, 
+                              clean_dem: bool, 
+                              watershed_name: str):
+    if use_specified_depth_for_bathy_mask:
+        if not specify_depths_for_bathy_mask or not isinstance(specify_depths_for_bathy_mask, list) or len(specify_depths_for_bathy_mask) < 1:
+            raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of two floats when 'use_specified_depth_for_bathy_mask' is True.")
+        elif len(specify_depths_for_bathy_mask) < 2 and clean_dem:
+            raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of two floats when 'clean_dem' is True.")
+        elif len(specify_depths_for_bathy_mask) > 1 and not clean_dem:
+            raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of one float when 'clean_dem' is False.")
+        
+def validate_forecast_date(forensic_forecast_date: str):
     # check if forensic_forecast_date and forensic_forecast_hour is provided in the watershed dictionary and if not set forensic_forecast_date=None
     # get forensic forecast date (string like "20231125" or "2023-11-25 06:00:00 UTC")
-    forensic_forecast_date = watershed.get("forensic_forecast_date", None)
     if forensic_forecast_date:
         try:
             # First try YYYYMMDD format
@@ -1257,103 +1284,85 @@ def process_watershed(watershed: dict):
         forensic_forecast_date = None
         LOG.info("Forensic forecast date not provided; defaulting to None.")
 
-    # get forensic forecast hour (needed for NWM)
-    forensic_forecast_hour = watershed.get("forensic_forecast_hour", None)
-    if forensic_forecast_hour is not None:
-        try:
-            forensic_forecast_hour = int(forensic_forecast_hour)
-            if forensic_forecast_hour not in range(0, 24):
-                raise ValueError("forensic_forecast_hour must be between 0 and 23")
-        except ValueError:
-            raise ValueError(f"Invalid forensic_forecast_hour: {forensic_forecast_hour}")
-            
-    
-    # read "streamflow_source" from the watershed dictionary, default to "GEOGLOWS" if not provided
-    streamflow_source = watershed.get("streamflow_source", "GEOGLOWS")
-    
-    # if the streamflow_source is "NWM_short_range" the forensic_forecast_hour can be between 0 and 23, the forensic_forecast_hour must be provided as a two-digit string
-    short_range_forecast_hours = [f"{i:02d}" for i in range(0, 24)]
-    medium_range_forecast_hours = ["00", "06", "12", "18"]
-    long_range_forecast_hours = ["00"]
-    if streamflow_source == "NWM_short_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in short_range_forecast_hours):
-        raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be between 0 and 23 when 'streamflow_source' is 'NWM_short_range'.")
-    # if the streamflow_source is "NWM_medium_range" the forensic_forecast_hour can be between one of 0, 6, 12, or 18
-    if streamflow_source == "NWM_medium_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in medium_range_forecast_hours):
-        raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be one of 0, 6, 12, or 18 when 'streamflow_source' is 'NWM_medium_range'.")
-    # if the streamflow_source is "NWM_long_range" the forensic_forecast_hour can be only 0
-    if streamflow_source == "NWM_long_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in long_range_forecast_hours):
-        raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be 0 when 'streamflow_source' is 'NWM_long_range'.")
+    return forensic_forecast_date
 
-    nwm_api_key = watershed.get("nwm_api_key")
-    if streamflow_source.upper().startswith("NWM") and not nwm_api_key:
-        raise ValueError(f"Watershed '{watershed_name}' requires 'nwm_api_key' when 'streamflow_source' is NWM.")
+def verify_required_keys(input_dict: dict):
+    required_keys = ["name", "flowline", "dem_dir", "output_dir"]
+    for key in required_keys:
+        if key not in input_dict:
+            raise KeyError(f"Missing required key in watershed {input_dict.get('name', 'unknown')}: {key}")
 
-
-    if use_specified_depth_for_bathy_mask is True:
-        if not specify_depths_for_bathy_mask or not isinstance(specify_depths_for_bathy_mask, list) or len(specify_depths_for_bathy_mask) < 1:
-            raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of two floats when 'use_specified_depth_for_bathy_mask' is True.")
-        elif len(specify_depths_for_bathy_mask) < 2 and clean_dem is True:
-            raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of two floats when 'clean_dem' is True.")
-        elif len(specify_depths_for_bathy_mask) > 1 and clean_dem is False:
-            raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of one float when 'clean_dem' is False.")
-        
-    overwrite_floodmaps = watershed.get("overwrite_floodmaps", True)
-    remove_old_forecast_files = watershed.get("remove_old_forecast_files", False)
-    make_fist_inputs = watershed.get("make_fist_inputs", True)
-    dem_filter = watershed.get("dem_filter", "*")
-    floodmap_mode = watershed.get("floodmap_mode", "forecast")
-    user_flow_files = watershed.get("user_flow_files", None)
+def validate_user_floodmaps(watershed_dict: dict):
+    floodmap_mode = watershed_dict.get("floodmap_mode", "forecast")
+    user_flow_files = watershed_dict.get("user_flow_files", None)
     if floodmap_mode == "user" and (not user_flow_files or not isinstance(user_flow_files, list) or len(user_flow_files) < 1):
-        raise ValueError(f"Watershed '{watershed_name}' requires 'user_flow_files' as either a filepath string or a list of file paths when 'floodmap_mode' is 'user'.")
-    make_curvefile = watershed.get("make_curvefile", True)
-    make_ap_database = watershed.get("make_ap_database", True)
-    vdt_file_extension = watershed.get("vdt_file_extension", 'txt')
+        raise ValueError(f"Watershed '{watershed_dict.get('name', 'unknown')}' requires 'user_flow_files' as either a filepath string or a list of file paths when 'floodmap_mode' is 'user'.")
+    
+    return floodmap_mode, user_flow_files
+
+def process_watershed(input_dict: dict):
+    """The core logic for processing a watershed."""
+    verify_required_keys(input_dict)
+    watershed_name = input_dict.get("name")
+    
+    streamflow_source = input_dict.get("streamflow_source", "GEOGLOWS")
+    forensic_forecast_hour = validate_forecast_hour(input_dict.get("forensic_forecast_hour", None))
+    validate_forecast_hours(streamflow_source, forensic_forecast_hour, watershed_name)
+
+    nwm_api_key = validate_nwm_api_key(input_dict.get("nwm_api_key"), watershed_name, streamflow_source)
+
+    use_specified_depth_for_bathy_mask = input_dict.get("use_specified_depth_for_bathy_mask", True)
+    specify_depths_for_bathy_mask = input_dict.get("specify_depths_for_bathy_mask", None)
+    clean_dem = input_dict.get("clean_dem", False)
+    validate_specified_depths(use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, clean_dem, watershed_name)
+
+    floodmap_mode, user_flow_files = validate_user_floodmaps(input_dict)
 
     watershed_dict = {
         "name": watershed_name,
-        "flowline": flowline,
-        "dem_dir": dem_dir,
-        "output_dir": output_dir,
-        "bathy_use_banks": watershed.get("bathy_use_banks", False),
-        "flood_waterlc_and_strm_cells": flood_waterlc_and_strm_cells,
-        "land_watervalue": land_watervalue,
+        "flowline": os.path.normpath(input_dict["flowline"]),
+        "dem_dir": os.path.normpath(input_dict["dem_dir"]),
+        "output_dir": os.path.normpath(input_dict["output_dir"]),
+        "bathy_use_banks": input_dict.get("bathy_use_banks", False),
+        "flood_waterlc_and_strm_cells": input_dict.get("flood_waterlc_and_strm_cells", False),
+        "land_watervalue": input_dict.get("land_watervalue", 80),
         "clean_dem": clean_dem,
-        "mapper": watershed.get("mapper", "FloodSpreader"),
-        "process_stream_network": watershed.get("process_stream_network", False),
+        "mapper": input_dict.get("mapper", "FloodSpreader"),
+        "process_stream_network": input_dict.get("process_stream_network", False),
         "use_specified_depth_for_bathy_mask": use_specified_depth_for_bathy_mask,
-        "age_of_forecast_days": watershed.get("age_of_forecast_days", 7),
-        "find_banks_based_on_landcover": watershed.get("find_banks_based_on_landcover", True),
+        "age_of_forecast_days": input_dict.get("age_of_forecast_days", 7),
+        "find_banks_based_on_landcover": input_dict.get("find_banks_based_on_landcover", True),
         "specify_depths_for_bathy_mask": specify_depths_for_bathy_mask,
-        "create_reach_average_curve_file": watershed.get("create_reach_average_curve_file", False),
-        "use_warning_flags_to_download_dem": watershed.get("use_warning_flags_to_download_dem", False),
-        "geoglows_vpu": watershed.get("geoglows_vpu", None),
-        "forensic_forecast_date": forensic_forecast_date,
+        "create_reach_average_curve_file": input_dict.get("create_reach_average_curve_file", False),
+        "use_warning_flags_to_download_dem": input_dict.get("use_warning_flags_to_download_dem", False),
+        "geoglows_vpu": input_dict.get("geoglows_vpu", None),
+        "forensic_forecast_date": validate_forecast_date(input_dict.get("forensic_forecast_date", None)),
         "forensic_forecast_hour": forensic_forecast_hour,
-        "specified_bathyflow_field":watershed.get("specified_bathyflow_field", "p_exceed_50"),
-        "specified_highflow_field":watershed.get("specified_highflow_field", "rp100_premium"),
-        "StrmOrder_Field": watershed.get("StrmOrder_Field", None),
-        "Downstream_Link_Field": watershed.get("Downstream_Link_Field", None),
-        "StrmOrder_Lower": watershed.get("StrmOrder_Lower", None),
-        "StrmOrder_Upper": watershed.get("StrmOrder_Upper", None),
-        "lake_filter_json": watershed.get("lake_filter_json", None),
-        "estimate_consequences": watershed.get("estimate_consequences", False),
+        "specified_bathyflow_field":input_dict.get("specified_bathyflow_field", "p_exceed_50"),
+        "specified_highflow_field":input_dict.get("specified_highflow_field", "rp100_premium"),
+        "StrmOrder_Field": input_dict.get("StrmOrder_Field", None),
+        "Downstream_Link_Field": input_dict.get("Downstream_Link_Field", None),
+        "StrmOrder_Lower": input_dict.get("StrmOrder_Lower", None),
+        "StrmOrder_Upper": input_dict.get("StrmOrder_Upper", None),
+        "lake_filter_json": input_dict.get("lake_filter_json", None),
+        "estimate_consequences": input_dict.get("estimate_consequences", False),
         "streamflow_source": streamflow_source,
         "nwm_api_key": nwm_api_key,
-        "overwrite_floodmaps": overwrite_floodmaps,
-        "remove_old_forecast_files": remove_old_forecast_files,
-        "make_fist_inputs": make_fist_inputs,
-        "dem_filter": dem_filter,
+        "overwrite_floodmaps": input_dict.get("overwrite_floodmaps", True),
+        "remove_old_forecast_files": input_dict.get("remove_old_forecast_files", False),
+        "make_fist_inputs": input_dict.get("make_fist_inputs", True),
+        "dem_filter": input_dict.get("dem_filter", "*"),
         "floodmap_mode": floodmap_mode,
         "user_flow_files": user_flow_files,
-        "make_curvefile": make_curvefile,
-        "make_ap_database": make_ap_database,
-        "vdt_file_extension": vdt_file_extension
+        "make_curvefile": input_dict.get("make_curvefile", True),
+        "make_ap_database": input_dict.get("make_ap_database", True),
+        "vdt_file_extension": input_dict.get("vdt_file_extension", 'txt')
     }
 
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(watershed_dict["output_dir"], exist_ok=True)
 
     LOG.info(f"Started processing watershed: {watershed_name}")
-    LOG.info(f"Parameters: {json.dumps(watershed_dict, indent=2)}")
+    LOG.info(f"Parameters: {pprint.pformat(watershed_dict)}")
 
     # Your real processing logic
     process_dem(watershed_dict)
@@ -1384,135 +1393,29 @@ def process_json_input(json_file, parallel=None, num_workers=None):
         cli_num_workers=num_workers
     )
     LOG.info(f"Parallel: {parallel} | Workers: {num_workers}")
-    if parallel:
+    if parallel and len(watersheds) > 1:
         # Parallel path: one process per watershed, logging handled by process_single_watershed
         with mp.Pool(processes=num_workers) as pool:
-            pool.map(process_single_watershed, watersheds)
+            pool.imap_unordered(process_single_watershed, watersheds)
     else:
         # Serial path: reuse existing serial routine (retains your validation flow)
         process_json_input_serial(json_file)
 
-# def process_json_input(json_file, parallel=True, num_workers=3):
-#     """Process multiple watersheds in parallel and log outputs to files."""
-#     with open(json_file, 'r') as file:
-#         LOG.info(f"Reading input file: {json_file}")
-#         data = json.load(file)
-
-#     watersheds = data.get("watersheds", [])
-#     if not watersheds:
-#         LOG.warning("No watersheds found.")
-#         return
-#     if parallel == True:
-#         with mp.Pool(processes=num_workers or os.cpu_count()) as pool:
-#             pool.map(process_single_watershed, watersheds)
-#     elif parallel == False:
-#         process_json_input_serial(json_file)
-        
 def normalize_path(path):
     return os.path.normpath(path)
 
+def rename_cli_keys(input_dict: dict) -> dict:
+    """Rename CLI argument keys to match watershed dictionary keys."""
+    key_mapping = {
+        "watershed":"name",
+    }
+    return {key_mapping.get(key, key): value for key, value in input_dict.items()}
+
 def process_cli_arguments(args):
     """Process input from CLI arguments."""
-    output_dir = args.output_dir
-    watershed_name = args.watershed
-
-    clean_dem = args.clean_dem
-    use_specified_depth_for_bathy_mask = args.use_specified_depth_for_bathy_mask
-    specify_depths_for_bathy_mask = args.specify_depths_for_bathy_mask
-
-    # Check for flood_waterlc_and_strm_cells and land_watervalue
-    flood_waterlc_and_strm_cells = args.flood_waterlc_and_strm_cells
-    if flood_waterlc_and_strm_cells == True:
-        land_watervalue = args.land_watervalue
-    else:
-        land_watervalue = 80
-
-    # check if forensic_forecast_date is provided in the args and if not set forensic_forecast_date=None
-    forensic_forecast_date = args.forensic_forecast_date
-    if not isinstance(forensic_forecast_date, str):
-        forensic_forecast_date = None
-
-    # check if forensic_forecast_date is provided in the args and if not set forensic_forecast_date=None
-    forensic_forecast_hour = args.forensic_forecast_hour
-    if not isinstance(forensic_forecast_hour, str):
-        forensic_forecast_hour = None
-    
-    # check if lake_filter_json is provided in the args and if not set lake_filter_json=None
-    lake_filter_json = args.lake_filter_json
-    if not isinstance(lake_filter_json, str):
-        lake_filter_json = None
-
-    # if the streamflow_source is "NWM_short_range" the forensic_forecast_hour can be between 0 and 23, the forensic_forecast_hour must be provided as a two-digit string
-    short_range_forecast_hours = [f"{i:02d}" for i in range(0, 24)]
-    medium_range_forecast_hours = ["00", "06", "12", "18"]
-    long_range_forecast_hours = ["00"]
-    if args.streamflow_source == "NWM_short_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in short_range_forecast_hours):
-        raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be between 0 and 23 when 'streamflow_source' is 'NWM_short_range'.")
-    # if the streamflow_source is "NWM_medium_range" the forensic_forecast_hour can be between one of 0, 6, 12, or 18
-    if args.streamflow_source == "NWM_medium_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in medium_range_forecast_hours):
-        raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be one of 0, 6, 12, or 18 when 'streamflow_source' is 'NWM_medium_range'.")
-    # if the streamflow_source is "NWM_long_range" the forensic_forecast_hour can be only 0
-    if args.streamflow_source == "NWM_long_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in long_range_forecast_hours):
-        raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be 0 when 'streamflow_source' is 'NWM_long_range'.")
-
-    nwm_api_key = args.nwm_api_key
-    if args.streamflow_source.upper().startswith("NWM") and not nwm_api_key:
-        raise ValueError(f"Watershed '{watershed_name}' requires '--nwm_api_key' when '--streamflow_source' is NWM.")
-
-
-
-    # Validation for `use_specified_depth_for_bathy_mask` and `specify_depths_for_bathy_mask`
-    if use_specified_depth_for_bathy_mask is True:
-        if not specify_depths_for_bathy_mask or len(specify_depths_for_bathy_mask) < 1:
-            raise ValueError("'--use_specified_depth_for_bathy_mask' must be specified as two floats when '--use_specified_depth_for_bathy_mask' is True.")
-        elif len(specify_depths_for_bathy_mask) < 2 and clean_dem is True:
-            raise ValueError("'--specify_depths_for_bathy_mask' must be specified as two floats when '--clean_dem' is True.")
-        elif len(specify_depths_for_bathy_mask) > 1 and clean_dem is False:
-            raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of one float when 'clean_dem' is False.")
-
-    watershed_dict = {
-        "name": watershed_name,
-        "flowline": normalize_path(args.flowline),
-        "dem_dir": normalize_path(args.dem_dir),
-        "bathy_use_banks": args.bathy_use_banks,
-        "flood_waterlc_and_strm_cells": flood_waterlc_and_strm_cells,
-        "land_watervalue": land_watervalue,
-        "clean_dem": clean_dem,
-        "mapper": args.mapper,
-        "output_dir": normalize_path(output_dir),
-        "process_stream_network": args.process_stream_network,
-        "use_specified_depth_for_bathy_mask": use_specified_depth_for_bathy_mask,
-        "age_of_forecast_days": args.age_of_forecast_days,
-        "find_banks_based_on_landcover": args.find_banks_based_on_landcover,
-        "specify_depths_for_bathy_mask": specify_depths_for_bathy_mask,
-        "create_reach_average_curve_file": args.create_reach_average_curve_file,
-        "use_warning_flags_to_download_dem":args.use_warning_flags_to_download_dem,
-        "geoglows_vpu":args.geoglows_vpu,
-        "forensic_forecast_date": forensic_forecast_date,
-        "forensic_forecast_hour": forensic_forecast_hour,
-        "specified_bathyflow_field":args.specified_bathyflow_field,
-        "specified_highflow_field":args.specified_highflow_field,
-        "StrmOrder_Field": args.StrmOrder_Field,
-        "Downstream_Link_Field": args.Downstream_Link_Field,
-        "StrmOrder_Lower": args.StrmOrder_Lower,
-        "StrmOrder_Upper": args.StrmOrder_Upper,
-        "lake_filter_json": lake_filter_json,
-        "estimate_consequences": args.estimate_consequences,
-        "streamflow_source": args.streamflow_source,
-        "nwm_api_key": nwm_api_key,
-        "overwrite_floodmaps": args.overwrite_floodmaps,
-        "remove_old_forecast_files": args.remove_old_forecast_files,
-        "make_fist_inputs": args.make_fist_inputs,
-    }
-
-    # Ensure the output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
-    LOG.info(f"Processing watershed: {args.watershed} with parameters: {watershed_dict}")
-    LOG.info(f"Results will be saved in: {output_dir}")
-
-    # Call the existing processing logic here
-    process_dem(watershed_dict)
+    input_dict = vars(args)
+    input_dict = rename_cli_keys(input_dict)
+    process_watershed(input_dict)
 
 class RequiredIfFloodWaterAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
