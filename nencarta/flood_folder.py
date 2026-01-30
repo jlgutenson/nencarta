@@ -75,18 +75,23 @@ class FloodFolder:
         self.ARC_BathyFile = os.path.join(self.bathy_file_folder, f"{match.group(0)}_{self.FileName}_ARC_Bathy.tif")
         self.FS_BathyFile = os.path.join(self.bathy_file_folder, f"{match.group(0)}_{self.FileName}_FS_Bathy.tif")  
 
-        self.FloodMapFile = os.path.join(self.flood_folder, f"{match.group(0)}_{self.FileName}_ARC_Flood.tif")
+        floodmap_id = watershed_dict.get('floodmap_identifier', '')
+        if floodmap_id:
+            floodmap_id = f"_{floodmap_id}"
+        else:
+            floodmap_id = ''
+
+        self.FloodMapFile = os.path.join(self.flood_folder, f"{match.group(0)}_{self.FileName}_ARC_Flood{floodmap_id}.tif")
         self.FloodMapFile_Initial = self.FloodMapFile.replace('.tif', '_Initial.tif')
         self.FloodMapFile_Initial_SHP = self.FloodMapFile.replace('.tif', '_Initial.shp')
         self.FloodMapFile_Bathy = self.FloodMapFile.replace('.tif', '_Bathy.tif')
         self.FloodMapFile_Bathy_SHP = self.FloodMapFile.replace('.tif', '_Bathy.shp')
 
-
         # these variables will have the full specifics of the streamflow source 
         self.ARC_FileName_FloodForecast = os.path.join(self.ARC_Folder, f"{streamflow_source}_ARC_Input_{self.FileName}_FloodForecast.txt")
-        self.FloodDepthFile = os.path.join(self.flood_folder, f"{streamflow_source}_{self.FileName}_ARC_FloodDepth.tif")
-        self.FloodWSEFile = os.path.join(self.flood_folder, f"{streamflow_source}_{self.FileName}_ARC_FloodWSE.tif") 
-        self.FloodVELFile = os.path.join(self.flood_folder, f"{streamflow_source}_{self.FileName}_ARC_FloodVEL.tif")
+        self.FloodDepthFile = os.path.join(self.flood_folder, f"{streamflow_source}_{self.FileName}_ARC_FloodDepth{floodmap_id}.tif")
+        self.FloodWSEFile = os.path.join(self.flood_folder, f"{streamflow_source}_{self.FileName}_ARC_FloodWSE{floodmap_id}.tif") 
+        self.FloodVELFile = os.path.join(self.flood_folder, f"{streamflow_source}_{self.FileName}_ARC_FloodVEL{floodmap_id}.tif")
 
     def set_source_landcover_files(self, LandCoverFiles: list[str]):
         self.LandCoverFiles = LandCoverFiles

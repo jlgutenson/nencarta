@@ -852,7 +852,7 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
     if not os.path.exists(folder.Curve_File_Initial):
         # start time for the simulation
         with timer('arc_initial'):
-            arc = Arc(folder.ARC_FileName_Initial)
+            arc = Arc(folder.ARC_FileName_Initial, quiet=watershed_dict['quiet'])
             arc.run() 
     else:
         LOG.info(f"{folder.Curve_File_Initial} exists and we aren't making it again...")
@@ -866,7 +866,7 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
             subprocess.call(call_mapper, shell=True)
         elif (watershed_dict['mapper'] in ["Curve2Flood", "FLDPLN"]) and watershed_dict['use_specified_depth_for_bathy_mask']:
             LOG.info(f"Executing Curve2Flood using {folder.ARC_FileName_Initial}")
-            Curve2Flood_MainFunction(folder.ARC_FileName_Initial)
+            Curve2Flood_MainFunction(folder.ARC_FileName_Initial, quiet=watershed_dict['quiet'])
     
     OutputID = 'COMID'
     Q_Fraction = 0.10
@@ -898,7 +898,7 @@ def create_bathymetry(folder: FloodFolder, watershed_dict: dict, timer: Timer):
         if not os.path.exists(folder.ARC_BathyFile):
             # start time for the simulation
             with timer('arc_bathy'):
-                arc = Arc(folder.ARC_FileName_Bathy)
+                arc = Arc(folder.ARC_FileName_Bathy, quiet=watershed_dict['quiet'])
                 arc.run()
         else:
             LOG.info(f"{folder.ARC_BathyFile} exists and we aren't making it again...")   
@@ -913,7 +913,7 @@ def create_bathymetry(folder: FloodFolder, watershed_dict: dict, timer: Timer):
                 subprocess.call(call_mapper, shell=True)
             elif (watershed_dict['mapper'] in ["Curve2Flood", "FLDPLN"]):
                 LOG.info(f"Executing Curve2Flood using {folder.ARC_FileName_Bathy}")
-                Curve2Flood_MainFunction(folder.ARC_FileName_Bathy)
+                Curve2Flood_MainFunction(folder.ARC_FileName_Bathy, quiet=watershed_dict['quiet'])
     else:
         LOG.info(f"{folder.FS_BathyFile} exists and we aren't making it again...")
 
@@ -928,7 +928,7 @@ def run_flood_mapper(watershed_dict: dict, folder: FloodFolder, timer: Timer, in
             subprocess.call(call_mapper, shell=True)
         elif (watershed_dict['mapper'] == "Curve2Flood" or watershed_dict['mapper'] == "FLDPLN"):
             LOG.info(f"Executing Curve2Flood using {input_file}")
-            Curve2Flood_MainFunction(input_file)
+            Curve2Flood_MainFunction(input_file, quiet=watershed_dict['quiet'])
 
 def run_user_floodmaps(folder: FloodFolder, watershed_dict: dict, timer: Timer):
     for floodmap, input_file in zip(folder.User_Flood_Maps, folder.Model_Input_Files):
@@ -1364,6 +1364,8 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "make_depth_maps": input_dict.get("make_depth_maps", True),
         "make_velocity_maps": input_dict.get("make_velocity_maps", True),
         "make_wse_maps": input_dict.get("make_wse_maps", True),
+        "floodmap_identifier": input_dict.get("floodmap_identifier", ""),
+        "quiet": input_dict.get("quiet", False),
     }
 
     os.makedirs(watershed_dict["output_dir"], exist_ok=True)
