@@ -1,10 +1,12 @@
 import os
 import math
+import logging
 import tempfile
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from whitebox import WhiteboxTools
 
+from . import LOG
 
 def _utm_epsg_from_lonlat(lon, lat):
     zone = int(math.floor((lon + 180.0) / 6.0) + 1)
@@ -13,7 +15,7 @@ def _utm_epsg_from_lonlat(lon, lat):
 
 def create_flow_direction_raster(dem: str, out_dir: str, flowdir_orig: str):
     wbt = WhiteboxTools()
-    wbt.set_verbose_mode(False)
+    wbt.set_verbose_mode(LOG.level <= logging.INFO)
     wbt.set_compress_rasters(True)
     wbt.work_dir = out_dir
 

@@ -2,43 +2,43 @@
 #conda activate ffs_esa_dc
 
 # build-in imports
-import argparse
-from contextlib import redirect_stdout, redirect_stderr
-from datetime import datetime, timedelta
 import glob
-import multiprocessing as mp
-import sys
 import os
-import platform
 import re
+import sys
+import json
 import stat
-import subprocess
 import pprint
+import argparse
+import platform
+import subprocess
+import multiprocessing as mp
 from typing import TextIO
+from datetime import datetime, timedelta
+from contextlib import redirect_stdout, redirect_stderr
 
 # third-party imports
-from arc import Arc
-from arc.Create_GeoJSON import Run_Main_VDT_to_GEOJSON_Program_Stream_Vector
-from curve2flood import Curve2Flood_MainFunction
-from osgeo import gdal, osr
-from shapely.geometry import box
-import json
+import numpy as np
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-import numpy as np
+from arc import Arc
+from osgeo import gdal
 from pyproj import CRS
+from shapely.geometry import box
+from curve2flood import Curve2Flood_MainFunction
+from arc.Create_GeoJSON import Run_Main_VDT_to_GEOJSON_Program_Stream_Vector
 
 # local imports
+from . import LOG
+from . import gui_app
+from .timer import Timer
+from . import DEM_Cleaner
+from .flood_folder import FloodFolder
+from . import Hydroterrain_Processing
+from . import esa_download_processing as ESA
 from . import streamflow_processing as HistFlows
 from . import Download_Process_ForecastData as ForecastFlows
-from . import DEM_Cleaner
-from . import esa_download_processing as ESA
-from . import gui_app
-from . import Hydroterrain_Processing
-from . import LOG
-from .flood_folder import FloodFolder
-from .timer import Timer
 
 
 def _resolve_parallel_settings(data, cli_parallel=None, cli_num_workers=None):
@@ -311,6 +311,7 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
 
     with  open(folder.ARC_FileName_Bathy,'w') as out_file:
         _write_arc_input_section(out_file, folder, watershed_dict, COMID_Param, True)
+        bathy_args: dict = watershed_dict['bathy_args']
         
         out_file.write('\n\n#VDT_Output_File_and_CurveFile')
         out_file.write(f'\nVDT_Database_NumIterations\t{bathy_args.get("VDT_Database_NumIterations", 30)}')
@@ -322,7 +323,6 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
             out_file.write(f'\nPrint_AP_Database\t{folder.AP_File}')
 
         out_file.write(f'\nReach_Average_Curve_File\t{watershed_dict["create_reach_average_curve_file"]}')
-        bathy_args: dict = watershed_dict['bathy_args']
         out_file.write('\n\n#Mapper Input Data')
         out_file.write(f'\nComid_Flow_File\t{folder.COMID_Q_File}')
         out_file.write(f'\nStrmShp_File\t{folder.DEM_StrmShp}')
@@ -334,6 +334,8 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
         out_file.write(f'\nTopWidthDistanceFactor\t{bathy_args.get("TopWidthDistanceFactor", 1.5)}')
         out_file.write(f'\nTW_MultFact\t{bathy_args.get("TW_MultFact", 1.5)}')
         out_file.write(f'\nTopWidthPlausibleLimit\t{bathy_args.get("TopWidthPlausibleLimit", 2000)}')
+        if not bathy_args.get('Make_Output_GPKG', True):
+            out_file.write('\nMake_Output_GPKG\tFalse')
 
         if watershed_dict['use_specified_depth_for_bathy_mask']:
             if watershed_dict['mapper'] == "FLDPLN":
@@ -1111,20 +1113,25 @@ def remove_landcover_tiles(folder: FloodFolder):
     else:
         LOG.info(f"remove_landcover_tiles: Folder {folder.ESA_LC_Folder} does not exist.")
 
-def print_simulation_times(watershed_dict: dict, timer: Timer):
-    # here are the simulation times for each of the processes for the watershed
-    LOG.info(f"Here are the simulation times for each of the processes for the watershed {watershed_dict['name']}:\n")
-    LOG.info(f"ARC Initial Flood Simulation Time: {timer.get_time_string('arc_initial')}")
-    LOG.info(f"Initial Flood Simulation Time: {timer.get_time_string('initial_flood_for_cleaner')}")
-    LOG.info(f"DEM Cleaner Simulation Time: {timer.get_time_string('dem_cleaner')}")
-    LOG.info(f"ARC Bathymetry Simulation Time: {timer.get_time_string('arc_bathy')}")
-    LOG.info(f"Flooder Bathymetry Simulation Time: {timer.get_time_string('flood_bathy')}")
-    LOG.info(f"Flood Map Simulation Time: {timer.get_time_string('flood')}")
-    LOG.info(f"GeoJSON Simulation Time: {timer.get_time_string('geojson_fist')}")
-    LOG.info(f"Go-Consequences Simulation Time: {timer.get_time_string('go_consequences')}")
+def simulation_times_to_strings(watershed_name: str, timer: Timer) -> list[str]:
+    times = [
+        f"Here are the simulation times for each of the processes for the watershed {watershed_name}:\n",
+        f"ARC Initial Flood Simulation Time: {timer.get_time_string('arc_initial')}",
+        f"Initial Flood Simulation Time: {timer.get_time_string('initial_flood_for_cleaner')}",
+        f"DEM Cleaner Simulation Time: {timer.get_time_string('dem_cleaner')}",
+        f"ARC Bathymetry Simulation Time: {timer.get_time_string('arc_bathy')}",
+        f"Flooder Bathymetry Simulation Time: {timer.get_time_string('flood_bathy')}",
+        f"Flood Map Simulation Time: {timer.get_time_string('flood')}",
+        f"GeoJSON Simulation Time: {timer.get_time_string('geojson_fist')}",
+        f"Go-Consequences Simulation Time: {timer.get_time_string('go_consequences')}"
+    ]
+    return times
 
+def print_simulation_times(watershed_name: str, timer: Timer):
+    for time_string in simulation_times_to_strings(watershed_name, timer):
+        LOG.info(time_string)
 
-def process_dem(watershed_dict: dict):
+def process_dem(watershed_dict: dict, timer: Timer):
     LOG.info(f"Estimate consequences is set to {watershed_dict['estimate_consequences']}")
 
     # API key for NWM requests (required when streamflow_source is NWM)
@@ -1159,15 +1166,13 @@ def process_dem(watershed_dict: dict):
     if len(DEM_List) == 0:
         LOG.info("No DEMs found in the specified folder.")
         return
-    
-    timer = Timer()
 
     #Now go through each DEM dataset
     for DEM in DEM_List:
         run_one_dem(DEM, folder, watershed_dict, timer)
     
     remove_landcover_tiles(folder)
-    print_simulation_times(watershed_dict, timer)
+    print_simulation_times(watershed_dict['name'], timer)
     return
     
 def process_json_input_serial(json_file):
@@ -1178,8 +1183,11 @@ def process_json_input_serial(json_file):
         LOG.info(f"{os.linesep}{pprint.pformat(data)}")
     
     watersheds: list[dict] = data.get("watersheds", [])
+    timer = Timer()
     for watershed in watersheds:
-        process_watershed(watershed)
+        process_watershed(watershed, timer)
+
+    return timer
 
 def process_single_watershed(watershed: dict):
     """Run a single watershed processing job and log to a file."""
@@ -1191,12 +1199,14 @@ def process_single_watershed(watershed: dict):
 
     with open(log_path, 'w') as log_file, redirect_stdout(log_file), redirect_stderr(log_file):
         try:
-            process_watershed(watershed)
+            timer = Timer()
+            process_watershed(watershed, timer)
+            return timer
         except Exception as e:
             LOG.error(f"Exception during processing {watershed_name}: {e}")
 
 def validate_forecast_hour(forensic_forecast_hour):
-    if forensic_forecast_hour is not None:
+    if forensic_forecast_hour:
         try:
             forensic_forecast_hour = int(forensic_forecast_hour)
             if forensic_forecast_hour not in range(0, 24):
@@ -1211,13 +1221,13 @@ def validate_forecast_hours(streamflow_source: str, forensic_forecast_hour: str,
     short_range_forecast_hours = [f"{i:02d}" for i in range(0, 24)]
     medium_range_forecast_hours = ["00", "06", "12", "18"]
     long_range_forecast_hours = ["00"]
-    if streamflow_source == "NWM_short_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in short_range_forecast_hours):
+    if streamflow_source == "NWM_short_range" and (forensic_forecast_hour and forensic_forecast_hour not in short_range_forecast_hours):
         raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be between 0 and 23 when 'streamflow_source' is 'NWM_short_range'.")
     # if the streamflow_source is "NWM_medium_range" the forensic_forecast_hour can be between one of 0, 6, 12, or 18
-    if streamflow_source == "NWM_medium_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in medium_range_forecast_hours):
+    if streamflow_source == "NWM_medium_range" and (forensic_forecast_hour and forensic_forecast_hour not in medium_range_forecast_hours):
         raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be one of 0, 6, 12, or 18 when 'streamflow_source' is 'NWM_medium_range'.")
     # if the streamflow_source is "NWM_long_range" the forensic_forecast_hour can be only 0
-    if streamflow_source == "NWM_long_range" and (forensic_forecast_hour is not None and forensic_forecast_hour not in long_range_forecast_hours):
+    if streamflow_source == "NWM_long_range" and (forensic_forecast_hour and forensic_forecast_hour not in long_range_forecast_hours):
         raise ValueError(f"Watershed '{watershed_name}' requires 'forensic_forecast_hour' to be 0 when 'streamflow_source' is 'NWM_long_range'.")
 
 def validate_nwm_api_key(nwm_api_key: str, watershed_name: str, streamflow_source: str):
@@ -1283,13 +1293,13 @@ def validate_user_floodmaps(watershed_dict: dict):
 def norm_or_none(path: str):
     return os.path.normpath(path) if path else None
 
-def process_watershed(input_dict: dict):
+def process_watershed(input_dict: dict, timer: Timer = None):
     """The core logic for processing a watershed."""
     verify_required_keys(input_dict)
     watershed_name = input_dict.get("name")
     
     streamflow_source = input_dict.get("streamflow_source", "GEOGLOWS")
-    forensic_forecast_hour = validate_forecast_hour(input_dict.get("forensic_forecast_hour", None))
+    forensic_forecast_hour = validate_forecast_hour(input_dict.get("forensic_forecast_hour"))
     validate_forecast_hours(streamflow_source, forensic_forecast_hour, watershed_name)
 
     nwm_api_key = validate_nwm_api_key(input_dict.get("nwm_api_key"), watershed_name, streamflow_source)
@@ -1304,6 +1314,10 @@ def process_watershed(input_dict: dict):
     if not input_dict.get("make_depth_maps", True) and input_dict.get('estimate_consequences', False):
         LOG.warning(f"Watershed '{watershed_name}': 'make_depth_maps' is False but 'estimate_consequences' is True. Setting 'make_depth_maps' to True.")
         input_dict['make_depth_maps'] = True
+
+    dem_filter = input_dict.get("dem_filter", "*")
+    if not dem_filter:
+        dem_filter = "*"
 
     watershed_dict = {
         "name": watershed_name,
@@ -1322,29 +1336,30 @@ def process_watershed(input_dict: dict):
         "specify_depths_for_bathy_mask": specify_depths_for_bathy_mask,
         "create_reach_average_curve_file": input_dict.get("create_reach_average_curve_file", False),
         "use_warning_flags_to_download_dem": input_dict.get("use_warning_flags_to_download_dem", False),
-        "geoglows_vpu": input_dict.get("geoglows_vpu", None),
-        "forensic_forecast_date": validate_forecast_date(input_dict.get("forensic_forecast_date", None)),
+        "geoglows_vpu": input_dict.get("geoglows_vpu"),
+        "forensic_forecast_date": validate_forecast_date(input_dict.get("forensic_forecast_date")),
         "forensic_forecast_hour": forensic_forecast_hour,
         "specified_bathyflow_field":input_dict.get("specified_bathyflow_field", "p_exceed_50"),
         "specified_highflow_field":input_dict.get("specified_highflow_field", "rp100_premium"),
-        "StrmOrder_Field": input_dict.get("StrmOrder_Field", None),
-        "Downstream_Link_Field": input_dict.get("Downstream_Link_Field", None),
-        "StrmOrder_Lower": input_dict.get("StrmOrder_Lower", None),
-        "StrmOrder_Upper": input_dict.get("StrmOrder_Upper", None),
-        "lake_filter_json": norm_or_none(input_dict.get("lake_filter_json", None)),
+        "StrmOrder_Field": input_dict.get("StrmOrder_Field"),
+        "Downstream_Link_Field": input_dict.get("Downstream_Link_Field"),
+        "StrmOrder_Lower": input_dict.get("StrmOrder_Lower"),
+        "StrmOrder_Upper": input_dict.get("StrmOrder_Upper"),
+        "lake_filter_json": norm_or_none(input_dict.get("lake_filter_json")),
         "estimate_consequences": input_dict.get("estimate_consequences", False),
         "streamflow_source": streamflow_source,
         "nwm_api_key": nwm_api_key,
         "overwrite_floodmaps": input_dict.get("overwrite_floodmaps", True),
         "remove_old_forecast_files": input_dict.get("remove_old_forecast_files", False),
         "make_fist_inputs": input_dict.get("make_fist_inputs", True),
-        "dem_filter": input_dict.get("dem_filter", "*"),
+        "dem_filter": dem_filter,
         "floodmap_mode": floodmap_mode,
         "user_flow_files": user_flow_files,
         "make_curvefile": input_dict.get("make_curvefile", True),
         "make_ap_database": input_dict.get("make_ap_database", True),
         "vdt_file_extension": input_dict.get("vdt_file_extension", 'txt'),
-        "mannings_text_file": norm_or_none(input_dict.get("mannings_text_file", None)),
+        "mannings_text_file": norm_or_none(input_dict.get("mannings_text_file")),
+        "bathy_args": input_dict.get("bathy_args", {}),
         "floodmap_args": input_dict.get("floodmap_args", {}),
         "make_depth_maps": input_dict.get("make_depth_maps", True),
         "make_velocity_maps": input_dict.get("make_velocity_maps", True),
@@ -1356,7 +1371,9 @@ def process_watershed(input_dict: dict):
     LOG.info(f"Started processing watershed: {watershed_name}")
     LOG.info(f"Parameters: {pprint.pformat(watershed_dict)}")
 
-    process_dem(watershed_dict)
+    if timer is None:
+        timer = Timer()
+    process_dem(watershed_dict, timer)
 
     LOG.info(f"Finished processing {watershed_name}")
 

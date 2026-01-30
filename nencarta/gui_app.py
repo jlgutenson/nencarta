@@ -2,8 +2,6 @@
 import io
 import sys
 import os
-import random
-import time
 import traceback
 
 # third-party imports
@@ -12,13 +10,15 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLineEdit, QLabel, QPushButton, QCheckBox, QComboBox,
     QTextEdit, QGroupBox, QSpinBox, QMessageBox, QScrollArea, QLabel,
-    QFileDialog
+    QFileDialog, QPlainTextEdit, QTableWidget, QTableWidgetItem,
+    QSizePolicy
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QCoreApplication
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSettings
 from PyQt5.QtGui import QFont, QColor, QPalette, QIcon
 
 # local imports
 from . import main as flood_main
+from .timer import Timer
 
 FLOW_FIELD_OPTIONS = (
     [f"p_exceed_{i}" for i in [0] + list(range(5, 101, 5))]
@@ -40,6 +40,8 @@ SIMULATION_TIMES_MAP = {
     'geojson_forecast_simulation_time': "GeoJSON Forecast (FIST)",
     'go_consequences_simulation_time': "Go-Consequences Estimation",
 }
+
+settings = QSettings("NenCarta", "FloodSimulationGUI")
 
 class QtLogStream(io.TextIOBase):
     """
@@ -73,11 +75,11 @@ class QtLogStream(io.TextIOBase):
 
 class WorkerThread(QThread):
     """Worker thread to run main.py via its JSON interface without blocking the GUI."""
-    finished_signal = pyqtSignal(dict)
+    finished_signal = pyqtSignal(str, Timer)
     log_signal = pyqtSignal(str)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, params):
+    def __init__(self, params: dict):
         super().__init__()
         self.params = params
 
@@ -91,72 +93,28 @@ class WorkerThread(QThread):
         """
         params = self.params
 
-        def normalize_path(p):
-            # For real runs, we want actual paths, not mock placeholders
-            return os.path.normpath(p) if p else None
-
         # Parse depths from comma-separated text into floats
         if params.get("specify_depths_for_bathy_mask"):
-            specify_depths = [
+            params["specify_depths_for_bathy_mask"] = [
                 float(d.strip())
                 for d in params["specify_depths_for_bathy_mask"].split(",")
                 if d.strip()
             ]
         else:
-            specify_depths = []
+            params["specify_depths_for_bathy_mask"] = []
+
+        params["name"] = params["watershed_name"]
+
+        params["user_flow_files"] = [line.strip() for line in params.get("user_flow_files","").splitlines() if line.strip()]
 
         # Basic validation mirroring the GUI’s previous logic
         if params["use_specified_depth_for_bathy_mask"]:
-            if params["clean_dem"] and len(specify_depths) < 2:
+            if params["clean_dem"] and len(params["specify_depths_for_bathy_mask"]) < 2:
                 raise ValueError("Clean DEM requires two depths for bathymetry mask.")
-            if not params["clean_dem"] and len(specify_depths) < 1:
+            if not params["clean_dem"] and len(params["specify_depths_for_bathy_mask"]) < 1:
                 raise ValueError("Non-clean DEM requires one depth for bathymetry mask.")
 
-        watershed_dict = {
-            "name": params["watershed_name"],
-            "flowline": normalize_path(params["flowline"]),
-            "dem_dir": normalize_path(params["dem_dir"]),
-            "output_dir": normalize_path(params["output_dir"]),
-
-            "bathy_use_banks": params["bathy_use_banks"],
-            "flood_waterlc_and_strm_cells": params["flood_waterlc_and_strm_cells"],
-            "land_watervalue": (
-                params["land_watervalue"]
-                if params["flood_waterlc_and_strm_cells"]
-                else None
-            ),
-            "clean_dem": params["clean_dem"],
-            "mapper": params["mapper"],
-            "process_stream_network": params["process_stream_network"],
-            "use_specified_depth_for_bathy_mask": params["use_specified_depth_for_bathy_mask"],
-            "age_of_forecast_days": params["age_of_forecast_days"],
-            "find_banks_based_on_landcover": params["find_banks_based_on_landcover"],
-            "specify_depths_for_bathy_mask": specify_depths,
-            "create_reach_average_curve_file": params["create_reach_average_curve_file"],
-            "use_warning_flags_to_download_dem": params["use_warning_flags_to_download_dem"],
-            "geoglows_vpu": params["geoglows_vpu"] or None,
-            "forensic_forecast_date": params["forensic_forecast_date"] or None,
-            "forensic_forecast_hour": params["forensic_forecast_hour"] or None,
-            "specified_bathyflow_field": params["specified_bathyflow_field"],
-            "specified_highflow_field": params["specified_highflow_field"],
-            "StrmOrder_Field": params["StrmOrder_Field"],
-            "Downstream_Link_Field": params["Downstream_Link_Field"],
-            "StrmOrder_Lower": params["StrmOrder_Lower"],
-            "StrmOrder_Upper": params["StrmOrder_Upper"],
-            "lake_filter_json": (
-                normalize_path(params["lake_filter_json"])
-                if params["lake_filter_json"]
-                else None
-            ),
-            "estimate_consequences": params["estimate_consequences"],
-            "streamflow_source": params["streamflow_source"],
-            "nwm_api_key": params.get("nwm_api_key"),
-            "overwrite_forecast_floodmaps": params.get("overwrite_forecast_floodmaps", True),
-            "remove_old_forecast_files": params.get("remove_old_forecast_files", False),
-            "make_fist_inputs": params.get("make_fist_inputs", True)
-        }
-
-        return watershed_dict
+        return params
 
     def _write_json_input(self, watershed_dict):
         """
@@ -254,10 +212,10 @@ class WorkerThread(QThread):
                 sys.stdout = old_stdout
                 sys.stderr = old_stderr
 
-            if isinstance(result, dict):
-                self.finished_signal.emit(result)
+            if isinstance(result, Timer):
+                self.finished_signal.emit(watershed_dict['name'], result)
             else:
-                self.finished_signal.emit({})
+                self.finished_signal.emit(watershed_dict['name'], None)
 
         except Exception as e:
             context = "Error running simulation"
@@ -269,6 +227,34 @@ class WorkerThread(QThread):
             # Send both summary + full traceback to the GUI
             self.error_signal.emit(summary + "\n\nDETAILS:\n" + details)
 
+class DictTable(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        self.table = QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels(["Key", "Value"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.table)
+
+    def set_dict(self, data: dict):
+        self.table.setRowCount(0)
+        for key, value in data.items():
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0, QTableWidgetItem(str(key)))
+            self.table.setItem(row, 1, QTableWidgetItem(str(value)))
+
+    def to_dict(self) -> dict:
+        result = {}
+        for row in range(self.table.rowCount()):
+            k = self.table.item(row, 0)
+            v = self.table.item(row, 1)
+            if k and v and k.text():
+                result[k.text()] = v.text()
+        return result
+    
 class DirectoryPicker(QWidget):
     def __init__(self, parent=None, default_path="", dialog_title="Select Directory"):
         super().__init__(parent)
@@ -445,22 +431,22 @@ class FloodSimulationGUI(QMainWindow):
         group_req_layout = QGridLayout(group_req)
         
         i = 0
-        self.watershed_name = QLineEdit("Yellowstone_DEM")
+        self.watershed_name = QLineEdit(settings.value("watershed_name", "Yellowstone_DEM"))
         group_req_layout.addWidget(QLabel("Watershed Name"), i, 0); group_req_layout.addWidget(self.watershed_name, i, 1); self.input_fields['watershed_name'] = self.watershed_name; i+=1
         
-        self.flowline = FilePicker(self, "data/flowline.gpkg", "Select Flowline File", "Geometry Files (*.gpkg *.shp *.gdb *.parquet *.geoparquet);;All Files (*)")
+        self.flowline = FilePicker(self, settings.value("flowline", "data/flowline.gpkg"), "Select Flowline File", "Geometry Files (*.gpkg *.shp *.gdb *.parquet *.geoparquet);;All Files (*)")
         group_req_layout.addWidget(QLabel("Flowline File"), i, 0)
         group_req_layout.addWidget(self.flowline, i, 1)
         self.input_fields["flowline"] = self.flowline.line_edit
         i += 1
 
-        self.dem_dir = DirectoryPicker(self, "data/dems", "Select DEM Directory")
+        self.dem_dir = DirectoryPicker(self, settings.value("dem_dir", "data/dems"), "Select DEM Directory")
         group_req_layout.addWidget(QLabel("DEM Directory"), i, 0)
         group_req_layout.addWidget(self.dem_dir, i, 1)
         self.input_fields["dem_dir"] = self.dem_dir.line_edit
         i += 1
 
-        self.output_dir = DirectoryPicker(self, "data/output", "Select Output Directory")
+        self.output_dir = DirectoryPicker(self, settings.value("output_dir", "data/output"), "Select Output Directory")
         group_req_layout.addWidget(QLabel("Output Directory"), i, 0)
         group_req_layout.addWidget(self.output_dir, i, 1)
         self.input_fields["output_dir"] = self.output_dir.line_edit
@@ -474,17 +460,21 @@ class FloodSimulationGUI(QMainWindow):
         
         i = 0
         self.clean_dem = QCheckBox("Clean DEM (Requires Initial Flood Map Step)")
+        self.clean_dem.setChecked(settings.value("clean_dem", False, type=bool))
         group_wf_layout.addWidget(self.clean_dem, i, 0, 1, 2); self.input_fields['clean_dem'] = self.clean_dem; i+=1
 
         self.estimate_consequences = QCheckBox("Estimate Consequences (Run Go-Consequences)")
+        self.estimate_consequences.setChecked(settings.value("estimate_consequences", False, type=bool))
         group_wf_layout.addWidget(self.estimate_consequences, i, 0, 1, 2); self.input_fields['estimate_consequences'] = self.estimate_consequences; i+=1
 
         self.mapper = QComboBox()
-        self.mapper.addItems(["Curve2Flood", "FLDPLN"])
+        self.mapper.addItems(["FloodSpreader", "Curve2Flood", "FLDPLN"])
+        self.mapper.setCurrentText(settings.value("mapper", "Curve2Flood"))
         group_wf_layout.addWidget(QLabel("Mapper Method"), i+1, 0); group_wf_layout.addWidget(self.mapper, i+1, 1); self.input_fields['mapper'] = self.mapper; i+=2
 
         self.streamflow_source = QComboBox()
         self.streamflow_source.addItems(["GEOGLOWS", "NWM"])
+        self.streamflow_source.setCurrentText(settings.value("streamflow_source", "GEOGLOWS"))
         group_wf_layout.addWidget(QLabel("Streamflow Source"), i+1, 0); group_wf_layout.addWidget(self.streamflow_source, i+1, 1); self.input_fields['streamflow_source'] = self.streamflow_source; i+=2
 
         self.nwm_api_key = QLineEdit()
@@ -492,6 +482,7 @@ class FloodSimulationGUI(QMainWindow):
         self.nwm_api_key.setVisible(False)  # Hide by default
         self.nwm_api_key_label = QLabel("NWM API Key")
         self.nwm_api_key_label.setVisible(False)
+        self.nwm_api_key.setText(settings.value("nwm_api_key", ""))
         group_wf_layout.addWidget(self.nwm_api_key_label, i+1, 0); group_wf_layout.addWidget(self.nwm_api_key, i+1, 1); self.input_fields['nwm_api_key'] = self.nwm_api_key; i+=2
         def toggle_nwm_api_key(value: str):
             is_nwm = (value == "NWM")
@@ -509,47 +500,55 @@ class FloodSimulationGUI(QMainWindow):
         i = 0
         # Checkboxes
         self.bathy_use_banks = QCheckBox("Bathy Use Banks")
+        self.bathy_use_banks.setChecked(settings.value("bathy_use_banks", False, type=bool))
         group_adv_layout.addWidget(self.bathy_use_banks, i, 0, 1, 2); self.input_fields['bathy_use_banks'] = self.bathy_use_banks; i+=1
 
         self.flood_waterlc_and_strm_cells = QCheckBox("Flood LC  and Stream Cells in Flood Map")
-        self.flood_waterlc_and_strm_cells.setChecked(True) # Default from logic
+        self.flood_waterlc_and_strm_cells.setChecked(settings.value("flood_waterlc_and_strm_cells", True, type=bool)) # Default from logic
         group_adv_layout.addWidget(self.flood_waterlc_and_strm_cells, i, 0, 1, 2); self.input_fields['flood_waterlc_and_strm_cells'] = self.flood_waterlc_and_strm_cells; i+=1
         
         self.use_specified_depth_for_bathy_mask = QCheckBox("Use Specified Depth for Bathy Mask")
+        self.use_specified_depth_for_bathy_mask.setChecked(settings.value("use_specified_depth_for_bathy_mask", False, type=bool))
         group_adv_layout.addWidget(self.use_specified_depth_for_bathy_mask, i, 0, 1, 2); self.input_fields['use_specified_depth_for_bathy_mask'] = self.use_specified_depth_for_bathy_mask; i+=1
 
         self.find_banks_based_on_landcover = QCheckBox("Find Banks Based on Land Cover (Default=True)")
-        self.find_banks_based_on_landcover.setChecked(True)
+        self.find_banks_based_on_landcover.setChecked(settings.value("find_banks_based_on_landcover", True, type=bool))
         group_adv_layout.addWidget(self.find_banks_based_on_landcover, i, 0, 1, 2); self.input_fields['find_banks_based_on_landcover'] = self.find_banks_based_on_landcover; i+=1
         
         self.process_stream_network = QCheckBox("Process Stream Network")
-        self.process_stream_network.setChecked(True)
+        self.process_stream_network.setChecked(settings.value("process_stream_network", True, type=bool))
         group_adv_layout.addWidget(self.process_stream_network, i, 0, 1, 2); self.input_fields['process_stream_network'] = self.process_stream_network; i+=1
         
         self.create_reach_average_curve_file = QCheckBox("Create Reach Average Curve File")
+        self.create_reach_average_curve_file.setChecked(settings.value("create_reach_average_curve_file", False, type=bool))
         group_adv_layout.addWidget(self.create_reach_average_curve_file, i, 0, 1, 2); self.input_fields['create_reach_average_curve_file'] = self.create_reach_average_curve_file; i+=1
         
         self.use_warning_flags_to_download_dem = QCheckBox("Use Warning Flags to Download DEM")
+        self.use_warning_flags_to_download_dem.setChecked(settings.value("use_warning_flags_to_download_dem", False, type=bool))
         group_adv_layout.addWidget(self.use_warning_flags_to_download_dem, i, 0, 1, 2); self.input_fields['use_warning_flags_to_download_dem'] = self.use_warning_flags_to_download_dem; i+=1
 
 
         # Line Edits / Spin Boxes
-        self.land_watervalue = QSpinBox(); self.land_watervalue.setRange(0, 255); self.land_watervalue.setValue(80)
+        self.land_watervalue = QSpinBox(); self.land_watervalue.setRange(0, 255); 
+        self.land_watervalue.setValue(settings.value("land_watervalue", 80, type=int))
         group_adv_layout.addWidget(QLabel("Land Water Value"), i+1, 0); group_adv_layout.addWidget(self.land_watervalue, i+1, 1); self.input_fields['land_watervalue'] = self.land_watervalue; i+=2
 
-        self.age_of_forecast_days = QSpinBox(); self.age_of_forecast_days.setRange(1, 365); self.age_of_forecast_days.setValue(7)
+        self.age_of_forecast_days = QSpinBox(); self.age_of_forecast_days.setRange(1, 365); 
+        self.age_of_forecast_days.setValue(settings.value("age_of_forecast_days", 7, type=int))
         group_adv_layout.addWidget(QLabel("Forecast Age (Days)"), i+1, 0); group_adv_layout.addWidget(self.age_of_forecast_days, i+1, 1); self.input_fields['age_of_forecast_days'] = self.age_of_forecast_days; i+=2
 
-        self.specify_depths_for_bathy_mask = QLineEdit("0.3, 0.6")
+        self.specify_depths_for_bathy_mask = QLineEdit(settings.value("specify_depths_for_bathy_mask", "0.3, 0.6"))
         group_adv_layout.addWidget(QLabel("Specific flood depths (in meters) for bathy mask"), i+1, 0); group_adv_layout.addWidget(self.specify_depths_for_bathy_mask, i+1, 1); self.input_fields['specify_depths_for_bathy_mask'] = self.specify_depths_for_bathy_mask; i+=2
 
         self.geoglows_vpu = QComboBox()
         self.geoglows_vpu.addItem("")  # Optional/None
         self.geoglows_vpu.addItems(["704", "702", "703", "715", "714", "706", "713", "712", "709"])
+        self.geoglows_vpu.setCurrentText(settings.value("geoglows_vpu", "704"))
         group_adv_layout.addWidget(QLabel("GEOGLOWS VPU ID"), i+1, 0); group_adv_layout.addWidget(self.geoglows_vpu, i+1, 1); self.input_fields['geoglows_vpu'] = self.geoglows_vpu; i+=2
         
         self.forensic_forecast_date = QLineEdit()
         self.forensic_forecast_date.setPlaceholderText("YYYYMMDD (Optional)")
+        self.forensic_forecast_date.setText(settings.value("forensic_forecast_date", ""))
         group_adv_layout.addWidget(QLabel("Forensic Forecast Date"), i+1, 0); group_adv_layout.addWidget(self.forensic_forecast_date, i+1, 1); self.input_fields['forensic_forecast_date'] = self.forensic_forecast_date; i+=2
 
         # Updated to QComboBox for valid hours (0-23)
@@ -557,52 +556,126 @@ class FloodSimulationGUI(QMainWindow):
         self.forensic_forecast_hour.addItem("") # Optional/None
         for h in range(0, 24):
              self.forensic_forecast_hour.addItem(str(h).zfill(2))
+        self.forensic_forecast_hour.setCurrentText(settings.value("forensic_forecast_hour", ""))
         group_adv_layout.addWidget(QLabel("Forensic Forecast Hour"), i+1, 0); group_adv_layout.addWidget(self.forensic_forecast_hour, i+1, 1); self.input_fields['forensic_forecast_hour'] = self.forensic_forecast_hour; i+=2
 
         self.specified_bathyflow_field = QComboBox()
         self.specified_bathyflow_field.addItems(FLOW_FIELD_OPTIONS)
         self.specified_bathyflow_field.setEditable(True)
-        self.specified_bathyflow_field.setCurrentText("p_exceed_50")
+        self.specified_bathyflow_field.setCurrentText(settings.value("specified_bathyflow_field", "p_exceed_50"))
         group_adv_layout.addWidget(QLabel("Bathy Flow Field"), i+1, 0); group_adv_layout.addWidget(self.specified_bathyflow_field, i+1, 1); self.input_fields['specified_bathyflow_field'] = self.specified_bathyflow_field; i+=2
 
         self.specified_highflow_field = QComboBox()
         self.specified_highflow_field.addItems(FLOW_FIELD_OPTIONS)
         self.specified_highflow_field.setEditable(True)
-        self.specified_highflow_field.setCurrentText("rp100_premium")
+        self.specified_highflow_field.setCurrentText(settings.value("specified_highflow_field", "rp100_premium"))
         group_adv_layout.addWidget(QLabel("High Flow Field"), i+1, 0); group_adv_layout.addWidget(self.specified_highflow_field, i+1, 1); self.input_fields['specified_highflow_field'] = self.specified_highflow_field; i+=2
 
         self.strmorder_field = QLineEdit()
         self.strmorder_field.setPlaceholderText("strmOrder (Optional)")
+        self.strmorder_field.setText(settings.value("strmorder_field", ""))
         group_adv_layout.addWidget(QLabel("Stream Order Field"), i+1, 0); group_adv_layout.addWidget(self.strmorder_field, i+1, 1); self.input_fields['StrmOrder_Field'] = self.strmorder_field; i+=2
 
         self.downstream_link_field = QLineEdit()
         self.downstream_link_field.setPlaceholderText("DSLINKNO (Optional)")
+        self.downstream_link_field.setText(settings.value("downstream_link_field", ""))
         group_adv_layout.addWidget(QLabel("Downstream Link Field"), i+1, 0); group_adv_layout.addWidget(self.downstream_link_field, i+1, 1); self.input_fields['Downstream_Link_Field'] = self.downstream_link_field; i+=2
 
         self.strmorder_lower = QLineEdit()
         self.strmorder_lower.setPlaceholderText("Optional integer")
+        self.strmorder_lower.setText(settings.value("strmorder_lower", ""))
         group_adv_layout.addWidget(QLabel("Stream Order Lower"), i+1, 0); group_adv_layout.addWidget(self.strmorder_lower, i+1, 1); self.input_fields['StrmOrder_Lower'] = self.strmorder_lower; i+=2
 
         self.strmorder_upper = QLineEdit()
         self.strmorder_upper.setPlaceholderText("Optional integer")
+        self.strmorder_upper.setText(settings.value("strmorder_upper", ""))
         group_adv_layout.addWidget(QLabel("Stream Order Upper"), i+1, 0); group_adv_layout.addWidget(self.strmorder_upper, i+1, 1); self.input_fields['StrmOrder_Upper'] = self.strmorder_upper; i+=2
 
         self.lake_filter_json = QLineEdit()
         self.lake_filter_json.setPlaceholderText("Path to JSON (Optional)")
+        self.lake_filter_json.setText(settings.value("lake_filter_json", ""))
         group_adv_layout.addWidget(QLabel("Lake Filter JSON"), i+1, 0); group_adv_layout.addWidget(self.lake_filter_json, i+1, 1); self.input_fields['lake_filter_json'] = self.lake_filter_json; i+=2
 
         self.overwrite_forecast_floodmaps = QCheckBox("Overwrite Forecast Floodmaps")
-        self.overwrite_forecast_floodmaps.setChecked(True)
+        self.overwrite_forecast_floodmaps.setChecked(settings.value("overwrite_forecast_floodmaps", True, type=bool))
         group_adv_layout.addWidget(self.overwrite_forecast_floodmaps, i, 0, 1, 2); self.input_fields['overwrite_forecast_floodmaps'] = self.overwrite_forecast_floodmaps; i+=1
 
         self.remove_old_forecast_files = QCheckBox("Remove Old Forecast Files")
-        self.remove_old_forecast_files.setChecked(True)
+        self.remove_old_forecast_files.setChecked(settings.value("remove_old_forecast_files", True, type=bool))
         group_adv_layout.addWidget(self.remove_old_forecast_files, i, 0, 1, 2); self.input_fields['remove_old_forecast_files'] = self.remove_old_forecast_files; i+=1
 
         self.make_fist_inputs = QCheckBox("Make FIST Inputs")
-        self.make_fist_inputs.setChecked(True)
+        self.make_fist_inputs.setChecked(settings.value("make_fist_inputs", True, type=bool))
         group_adv_layout.addWidget(self.make_fist_inputs, i, 0, 1, 2); self.input_fields['make_fist_inputs'] = self.make_fist_inputs; i+=1
 
+        self.dem_filter = QLineEdit()
+        self.dem_filter.setPlaceholderText("a glob pattern (e.g., '*_dem.tif')")
+        self.dem_filter.setText(settings.value("dem_filter", ""))
+        group_adv_layout.addWidget(QLabel("DEM Filter"), i+1, 0); group_adv_layout.addWidget(self.dem_filter, i+1, 1); self.input_fields['dem_filter'] = self.dem_filter; i+=2
+
+        self.floodmap_mode = QComboBox()
+        self.floodmap_mode.addItems(["forecast", "user"])
+        self.floodmap_mode.setCurrentText(settings.value("floodmap_mode", "forecast"))
+        group_adv_layout.addWidget(QLabel("Floodmap Mode"), i+1, 0); group_adv_layout.addWidget(self.floodmap_mode, i+1, 1); self.input_fields['floodmap_mode'] = self.floodmap_mode; i+=2
+
+        self.user_flow_files = QPlainTextEdit()
+        self.user_flow_files.setPlainText(settings.value("user_flow_files", ""))
+        group_adv_layout.addWidget(QLabel("User Flow Files (one per line)"), i+1, 0); group_adv_layout.addWidget(self.user_flow_files, i+1, 1); self.input_fields['user_flow_files'] = self.user_flow_files; i+=2
+
+        self.make_curvefiles = QCheckBox("Make Curve Files")
+        self.make_curvefiles.setChecked(settings.value("make_curvefiles", True, type=bool))
+        group_adv_layout.addWidget(self.make_curvefiles, i, 0, 1, 2); self.input_fields['make_curvefiles'] = self.make_curvefiles; i+=1
+
+        self.make_ap_database = QCheckBox("Make Area-Perimeter Database")
+        self.make_ap_database.setChecked(settings.value("make_ap_database", True, type=bool))
+        group_adv_layout.addWidget(self.make_ap_database, i, 0, 1, 2); self.input_fields['make_ap_database'] = self.make_ap_database; i+=1
+
+        self.make_depth_maps = QCheckBox("Make Depth Maps")
+        self.make_depth_maps.setChecked(settings.value("make_depth_maps", True, type=bool))
+        group_adv_layout.addWidget(self.make_depth_maps, i, 0, 1, 2); self.input_fields['make_depth_maps'] = self.make_depth_maps; i+=1
+        
+        self.make_velocity_maps = QCheckBox("Make Velocity Maps")
+        self.make_velocity_maps.setChecked(settings.value("make_velocity_maps", True, type=bool))
+        group_adv_layout.addWidget(self.make_velocity_maps, i, 0, 1, 2); self.input_fields['make_velocity_maps'] = self.make_velocity_maps; i+=1
+
+        self.make_wse_maps = QCheckBox("Make WSE Maps")
+        self.make_wse_maps.setChecked(settings.value("make_wse_maps", True, type=bool))
+        group_adv_layout.addWidget(self.make_wse_maps, i, 0, 1, 2); self.input_fields['make_wse_maps'] = self.make_wse_maps; i+=1
+
+        self.vdt_file_extension = QComboBox()
+        self.vdt_file_extension.addItems(["txt", "csv", "parquet"])
+        self.vdt_file_extension.setCurrentText(settings.value("vdt_file_extension", "txt"))
+        group_adv_layout.addWidget(QLabel("VDT File Extension"), i+1, 0); group_adv_layout.addWidget(self.vdt_file_extension, i+1, 1); self.input_fields['vdt_file_extension'] = self.vdt_file_extension; i+=2
+
+        self.mannings_text_file = FilePicker(self, "", "Select Manning's n Text File", "Text Files (*.txt);;All Files (*)")
+        self.mannings_text_file.line_edit.setText(settings.value("mannings_text_file", ""))
+        self.input_fields['mannings_text_file'] = self.mannings_text_file.line_edit
+        group_adv_layout.addWidget(QLabel("Manning's n Text File"), i+1, 0); group_adv_layout.addWidget(self.mannings_text_file, i+1, 1); i+=2
+
+        self.bathy_args = DictTable()
+        self.bathy_args.set_dict({
+            "VDT_Database_NumIterations": 30,
+            "Make_Output_GPKG": "True",
+            "FS_ADJUST_FLOW_BY_FRACTION": 1.0,
+            "TW_MultFact": 1.5, 
+            "TopWidthPlausibleLimit": 2000,
+            "Bathy_Trap_H": 0.2
+        })
+        self.bathy_args.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.bathy_args.setMinimumHeight((2 + self.bathy_args.table.rowCount()) * self.bathy_args.table.verticalHeader().defaultSectionSize())
+        group_adv_layout.addWidget(QLabel("Bathymetry Arguments (Key-Value Pairs)"), i+1, 0); group_adv_layout.addWidget(self.bathy_args, i+1, 1); self.input_fields['bathy_args'] = self.bathy_args; i+=2
+
+        self.floodmap_args = DictTable()
+        self.floodmap_args.set_dict({
+            "Make_Output_GPKG": "True",
+            "FS_ADJUST_FLOW_BY_FRACTION": 1.0,
+            "TW_MultFact": 1.5, 
+            "TopWidthPlausibleLimit": 6000
+        })
+        self.floodmap_args.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.floodmap_args.setMinimumHeight((2 + self.floodmap_args.table.rowCount()) * self.floodmap_args.table.verticalHeader().defaultSectionSize())
+        group_adv_layout.addWidget(QLabel("Floodmap Arguments (Key-Value Pairs)"), i+1, 0); group_adv_layout.addWidget(self.floodmap_args, i+1, 1); self.input_fields['floodmap_args'] = self.floodmap_args; i+=2
+        
         self.input_grid.addWidget(group_adv, row, 0, 1, 2); row += 1
 
 
@@ -620,22 +693,10 @@ class FloodSimulationGUI(QMainWindow):
                      params[key] = None
             elif isinstance(widget, QSpinBox):
                 params[key] = widget.value()
-        
-        # Convert empty strings/zero from optional fields to None/default if they should be
-        if not params['forensic_forecast_date']: params['forensic_forecast_date'] = None
-        if not params['geoglows_vpu']:
-            params['geoglows_vpu'] = None
-        else:
-            params['geoglows_vpu'] = int(params['geoglows_vpu'])
-        if not params['lake_filter_json']: params['lake_filter_json'] = None
-        if not params.get('nwm_api_key'): params['nwm_api_key'] = None
-        if not params.get('StrmOrder_Field'): params['StrmOrder_Field'] = None
-        if not params.get('Downstream_Link_Field'): params['Downstream_Link_Field'] = None
-        for key in ('StrmOrder_Lower', 'StrmOrder_Upper'):
-            if not params.get(key):
-                params[key] = None
-            else:
-                params[key] = int(params[key])
+            elif isinstance(widget, QPlainTextEdit):
+                params[key] = widget.toPlainText()
+            elif isinstance(widget, DictTable):
+                params[key] = widget.to_dict()
         
         return params
 
@@ -674,44 +735,18 @@ class FloodSimulationGUI(QMainWindow):
         self.log_text.append(message)
         self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
 
-    def display_results(self, times):
+    def display_results(self, watershed_name: str, timer: Timer):
         """Formats and displays the simulation time results."""
         self.log_message("[COMPLETED] Simulation finished.")
         self.run_button.setEnabled(True)
         self.run_button.setText("Start Simulation")
 
-        if not times:
-            self.results_text.setText("No timing data returned.")
+        if timer is None:
+            self.results_text.setText(f"No timing data returned for watershed {watershed_name}.")
             return
 
-        total_time = sum(times.values())
-        
-        html_output = f"<h3 style='color: #4CAF50;'>Total Simulated Process Time: {total_time:.2f} minutes</h3>"
-        html_output += "<table width='100%' border='0' cellspacing='5' cellpadding='5'>"
-        
-        # Sort keys to display in a logical order
-        sorted_keys = sorted(SIMULATION_TIMES_MAP.keys(), key=lambda k: SIMULATION_TIMES_MAP[k])
-        
-        for key in sorted_keys:
-            name = SIMULATION_TIMES_MAP.get(key, key)
-            value = times.get(key, 0.0)
-            
-            # Highlight non-zero times
-            color = "#444"
-            if value > 0:
-                color = "#007BFF" # Blue for active steps
-                if 'Forecast' in name:
-                    color = "#FFC107" # Yellow for forecast steps
-                elif 'Bathy' in name:
-                    color = "#17A2B8" # Teal for bathy steps
-            
-            html_output += f"<tr>"
-            html_output += f"<td width='70%' style='color: {color};'><b>{name}:</b></td>"
-            html_output += f"<td width='30%' align='right' style='color: {color};'>{value:.2f} min</td>"
-            html_output += f"</tr>"
-
-        html_output += "</table>"
-        self.results_text.setText(html_output)
+        time_text = flood_main.simulation_times_to_strings(watershed_name, timer)
+        self.results_text.setText("\n".join(time_text))
 
     def show_error(self, message):
         """Displays an error in the log and a pop-up with expandable technical details."""
@@ -739,6 +774,11 @@ class FloodSimulationGUI(QMainWindow):
         self.run_button.setEnabled(True)
         self.run_button.setText("Start Simulation")
 
+    def save_settings(self):
+        params = self._get_params()
+        for param, value in params.items():
+            if value is not None:
+                settings.setValue(param, value)
 
 def run_gui():
     """Initializes and runs the Qt GUI application."""
@@ -770,5 +810,6 @@ def run_gui():
 
     # Run GUI
     window = FloodSimulationGUI()
+    app.aboutToQuit.connect(window.save_settings)
     window.show()
     sys.exit(app.exec_()) # Use exec_() for PyQt5

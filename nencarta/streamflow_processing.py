@@ -378,7 +378,7 @@ class PatchedZarrStore(dict):
 def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFrame, rivid_field, folder: FloodFolder, watershed_dict: dict):
     # First let's remove the stream reaches that are in the stream_ids_in_lake_list
     # filter out the streams that are in the stream_ids_in_lake_list by using the "LINKNO values in stream_ids_in_lake_list"
-    if watershed_dict.get("stream_ids_in_lake_list") is not None:
+    if watershed_dict.get("stream_ids_in_lake_list"):
         StrmShp_gdf = StrmShp_gdf[~StrmShp_gdf[rivid_field].isin(watershed_dict["stream_ids_in_lake_list"])]
 
     # if the StrmOrder_Field and StrmOrder_Lower or StrmOrder_Upper are not None use these to filter the StrmShp_gdf
@@ -388,9 +388,9 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
         else:
             order_vals = pd.to_numeric(StrmShp_gdf[watershed_dict["StrmOrder_Field"]], errors="coerce")
             mask = order_vals.notna()
-            if watershed_dict.get("StrmOrder_Lower") is not None:
+            if watershed_dict.get("StrmOrder_Lower"):
                 mask &= order_vals >= watershed_dict["StrmOrder_Lower"]
-            if watershed_dict.get("StrmOrder_Upper") is not None:
+            if watershed_dict.get("StrmOrder_Upper"):
                 mask &= order_vals <= watershed_dict["StrmOrder_Upper"]
             StrmShp_gdf = StrmShp_gdf.loc[mask].copy()
 
