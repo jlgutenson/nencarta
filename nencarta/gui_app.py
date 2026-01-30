@@ -2,6 +2,7 @@
 import io
 import sys
 import os
+import logging
 import traceback
 
 # third-party imports
@@ -19,6 +20,7 @@ from PyQt5.QtGui import QFont, QColor, QPalette, QIcon
 # local imports
 from . import main as flood_main
 from .timer import Timer
+from .logger import LOG
 
 FLOW_FIELD_OPTIONS = (
     [f"p_exceed_{i}" for i in [0] + list(range(5, 101, 5))]
@@ -70,6 +72,19 @@ class QtLogStream(io.TextIOBase):
         if self._buffer.strip():
             self.qt_signal.emit(self._buffer)
         self._buffer = ""
+
+class QtLogHandler(logging.Handler):
+    def __init__(self, signal):
+        super().__init__()
+        self.signal = signal
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.signal.emit(msg)
+        except Exception:
+            self.handleError(record)
+
 
 # --- WORKER THREAD ---
 
@@ -187,30 +202,32 @@ class WorkerThread(QThread):
     # --- main worker entry point ---------------------------------------------
 
     def run(self):
+        qt_handler = QtLogHandler(self.log_signal)
+        qt_handler.setFormatter(logging.Formatter(
+            "[%(levelname)s] %(message)s"
+        ))
+        LOG.addHandler(qt_handler)
+        LOG.setLevel(logging.INFO)
+
+        # --- redirect stdout/stderr so all prints go into the GUI ---
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        stream = QtLogStream(self.log_signal)
+
         try:
+            sys.stdout = stream
+            sys.stderr = stream
+
             # 1) Build watershed dict from GUI parameters
             watershed_dict = self._build_watershed_dict()
 
             # 2) Write JSON input file
             json_file = self._write_json_input(watershed_dict)
-            self.log_signal.emit("[INFO] JSON input file created for main.py:")
-            self.log_signal.emit(f"   {json_file}")
+            LOG.info("JSON input file created for main.py:")
+            LOG.info(f"   {json_file}")
 
             # 3) Direct call instead of subprocess
-            self.log_signal.emit("[INFO] Running main.process_json_input_serial() ...")
-
-            # --- redirect stdout/stderr so all prints go into the GUI ---
-            old_stdout, old_stderr = sys.stdout, sys.stderr
-            stream = QtLogStream(self.log_signal)
-
-            try:
-                sys.stdout = stream
-                sys.stderr = stream
-                result = flood_main.process_json_input_serial(json_file)
-            finally:
-                stream.flush()
-                sys.stdout = old_stdout
-                sys.stderr = old_stderr
+            LOG.info("Running main.process_json_input_serial() ...")
+            result = flood_main.process_json_input_serial(json_file)
 
             if isinstance(result, Timer):
                 self.finished_signal.emit(watershed_dict['name'], result)
@@ -222,10 +239,14 @@ class WorkerThread(QThread):
             summary, details = self._format_exception(e, context=context)
 
             # Keep log readable (single-line-ish summary)
-            self.log_signal.emit("[ERROR] " + summary.replace("\n", " | "))
+            LOG.error(summary.replace("\n", " | "))
 
             # Send both summary + full traceback to the GUI
             self.error_signal.emit(summary + "\n\nDETAILS:\n" + details)
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            LOG.removeHandler(qt_handler)
 
 class DictTable(QWidget):
     def __init__(self):
