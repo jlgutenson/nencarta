@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QGridLayout, QLineEdit, QLabel, QPushButton, QCheckBox, QComboBox,
     QTextEdit, QGroupBox, QSpinBox, QMessageBox, QScrollArea, QLabel,
     QFileDialog, QPlainTextEdit, QTableWidget, QTableWidgetItem,
-    QSizePolicy
+    QSizePolicy, QHeaderView
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSettings
 from PyQt5.QtGui import QFont, QColor, QPalette, QIcon
@@ -121,13 +121,6 @@ class WorkerThread(QThread):
         params["name"] = params["watershed_name"]
 
         params["user_flow_files"] = [line.strip() for line in params.get("user_flow_files","").splitlines() if line.strip()]
-
-        # Basic validation mirroring the GUI’s previous logic
-        if params["use_specified_depth_for_bathy_mask"]:
-            if params["clean_dem"] and len(params["specify_depths_for_bathy_mask"]) < 2:
-                raise ValueError("Clean DEM requires two depths for bathymetry mask.")
-            if not params["clean_dem"] and len(params["specify_depths_for_bathy_mask"]) < 1:
-                raise ValueError("Non-clean DEM requires one depth for bathymetry mask.")
 
         return params
 
@@ -253,8 +246,10 @@ class DictTable(QWidget):
         super().__init__()
 
         self.table = QTableWidget(0, 2)
-        self.table.setHorizontalHeaderLabels(["Key", "Value"])
+        self.table.setHorizontalHeaderLabels(["Parameter", "Value"])
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.table)
@@ -264,7 +259,11 @@ class DictTable(QWidget):
         for key, value in data.items():
             row = self.table.rowCount()
             self.table.insertRow(row)
-            self.table.setItem(row, 0, QTableWidgetItem(str(key)))
+            
+            key_item = QTableWidgetItem(str(key))
+            key_item.setFlags(key_item.flags() & ~Qt.ItemIsEditable)
+
+            self.table.setItem(row, 0, key_item)
             self.table.setItem(row, 1, QTableWidgetItem(str(value)))
 
     def to_dict(self) -> dict:
@@ -517,6 +516,15 @@ class FloodSimulationGUI(QMainWindow):
         # 3. Advanced / Optional Parameters
         group_adv = QGroupBox("Advanced Parameters")
         group_adv_layout = QGridLayout(group_adv)
+        group_adv_layout.setColumnStretch(0, 0)  # label column = minimal
+        group_adv_layout.setColumnStretch(1, 1)  # input column = expand
+
+        
+        i = 0
+        # Checkboxes
+        self.bathy_use_banks = QCheckBox("Bathy Use Banks")
+        self.bathy_use_banks.setChecked(settings.value("bathy_use_banks", False, type=bool))
+        group_adv_layout.addWidget(self.bathy_use_banks, i, 0, 1, 2); self.input_fields['bathy_use_banks'] = self.bathy_use_banks; i+=1
         
         i = 0
         # Checkboxes
@@ -559,7 +567,9 @@ class FloodSimulationGUI(QMainWindow):
         group_adv_layout.addWidget(QLabel("Forecast Age (Days)"), i+1, 0); group_adv_layout.addWidget(self.age_of_forecast_days, i+1, 1); self.input_fields['age_of_forecast_days'] = self.age_of_forecast_days; i+=2
 
         self.specify_depths_for_bathy_mask = QLineEdit(settings.value("specify_depths_for_bathy_mask", "0.3, 0.6"))
-        group_adv_layout.addWidget(QLabel("Specific flood depths (in meters) for bathy mask"), i+1, 0); group_adv_layout.addWidget(self.specify_depths_for_bathy_mask, i+1, 1); self.input_fields['specify_depths_for_bathy_mask'] = self.specify_depths_for_bathy_mask; i+=2
+        sdfbm_label = QLabel("Specific flood depths (in meters) for bathy mask")
+        sdfbm_label.setWordWrap(True)
+        group_adv_layout.addWidget(sdfbm_label, i+1, 0); group_adv_layout.addWidget(self.specify_depths_for_bathy_mask, i+1, 1); self.input_fields['specify_depths_for_bathy_mask'] = self.specify_depths_for_bathy_mask; i+=2
 
         self.geoglows_vpu = QComboBox()
         self.geoglows_vpu.addItem("")  # Optional/None
@@ -684,7 +694,8 @@ class FloodSimulationGUI(QMainWindow):
         })
         self.bathy_args.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.bathy_args.setMinimumHeight((2 + self.bathy_args.table.rowCount()) * self.bathy_args.table.verticalHeader().defaultSectionSize())
-        group_adv_layout.addWidget(QLabel("Bathymetry Arguments (Key-Value Pairs)"), i+1, 0); group_adv_layout.addWidget(self.bathy_args, i+1, 1); self.input_fields['bathy_args'] = self.bathy_args; i+=2
+        group_adv_layout.setRowStretch(i+1, 1)
+        group_adv_layout.addWidget(QLabel("Bathymetry Arguments"), i+1, 0); group_adv_layout.addWidget(self.bathy_args, i+1, 1); self.input_fields['bathy_args'] = self.bathy_args; i+=2
 
         self.floodmap_args = DictTable()
         self.floodmap_args.set_dict({
@@ -695,7 +706,8 @@ class FloodSimulationGUI(QMainWindow):
         })
         self.floodmap_args.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.floodmap_args.setMinimumHeight((2 + self.floodmap_args.table.rowCount()) * self.floodmap_args.table.verticalHeader().defaultSectionSize())
-        group_adv_layout.addWidget(QLabel("Floodmap Arguments (Key-Value Pairs)"), i+1, 0); group_adv_layout.addWidget(self.floodmap_args, i+1, 1); self.input_fields['floodmap_args'] = self.floodmap_args; i+=2
+        group_adv_layout.setRowStretch(i+1, 1)
+        group_adv_layout.addWidget(QLabel("Floodmap Arguments"), i+1, 0); group_adv_layout.addWidget(self.floodmap_args, i+1, 1); self.input_fields['floodmap_args'] = self.floodmap_args; i+=2
         
         self.input_grid.addWidget(group_adv, row, 0, 1, 2); row += 1
 
