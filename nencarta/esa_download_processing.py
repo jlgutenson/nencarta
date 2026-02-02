@@ -10,20 +10,18 @@ import urllib.error
 os.environ['AWS_NO_SIGN_REQUEST'] = 'YES'  # needed to access public S3 buckets without credentials
 
 # third party imports
+import numpy as np
 import geopandas as gpd   #conda install --channel conda-forge geopandas
 from osgeo import gdal
-import requests   #conda install anaconda::requests
 from pathlib import Path    #conda install anaconda::pathlib
-from shapely.geometry import Polygon    #conda install conda-forge::shapely
-import numpy as np
-import random
 from shapely.ops import transform
 from pyproj import CRS, Transformer
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+from shapely.geometry import Polygon    #conda install conda-forge::shapely
 
 from .flood_folder import FloodFolder
 from .logger import LOG
+
+CACHED_GRID = os.path.join(os.path.dirname(__file__), '.esa_worldcover_grid.parquet')
 
 def Geom_Based_On_Country(country, Shapefile_Use):
     ne = gpd.read_file(Shapefile_Use)
@@ -50,98 +48,15 @@ def download_grid_with_retry(url, max_retries=10, wait_seconds=10):
 
     raise RuntimeError(f"Failed to download grid after {max_retries} attempts.")
 
-# --- Robust single-session HTTP client ---------------------------------------
-def _create_retry_session(pool_maxsize=4, total_retries=5, backoff_factor=1.0):
-    """
-    requests.Session with sane retries/backoff for GET/HEAD.
-    All downloads will reuse this single session (sequential, non-parallel).
-    """
-    retry = Retry(
-        total=total_retries,
-        connect=total_retries,
-        read=total_retries,
-        status=total_retries,
-        backoff_factor=backoff_factor,               # exponential: sleep = factor * (2**(n-1))
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=frozenset(["HEAD", "GET"]),
-        raise_on_status=False,
-    )
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=pool_maxsize, pool_maxsize=pool_maxsize)
-    sess = requests.Session()
-    sess.headers.update({"User-Agent": "esa-worldcover-downloader/1.0"})
-    sess.mount("https://", adapter)
-    sess.mount("http://", adapter)
-    return sess
-
-
-# --- Helpers ------------------------------------------------------------------
-def _head(session, url, timeout=(10, 60)):
-    """Return (content_length:int|None, etag:str|None). If 404, returns (0, None)."""
-    r = session.head(url, allow_redirects=True, timeout=timeout)
-    if r.status_code == 404:
-        return 0, None
-    r.raise_for_status()
-    cl = r.headers.get("Content-Length")
-    etag = r.headers.get("ETag")
-    return (int(cl) if cl is not None else None), etag
-
-
-def _download_with_resume(session, url, dest, expected_size=None,
-                          timeout=(15, 180), max_attempts=5, chunk_size=1024 * 1024):
-    """
-    Stream download with resume & size verification.
-    Writes to dest.tmp first, then atomically renames.
-    Returns True on success, False on failure after retries.
-    """
-    dest = Path(dest)
-    tmp = dest.with_suffix(dest.suffix + ".part")
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            # Existing partial?
-            existing = tmp.stat().st_size if tmp.exists() else 0
-            headers = {}
-            if existing and (expected_size is None or existing < expected_size):
-                headers["Range"] = f"bytes={existing}-"
-
-            with session.get(url, stream=True, headers=headers, timeout=timeout) as r:
-                if r.status_code == 416:  # invalid range → restart clean
-                    try:
-                        tmp.unlink()
-                    except FileNotFoundError:
-                        pass
-                    existing = 0
-                elif r.status_code == 200 and "Range" in headers:
-                    # Server ignored Range; restart from scratch
-                    try:
-                        tmp.unlink()
-                    except FileNotFoundError:
-                        pass
-                    existing = 0
-
-                r.raise_for_status()
-
-                mode = "ab" if existing else "wb"
-                with open(tmp, mode) as f:
-                    for chunk in r.iter_content(chunk_size=chunk_size):
-                        if chunk:
-                            f.write(chunk)
-
-            # Validate final size when known
-            final_size = tmp.stat().st_size
-            if expected_size is not None and final_size != expected_size:
-                # Size mismatch → backoff and retry
-                time.sleep((2 ** (attempt - 1)) + random.random() * 0.25)
-                continue
-
-            tmp.replace(dest)  # atomic rename to final path
-            return True
-
-        except (requests.RequestException, OSError):
-            # Backoff and retry
-            time.sleep((2 ** (attempt - 1)) + random.random() * 0.25)
-
-    return False
+def get_esa_grid():
+    global CACHED_GRID
+    if os.path.isfile(CACHED_GRID):
+        return gpd.read_parquet(CACHED_GRID)
+    
+    url = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/esa_worldcover_grid.geojson"
+    grid = download_grid_with_retry(url)
+    grid.to_parquet(CACHED_GRID)
+    return grid
 
 
 # --- Main (sequential) function ----------------------------------------------
@@ -150,20 +65,9 @@ def Download_ESA_WorldLandCover(output_folder, geom, year) -> list[str]:
     Sequential (non-parallel) downloader for ESA WorldCover tiles intersecting `geom`.
     Adds retry/backoff, timeouts, resume, and size validation. Merges to a single GeoTIFF.
     """
-    s3_url_prefix = "https://esa-worldcover.s3.eu-central-1.amazonaws.com"
     Path(output_folder).mkdir(parents=True, exist_ok=True)
 
-    # Load worldcover grid (your helper already has retry logic)
-    url = f"{s3_url_prefix}/esa_worldcover_grid.geojson"
-    grid = download_grid_with_retry(url)
-
-    # Ensure CRS compatible (if both are Geo* objects with CRS)
-    if hasattr(grid, "crs") and hasattr(geom, "crs") and grid.crs != geom.crs:
-        try:
-            geom = geom.to_crs(grid.crs)
-        except Exception:
-            # If geom is a shapely geometry (no .to_crs), assume same CRS
-            pass
+    grid = get_esa_grid()
 
     # Intersect and collect tiles
     tiles = grid[grid.intersects(geom)]
@@ -492,7 +396,7 @@ if __name__ == "__main__":
             LOG.info('Creating ' + str(waterboundary_file))
             Create_Water_Mask(lc_file_str, waterboundary_file, 80)
         '''
-    
+
 def download_and_process_land_cover(folder: FloodFolder) -> list[str]:
     LandCoverFiles = []
     if not os.path.exists(folder.LAND_File):

@@ -27,6 +27,16 @@ import os
 #Stream Line Data=>  http://geoglows-v2.s3-website-us-west-2.amazonaws.com/#streams/
 #Links to all the Data=>  https://data.geoglows.org/available-data
 
+_FORECAST_DATASETS: dict[str, xr.Dataset] = {}
+
+def get_forecast_dataset(forecastdate: str) -> xr.Dataset:
+    s3_url = f's3://geoglows-v2-forecasts/{forecastdate}00.zarr'
+    if s3_url in _FORECAST_DATASETS:
+        return _FORECAST_DATASETS[s3_url]
+    
+    ds = xr.open_zarr(s3_url, storage_options={'anon': True})
+    _FORECAST_DATASETS[s3_url] = ds
+    return ds
 
 def Get_RIVIDs_From_Shapefile(StrmShpFile):
     df = gpd.read_file(StrmShpFile)
@@ -45,120 +55,111 @@ def Get_RIVIDs_From_Terminal_Link(parquet_file_from_geoglows, TermLinkNumber):
     rivids = df['LINKNO'].values
     return rivids
 
-def Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File_Name, streamflow_source, nwm_api_key=None):
-
-    if streamflow_source == 'GEOGLOWS':
-        ODP_FORECAST_S3_BUCKET_URI = 's3://geoglows-v2-forecasts'
-        
-        ODP_S3_BUCKET_REGION = 'us-west-2'
-        
-        s3 = s3fs.S3FileSystem(anon=True, client_kwargs=dict(region_name=ODP_S3_BUCKET_REGION))
-        
-        s3store = s3fs.S3Map(root=f'{ODP_FORECAST_S3_BUCKET_URI}/{forecastdate}00.zarr', s3=s3, check=False)
-        
-        
-        LOG.info('Pulling ' + str(len(rivids)) + ' river ids from GeoGLOWS Forecast Bucket')
-        df = xr.open_zarr(s3store).sel(rivid=rivids).to_dataframe().round(2).reset_index()
-        
-        #This was just for testing to see all the values for a single RIVID
-        #CSV_File_Name = 'testcase.csv'
-        #df.to_csv(CSV_File_Name, index=False)
-        #LOG.info(df.columns)
-        
-        #Create a new column called riv_ens, which is just the rivid with the ensemble number tagged on the end.
-        LOG.info('Calculating the peak flow for each ensemble member of each rivid')
-        new_col_num = len(df.columns)
-        riv_ens = df.rivid.values.astype(int)
-        df.insert(new_col_num,'riv_ens',riv_ens)
-        df['riv_ens'] = df['riv_ens'] * 100 + df['ensemble']
-        
-        #Find the max value for each ensemble for each rivid
-        maxflows = df.reset_index().groupby('riv_ens').max()['Qout']
-        
-        #Create lists of the riv_ens and the max flow for each rivid and ensemble.  Should be an easier way to do this, but I'm not that good with pd
-        riv_ens_list = maxflows.index.tolist()
-        maxflows = list(maxflows)
-        
-        #Create a dataframe that has the riv_ens and the max flow rate (Qmax).  Qmax is for each ensemble of each rivid.
-        LOG.info('Evaluting the min/med/max peak flows of the ensemble-members for each rivid')
-        df_max = pd.DataFrame(list(zip(riv_ens_list, maxflows)), columns=['riv_ens', 'Qmax'])
-        #LOG.info(df_max.columns)
-        
-        #Create a new column for the rivid.  Simply divide the riv_ens by 100 to get the rivid.
-        new_col_num = len(df_max.columns)
-        riv_ens = df_max.riv_ens.values.astype(int)
-        df_max.insert(new_col_num,'rivid',riv_ens)
-        df_max['rivid'] = df_max['riv_ens'].apply(lambda x: int(x/100))
-        
-        #We now have the peak flow for each ensemble for each rivid.
-        #Now we want to calculate the max, min, and median of the peak flow amounts
-        max_series = df_max.reset_index().groupby('rivid').max()['Qmax']
-        min_series = df_max.reset_index().groupby('rivid').min()['Qmax']
-        median_series = df_max.reset_index().groupby('rivid').median()['Qmax'].to_frame()
-        
-        #Collect all the information and print to a csv.
-        LOG.info('Writing output file: ' + CSV_File_Name)
-        df_max = median_series.merge(min_series, left_index=True, right_index=True).merge(max_series, left_index=True, right_index=True)
-        df_max.columns = ['median', 'min', 'max']
-        df_max = df_max.reset_index()
+def process_geoglows_forecast_data(forecastdate, rivids):
+    LOG.info('Pulling ' + str(len(rivids)) + ' river ids from GeoGLOWS Forecast Bucket')
+    df = get_forecast_dataset(forecastdate).sel(rivid=rivids).to_dataframe().round(2).reset_index()
     
+    #Create a new column called riv_ens, which is just the rivid with the ensemble number tagged on the end.
+    LOG.info('Calculating the peak flow for each ensemble member of each rivid')
+    new_col_num = len(df.columns)
+    riv_ens = df.rivid.values.astype(int)
+    df.insert(new_col_num,'riv_ens',riv_ens)
+    df['riv_ens'] = df['riv_ens'] * 100 + df['ensemble']
+    
+    #Find the max value for each ensemble for each rivid
+    maxflows = df.reset_index().groupby('riv_ens').max()['Qout']
+    
+    #Create lists of the riv_ens and the max flow for each rivid and ensemble.  Should be an easier way to do this, but I'm not that good with pd
+    riv_ens_list = maxflows.index.tolist()
+    maxflows = list(maxflows)
+    
+    #Create a dataframe that has the riv_ens and the max flow rate (Qmax).  Qmax is for each ensemble of each rivid.
+    LOG.info('Evaluting the min/med/max peak flows of the ensemble-members for each rivid')
+    df_max = pd.DataFrame(list(zip(riv_ens_list, maxflows)), columns=['riv_ens', 'Qmax'])
+    #LOG.info(df_max.columns)
+    
+    #Create a new column for the rivid.  Simply divide the riv_ens by 100 to get the rivid.
+    new_col_num = len(df_max.columns)
+    riv_ens = df_max.riv_ens.values.astype(int)
+    df_max.insert(new_col_num,'rivid',riv_ens)
+    df_max['rivid'] = df_max['riv_ens'].apply(lambda x: int(x/100))
+    
+    #We now have the peak flow for each ensemble for each rivid.
+    #Now we want to calculate the max, min, and median of the peak flow amounts
+    max_series = df_max.reset_index().groupby('rivid').max()['Qmax']
+    min_series = df_max.reset_index().groupby('rivid').min()['Qmax']
+    median_series = df_max.reset_index().groupby('rivid').median()['Qmax'].to_frame()
+    
+    df_max = median_series.merge(min_series, left_index=True, right_index=True).merge(max_series, left_index=True, right_index=True)
+    df_max.columns = ['median', 'min', 'max']
+    df_max = df_max.reset_index()
+
+    return df_max
+
+def process_nwm_forecast_data(forecastdate, forecasthour, rivids, streamflow_source, nwm_api_key=None):
+    rp_url = 'https://nwm-api.ciroh.org/forecast'
+
+    if streamflow_source == 'NWM_short_range':
+        forecast_type = 'short_range'
+        number_of_ensembles = 0
+    elif streamflow_source == 'NWM_medium_range':
+        forecast_type = 'medium_range'
+        number_of_ensembles = 5
+    elif streamflow_source == 'NWM_long_range':
+        forecast_type = 'long_range'
+        number_of_ensembles = 3
+
+
+    # Reformat the forecastdate which is currently YYYYMMDD to "2023-11-25 06:00:00 UTC"
+    forecastdate_formatted = f"{forecastdate[:4]}-{forecastdate[4:6]}-{forecastdate[6:]} {forecasthour}:00:00 UTC"
+    LOG.info(f"Requesting NWM forecast data for {forecastdate_formatted} for {len(rivids)} rivids")
+
+    # loop through the five medium-range ensemble members
+    nwm_ensemble_df_list = []
+    if not nwm_api_key:
+        raise ValueError("nwm_api_key is required for NWM forecast requests.")
+
+    for i in range(0, number_of_ensembles + 1):
+
+        header = {'x-api-key': nwm_api_key}
+        params = {'forecast_type': forecast_type,
+                'reference_time': forecastdate_formatted,
+                'comids': ','.join(map(str, rivids)),
+                'output_format': 'csv',
+                'ensemble': i  # ensemble member
+                }
+
+        response = requests.get(rp_url, params=params, headers=header, timeout=60)
+
+        if response.status_code == 200:
+            forecast_df = pd.read_csv(io.StringIO(response.text))
+        else:
+            raise requests.exceptions.HTTPError(response.text)
+        forecast_df = forecast_df.set_index("feature_id")
+        forecast_df.index.name = "rivid"
+        # group by rivid and find the max value for each rivid
+        forecast_df = forecast_df.groupby("rivid").max()
+        # append to the ensemble list
+        nwm_ensemble_df_list.append(forecast_df)
+    
+    # Concatenate all dataframes in the list
+    combined_df = pd.concat(nwm_ensemble_df_list)
+
+    df_max = combined_df.groupby("rivid").agg(
+        min=("streamflow", "min"),
+        max=("streamflow", "max"),
+        median=("streamflow", "median")
+    ).reset_index()
+
+    return df_max
+
+def Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File_Name, streamflow_source, nwm_api_key=None):
+    if streamflow_source == 'GEOGLOWS':
+        df_max = process_geoglows_forecast_data(forecastdate, rivids)
     elif streamflow_source.startswith('NWM'):
-        rp_url = 'https://nwm-api.ciroh.org/forecast'
-
-
-        if streamflow_source == 'NWM_short_range':
-            forecast_type = 'short_range'
-            number_of_ensembles = 0
-        elif streamflow_source == 'NWM_medium_range':
-            forecast_type = 'medium_range'
-            number_of_ensembles = 5
-        elif streamflow_source == 'NWM_long_range':
-            forecast_type = 'long_range'
-            number_of_ensembles = 3
-
-
-        # Reformat the forecastdate which is currently YYYYMMDD to "2023-11-25 06:00:00 UTC"
-        forecastdate_formatted = f"{forecastdate[:4]}-{forecastdate[4:6]}-{forecastdate[6:]} {forecasthour}:00:00 UTC"
-        LOG.info(f"Requesting NWM forecast data for {forecastdate_formatted} for {len(rivids)} rivids")
-
-        # loop through the five medium-range ensemble members
-        nwm_ensemble_df_list = []
-        if not nwm_api_key:
-            raise ValueError("nwm_api_key is required for NWM forecast requests.")
-
-        for i in range(0, number_of_ensembles + 1):
-
-            header = {'x-api-key': nwm_api_key}
-            params = {'forecast_type': forecast_type,
-                    'reference_time': forecastdate_formatted,
-                    'comids': ','.join(map(str, rivids)),
-                    'output_format': 'csv',
-                    'ensemble': i  # ensemble member
-                    }
-
-            response = requests.get(rp_url, params=params, headers=header, timeout=60)
-
-            if response.status_code == 200:
-                forecast_df = pd.read_csv(io.StringIO(response.text))
-            else:
-                raise requests.exceptions.HTTPError(response.text)
-            forecast_df = forecast_df.set_index("feature_id")
-            forecast_df.index.name = "rivid"
-            # group by rivid and find the max value for each rivid
-            forecast_df = forecast_df.groupby("rivid").max()
-            # append to the ensemble list
-            nwm_ensemble_df_list.append(forecast_df)
+        df_max = process_nwm_forecast_data(forecastdate, forecasthour, rivids, streamflow_source, nwm_api_key)
         
-        # Concatenate all dataframes in the list
-        combined_df = pd.concat(nwm_ensemble_df_list)
-
-        df_max = combined_df.groupby("rivid").agg(
-            min=("streamflow", "min"),
-            max=("streamflow", "max"),
-            median=("streamflow", "median")
-        ).reset_index()
-
-    #Write the output to a csv file
+    LOG.info('Writing output file: ' + CSV_File_Name)
     df_max.to_csv(CSV_File_Name, index=False)
     LOG.info('Example of the output data....')
     LOG.info(df_max)

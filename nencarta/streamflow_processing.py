@@ -21,6 +21,32 @@ import xarray as xr
 from .flood_folder import FloodFolder
 from .logger import LOG
 
+_RP_DS: xr.Dataset = None
+_FDC_DS: xr.Dataset = None
+_DAILY_DS: xr.Dataset = None
+
+def get_rp_ds():
+    """ This is faster for multiprocessing contexts since the dataset is only loaded once per process."""
+    global _RP_DS
+    if _RP_DS is None:
+        _RP_DS = xr.open_zarr('s3://geoglows-v2/retrospective/return-periods.zarr', storage_options={'anon': True})
+
+    return _RP_DS
+
+def get_fdc_ds():
+    global _FDC_DS
+    if _FDC_DS is None:
+        _FDC_DS = xr.open_zarr('s3://geoglows-v2/retrospective/fdc.zarr', storage_options={'anon': True})
+
+    return _FDC_DS
+
+def get_daily_ds():
+    global _DAILY_DS
+    if _DAILY_DS is None:
+        _DAILY_DS = xr.open_zarr('s3://geoglows-v2/retrospective/daily.zarr', storage_options={'anon': True})
+
+    return _DAILY_DS
+
 def get_nwm_rp(comids: list[int], nwm_api_key: str):
     rp_url = 'https://nwm-api.ciroh.org/return-period'
 
@@ -421,7 +447,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
     # Check for at least some valid data
     if not np.any(valid_mask):
         LOG.error(f"No valid data found in DEM tile: {folder.DEM_File}")
-        return (None, None, None, None)
+        return (None, None)
 
     # Get pixel indices of valid data
     rows = np.any(valid_mask, axis=1)
@@ -476,15 +502,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
     target_column = 'COMID'
 
     if rivid_field == 'LINKNO':
-
-        # Set up the S3 connection
-        ODP_S3_BUCKET_REGION = 'us-west-2'
-        s3 = s3fs.S3FileSystem(anon=True, client_kwargs=dict(region_name=ODP_S3_BUCKET_REGION))
-
-        # Load return periods data from S3 using Dask
-        rp_s3_uri = 's3://geoglows-v2/retrospective/return-periods.zarr'
-        rp_s3store = s3fs.S3Map(root=rp_s3_uri, s3=s3, check=False)
-        rp_ds = xr.open_zarr(rp_s3store).sel(river_id=rivids_int)
+        rp_ds = get_rp_ds().sel(river_id=rivids_int)
         
         # Convert Xarray to Dask DataFrame and pivot
         rp_df = rp_ds.to_dataframe().reset_index()
@@ -520,11 +538,9 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
         try:
             # # Load FDC data from S3 using Dask
             # # Convert to a list of integers
-            fdc_s3_uri = 's3://geoglows-v2/retrospective/fdc.zarr'
-            fdc_s3store = s3fs.S3Map(root=fdc_s3_uri, s3=s3, check=False)
             p_exceedance = [float(v) for v in range(5, 101, 5)]
             p_exceedance.insert(0, 0.0)
-            fdc_ds = xr.open_zarr(fdc_s3store)
+            fdc_ds = get_fdc_ds()
             available_p_exceed = [float(v) for v in fdc_ds["p_exceed"].values.tolist()]
             p_exceedance = [v for v in p_exceedance if v in available_p_exceed]
             if not p_exceedance:
@@ -554,9 +570,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
             LOG.warning("FDC data not available; falling back to daily data for FDC calculation.")
             # Load daily data from S3 using Dask
             # Convert to a list of integers
-            dailyflow_s3_uri = 's3://geoglows-v2/retrospective/daily.zarr'
-            dailyflow_s3store = s3fs.S3Map(root=dailyflow_s3_uri, s3=s3, check=False)
-            dailyflow_ds = xr.open_zarr(dailyflow_s3store).sel(river_id=rivids_int)
+            dailyflow_ds = get_daily_ds().sel(river_id=rivids_int)
             # Convert Xarray to Dask DataFrame
             daily_df = dailyflow_ds.to_dataframe().reset_index()
 

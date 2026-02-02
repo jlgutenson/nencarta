@@ -8,6 +8,7 @@ geoglows
 geojson
 geopandas
 netCDF4
+numba
 numpy
 pandas
 pillow
@@ -22,3 +23,4 @@ shapely
 tqdm
 xarray
 whitebox
+zarr

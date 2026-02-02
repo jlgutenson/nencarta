@@ -19,10 +19,10 @@ from contextlib import redirect_stdout, redirect_stderr
 
 # third-party imports
 import numpy as np
-import numpy as np
 import pandas as pd
 import geopandas as gpd
 from arc import Arc
+from numba import njit
 from osgeo import gdal
 from pyproj import CRS
 from shapely.geometry import box
@@ -613,10 +613,7 @@ def Read_Raster_GDAL(InRAST_Name):
     LOG.info('   xur = ' + str(xur))
     return RastArray, ncols, nrows, cellsize, yll, yur, xll, xur, lat, geotransform, Rast_Projection
 
-def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
-    LOG.info('\nCleaning up the Stream File.')
-    (SN, ncols, nrows, _, _, _, _, _, _, dem_geotransform, dem_projection) = Read_Raster_GDAL(STRM_File)
-
+def _clean_stream_raster(SN: np.ndarray, ncols: int, nrows: int):
     #Create an array that is slightly larger than the STRM Raster Array
     B = np.zeros((nrows+2,ncols+2), dtype=np.int64)
     
@@ -630,16 +627,16 @@ def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
     #(RR,CC) = B.nonzero()
     (RR,CC) = np.where(B>0)
     num_nonzero = len(RR)
+    first_pass = 0
+    second_pass = 0
     
     for filterpass in range(2):
         #First pass is just to get rid of single cells hanging out not doing anything
         p_count = 0
         p_percent = (num_nonzero+1)/100.0
-        n=0
         for x in range(num_nonzero):
             if x>=p_count*p_percent:
                 p_count = p_count + 1
-                LOG.info(' ' + str(p_count))
             r=RR[x]
             c=CC[x]
             V = B[r,c]
@@ -649,31 +646,27 @@ def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
                     #The bottom cells are all zeros as well, but there is a cell directly above that is legit
                     if (B[r+1,c-1]+B[r+1,c]+B[r+1,c+1])==0 and B[r-1,c]>0:
                         B[r,c] = 0
-                        n=n+1
+                        first_pass += 1
                     #The top cells are all zeros as well, but there is a cell directly below that is legit
                     elif (B[r-1,c-1]+B[r-1,c]+B[r-1,c+1])==0 and B[r+1,c]>0:
                         B[r,c] = 0
-                        n=n+1
+                        first_pass += 1
                 #top and bottom cells are zeros
                 if B[r,c]>0 and B[r+1,c]==0 and B[r-1,c]==0:
                     #All cells on the right are zero, but there is a cell to the left that is legit
                     if (B[r+1,c+1]+B[r,c+1]+B[r-1,c+1])==0 and B[r,c-1]>0:
                         B[r,c] = 0
-                        n=n+1
+                        first_pass += 1
                     elif (B[r+1,c-1]+B[r,c-1]+B[r-1,c-1])==0 and B[r,c+1]>0:
                         B[r,c] = 0
-                        n=n+1
-        LOG.info('\nFirst pass removed ' + str(n) + ' cells')
-        
+                        first_pass += 1
         
         #This pass is to remove all the redundant cells
-        n=0
         p_count = 0
         p_percent = (num_nonzero+1)/100.0
         for x in range(num_nonzero):
             if x>=p_count*p_percent:
                 p_count = p_count + 1
-                LOG.info(' ' + str(p_count) )
             r=RR[x]
             c=CC[x]
             V = B[r,c]
@@ -681,24 +674,32 @@ def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
                 if B[r+1,c]==V and (B[r+1,c+1]==V or B[r+1,c-1]==V):
                     if sum(B[r+1,c-1:c+2])==0:
                         B[r+1,c] = 0
-                        n=n+1
+                        second_pass += 1
                 elif B[r-1,c]==V and (B[r-1,c+1]==V or B[r-1,c-1]==V):
                     if sum(B[r-1,c-1:c+2])==0:
                         B[r-1,c] = 0
-                        n=n+1
+                        second_pass += 1
                 elif B[r,c+1]==V and (B[r+1,c+1]==V or B[r-1,c+1]==V):
                     if sum(B[r-1:r+1,c+2])==0:
                         B[r,c+1] = 0
-                        n=n+1
+                        second_pass += 1
                 elif B[r,c-1]==V and (B[r+1,c-1]==V or B[r-1,c-1]==V):
                     if sum(B[r-1:r+1,c-2])==0:
                             B[r,c-1] = 0
-                            n=n+1
-        LOG.info('\nSecond pass removed ' + str(n) + ' redundant cells')
+                            second_pass += 1
+
+    return B, first_pass, second_pass
+
+def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
+    LOG.info('\nCleaning up the Stream File.')
+    (SN, ncols, nrows, _, _, _, _, _, _, dem_geotransform, dem_projection) = Read_Raster_GDAL(STRM_File)
+
+    B, first_pass, second_pass = _clean_stream_raster(SN, ncols, nrows)
+    LOG.info(f'First Pass - Removed {first_pass} cells.')
+    LOG.info(f'Second Pass - Removed {second_pass} cells.')
     
     LOG.info('Writing Output File ' + STRM_File_Clean)
     Write_Output_Raster(STRM_File_Clean, B[1:nrows+1,1:ncols+1], ncols, nrows, dem_geotransform, dem_projection, "GTiff", gdal.GDT_Int32)
-    #return B[1:nrows+1,1:ncols+1], ncols, nrows, cellsize, yll, yur, xll, xur
     return
 
 def Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder: FloodFolder, watervalue):
@@ -724,18 +725,15 @@ def Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder: FloodFolder, wa
     F = np.where(F > 0, 1, -9999)
     '''
     # Mark streams in LC with 1, other areas as -9999
-    LC = np.where(LC == watervalue, 1, -9999)
-
     # Mark streams in SN with 1, other areas with 0
-    SN = (SN > 0).astype(np.uint8)
-
     # Combine LC and SN, prioritizing SN values
-    F = np.where(SN == 1, 1, LC)
-
     # Mark non-stream areas as -9999 in the final flood map
-    F[F <= 0] = -9999
+
+    F = np.full_like(LC, -9999, dtype=np.int16)
+    mask = (SN > 0) | (LC == watervalue)
+    F[mask] = 1
     
-    Write_Output_Raster(folder.LU_and_Streams_Water_Map, F, ncols, nrows, sn_geotransform, sn_projection, "GTiff", gdal.GDT_Int32)
+    Write_Output_Raster(folder.LU_and_Streams_Water_Map, F, ncols, nrows, sn_geotransform, sn_projection, "GTiff", gdal.GDT_Int16)
 
     return
 
@@ -1007,7 +1005,7 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
 
     # # creat the initial flood map with the stream raster and land cover data
     if not watershed_dict['use_specified_depth_for_bathy_mask'] or watershed_dict['clean_dem']:
-        Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder, 80)
+        Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder, watershed_dict['land_watervalue'])
 
     run_dem_cleaner(folder, watershed_dict, timer, DEM)
     create_bathymetry(folder, watershed_dict, timer)

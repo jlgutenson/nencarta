@@ -28,6 +28,7 @@ dependencies = [
 "geojson",
 "geopandas",
 "netCDF4",
+"numba",
 "numpy",
 "pandas",
 "pillow",
@@ -41,7 +42,8 @@ dependencies = [
 "shapely",
 "tqdm",
 "xarray",
-"whitebox"
+"whitebox",
+"zarr"
 ]
 
 [project.scripts]

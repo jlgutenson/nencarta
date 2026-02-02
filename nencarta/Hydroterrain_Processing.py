@@ -69,10 +69,15 @@ def create_flow_direction_raster(dem: str, out_dir: str, flowdir_orig: str):
                 dem_for_routing = projected_dem
             else:
                 dem_for_routing = dem
+                flowdir = flowdir_orig
 
         # Whitebox operations
         wbt.fill_depressions_wang_and_liu(dem_for_routing, filled_dem)
         wbt.d8_pointer(filled_dem, flowdir)
+
+        if flowdir == flowdir_orig:
+            # Why reproject if not needed?
+            return
 
         # Reproject flow direction back to original CRS
         with rasterio.open(flowdir) as src:
