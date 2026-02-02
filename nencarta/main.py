@@ -1303,7 +1303,7 @@ def process_watershed(input_dict: dict, timer: Timer = None):
     nwm_api_key = validate_nwm_api_key(input_dict.get("nwm_api_key"), watershed_name, streamflow_source)
 
     use_specified_depth_for_bathy_mask = input_dict.get("use_specified_depth_for_bathy_mask", True)
-    specify_depths_for_bathy_mask = input_dict.get("specify_depths_for_bathy_mask", None)
+    specify_depths_for_bathy_mask = input_dict.get("specify_depths_for_bathy_mask")
     clean_dem = input_dict.get("clean_dem", False)
     validate_specified_depths(use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, clean_dem, watershed_name)
 
@@ -1317,6 +1317,11 @@ def process_watershed(input_dict: dict, timer: Timer = None):
     if not dem_filter:
         dem_filter = "*"
 
+    mapper = input_dict.get("mapper", "FloodSpreader")
+    Downstream_Link_Field = input_dict.get("Downstream_Link_Field")
+    if mapper == 'FLDPLN' and not Downstream_Link_Field:
+        raise ValueError(f"Watershed '{watershed_name}': 'Downstream_Link_Field' must be specified when using 'FLDPLN' mapper.")
+
     watershed_dict = {
         "name": watershed_name,
         "flowline": os.path.normpath(input_dict["flowline"]),
@@ -1326,7 +1331,7 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "flood_waterlc_and_strm_cells": input_dict.get("flood_waterlc_and_strm_cells", False),
         "land_watervalue": input_dict.get("land_watervalue", 80),
         "clean_dem": clean_dem,
-        "mapper": input_dict.get("mapper", "FloodSpreader"),
+        "mapper": mapper,
         "process_stream_network": input_dict.get("process_stream_network", False),
         "use_specified_depth_for_bathy_mask": use_specified_depth_for_bathy_mask,
         "age_of_forecast_days": input_dict.get("age_of_forecast_days", 7),
@@ -1340,7 +1345,7 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "specified_bathyflow_field":input_dict.get("specified_bathyflow_field", "p_exceed_50"),
         "specified_highflow_field":input_dict.get("specified_highflow_field", "rp100_premium"),
         "StrmOrder_Field": input_dict.get("StrmOrder_Field"),
-        "Downstream_Link_Field": input_dict.get("Downstream_Link_Field"),
+        "Downstream_Link_Field": Downstream_Link_Field,
         "StrmOrder_Lower": input_dict.get("StrmOrder_Lower"),
         "StrmOrder_Upper": input_dict.get("StrmOrder_Upper"),
         "lake_filter_json": norm_or_none(input_dict.get("lake_filter_json")),

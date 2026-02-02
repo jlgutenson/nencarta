@@ -1,0 +1,32 @@
+name: nencarta_py310
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - beautifulsoup4
+  - cython
+  - dask
+  - dataretrieval
+  - fiona
+  - gdal
+  - geoglows
+  - geojson
+  - geopandas
+  - netcdf4
+  - numba
+  - numpy
+  - pandas
+  - pillow
+  - progress
+  - pyproj
+  - pyqt>=5.15
+  - rasterio
+  - requests
+  - s3fs
+  - scipy
+  - shapely
+  - tqdm
+  - xarray
+  - whitebox
+  - zarr
