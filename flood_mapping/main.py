@@ -231,7 +231,7 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
     num_comids = len(COMID_Unique)
 
     # if the mapper is "FLDPLN", we need to create a flow direction raster using the bathymetry based DEM.
-    if mapper == "FLDPLN":
+    if mapper == "FLDPLNpy":
         projected_dem = os.path.join(Flow_Direction_Folder, os.path.basename(DEM_File).replace(".tif", "_projected.tif"))
         filled_dem = os.path.join(Flow_Direction_Folder, os.path.basename(DEM_File).replace(".tif","_filled.tif"))
         filled_dem_orig = os.path.join(Flow_Direction_Folder, os.path.basename(DEM_File).replace(".tif","_filled_orig_crs.tif"))
@@ -391,7 +391,7 @@ def Create_ARC_Model_Input_File_Initial(ARC_Input_File_Initial,
         out_file.write('\n' + 'FindBanksBasedOnLandCover' + '\t' + str(find_banks_based_on_landcover))
     # out_file.write('\n' + 'FloodLocalOnly')
     if use_specified_depth_for_bathy_mask is True:
-        if mapper == "FLDPLN":
+        if mapper == "FLDPLNpy":
             out_file.write('\n' + 'Use_FLDPLN_Model' + '\t' + "True")
             out_file.write('\n' + 'Flow_Direction_File' + '\t' + flowdir_orig)
             out_file.write('\n' + 'StrmOrder_Field' + '\t' + StrmOrder_Field)
@@ -458,7 +458,7 @@ def Create_ARC_Model_Input_File_Bathy(ARC_FileName_Bathy, mapper, DEM_File_Clean
     out_file.write('\n' + 'TW_MultFact' + '\t' +  '1.5')
     out_file.write('\n' + 'TopWidthPlausibleLimit' + '\t' + '2000')
     if use_specified_depth_for_bathy_mask is True:
-        if mapper == "FLDPLN":
+        if mapper == "FLDPLNpy":
             out_file.write('\n' + 'Use_FLDPLN_Model' + '\t' + "True")
             out_file.write('\n' + 'Flow_Direction_File' + '\t' + flowdir_orig)
             out_file.write('\n' + 'StrmOrder_Field' + '\t' + StrmOrder_Field)
@@ -508,7 +508,7 @@ def Create_ARC_Model_Input_File_FloodForecast(streamflow_source, mapper, ARC_Fil
     out_file.write('\n\n#Mapper Input Data')
     out_file.write('\n' + 'StrmShp_File	' + DEM_StrmShp)
     out_file.write('\n' + 'Comid_Flow_File	' + ForecastFlowFile)
-    if mapper == "FLDPLN":
+    if mapper == "FLDPLNpy":
             out_file.write('\n' + 'Use_FLDPLN_Model' + '\t' + "True")
             out_file.write('\n' + 'Flow_Direction_File' + '\t' + flowdir_bathy)
             out_file.write('\n' + 'StrmOrder_Field' + '\t' + StrmOrder_Field)
@@ -983,7 +983,7 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
         # these will only vary based upon if they are NWM or GEOGLOWS
         ARC_FileName_Initial = os.path.join(ARC_Folder, match.group(0) + '_ARC_Input_' + FileName + '_InitialFlood.txt')
         ARC_FileName_Bathy = os.path.join(ARC_Folder, match.group(0) + '_ARC_Input_' + FileName + '_Bathy.txt')
-        DEM_File_Clean = os.path.join(DEM_Updated_Folder, match.group(0) + '_' + FileName + '_Clean.tif')
+        DEM_File_Clean = os.path.join(DEM_Updated_Folder, FileName + '_Clean.tif')
         VDT_Test_File = os.path.join(VDT_Folder, match.group(0) + '_' + FileName + '_VDT_FS.csv')
         STRM_File = os.path.join(STRM_Folder, match.group(0) + '_' + FileName + '_STRM_Raster.tif')
         STRM_File_Clean = STRM_File.replace('.tif','_Clean.tif')
@@ -1135,7 +1135,7 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
                 end_time = time.time()
                 elapsed_time = (end_time - start_time)/60 # in minutes 
                 floodpsreaderpy_initial_simulation_time = floodpsreaderpy_initial_simulation_time + elapsed_time
-            elif (mapper == "Curve2Flood" or mapper == "FLDPLN") and use_specified_depth_for_bathy_mask is True:
+            elif (mapper == "Curve2Flood" or mapper == "FLDPLNpy") and use_specified_depth_for_bathy_mask is True:
                 # start time for the simulation
                 start_time = time.time()
                 print(f"Executing Curve2Flood using {ARC_FileName_Initial}")
@@ -1209,7 +1209,7 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
                 end_time = time.time()
                 elapsed_time = (end_time - start_time)/60 # in minutes
                 floodpsreaderpy_bathy_simulation_time = floodpsreaderpy_bathy_simulation_time + elapsed_time
-            elif (mapper == "Curve2Flood" or mapper == "FLDPLN"):
+            elif (mapper == "Curve2Flood" or mapper == "FLDPLNpy"):
                 print(f"Executing Curve2Flood using {ARC_FileName_Bathy}")
                 # start time for the simulation
                 start_time = time.time()
@@ -1224,14 +1224,14 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
 
         
         # if the mapper is FLDPLN, then we need to remake the flood direction raster using the bathymetry output from Curve2Flood
-        if mapper == "FLDPLN":
-            print("Running FLDPLN to create flood direction raster...")
+        if mapper == "FLDPLNpy":
+            print("Running FLDPLNpy to create flood direction raster...")
             FS_BathyFile_Projected = os.path.join(Flow_Direction_Folder, os.path.basename(FS_BathyFile).replace('.tif','_Projected.tif'))
             FS_BathyFile_Projected_Filled = os.path.join(Flow_Direction_Folder, os.path.basename(FS_BathyFile).replace('.tif','_Projected_Filled.tif'))
             FS_BathyFile_Projected_Filled_OriginalCRS = os.path.join(Flow_Direction_Folder, os.path.basename(FS_BathyFile).replace('.tif','_Projected_Filled_OriginalCRS.tif'))
             flowdir_projected = flowdir_bathy.replace('.tif','_Projected.tif')
             if os.path.exists(flowdir_bathy):
-                print("The flow direction raster we are using to run FLDPLN already exists and we are not making it again...\n")
+                print("The flow direction raster we are using to run FLDPLNpy already exists and we are not making it again...\n")
                 pass
             else:
                 Hydroterrain_Processing.create_flow_direction_raster(FS_BathyFile, BathyFileFolder, FS_BathyFile_Projected, FS_BathyFile_Projected_Filled,
@@ -1254,7 +1254,7 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
             end_time = time.time()
             elapsed_time = (end_time - start_time)/60 # in minutes
             floodpsreaderpy_forecast_simulation_time = floodpsreaderpy_forecast_simulation_time + elapsed_time
-        elif (mapper == "Curve2Flood" or mapper == "FLDPLN"):
+        elif (mapper == "Curve2Flood" or mapper == "FLDPLNpy"):
             print(f"Executing Curve2Flood using {ARC_FileName_FloodForecast}")
             # start time for the simulation
             start_time = time.time()
@@ -2003,7 +2003,7 @@ def main():
                         help="Land water value in the land cover raster (Required if --flood_waterlc_and_strm_cells is True)")
     cli_parser.add_argument("--clean_dem", action="store_true", help="Clean DEM data before processing")
     cli_parser.add_argument("--process_stream_network", action="store_true", help="Clean DEM data before processing")
-    cli_parser.add_argument("--mapper", type=str, default="Curve2Flood", choices=["FloodSpreader", "Curve2Flood", "FLDPLN"], help="Mapping method")
+    cli_parser.add_argument("--mapper", type=str, default="Curve2Flood", choices=["FloodSpreader", "Curve2Flood", "FLDPLNpy"], help="Mapping method")
     cli_parser.add_argument("--use_specified_depth_for_bathy_mask", action="store_true", help="Specify a depth for FloodSprederPy to use for bathymetry masking")
     cli_parser.add_argument("--age_of_forecast_days", type=int, default=7, help="Age of forecast in days")
     cli_parser.add_argument("--find_banks_based_on_landcover", action="store_true", help="Use landcover data for finding banks when estimating bathymetry")

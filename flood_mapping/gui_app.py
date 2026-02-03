@@ -473,7 +473,7 @@ class FloodSimulationGUI(QMainWindow):
         group_wf_layout.addWidget(self.estimate_consequences, i, 0, 1, 2); self.input_fields['estimate_consequences'] = self.estimate_consequences; i+=1
 
         self.mapper = QComboBox()
-        self.mapper.addItems(["Curve2Flood", "FLDPLN"])
+        self.mapper.addItems(["Curve2Flood", "FLDPLNpy"])
         group_wf_layout.addWidget(QLabel("Mapper Method"), i+1, 0); group_wf_layout.addWidget(self.mapper, i+1, 1); self.input_fields['mapper'] = self.mapper; i+=2
 
         self.streamflow_source = QComboBox()
