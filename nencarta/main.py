@@ -1280,11 +1280,12 @@ def validate_user_floodmaps(watershed_dict: dict):
         raise ValueError(f"Watershed '{watershed_dict.get('name', 'unknown')}' has invalid 'floodmap_mode': {floodmap_mode}. Must be either 'forecast' or 'user'.")
 
     user_flow_files = watershed_dict.get("user_flow_files", None)
+    if isinstance(user_flow_files, str):
+        user_flow_files = [user_flow_files]
+        
     if floodmap_mode == "user" and (not user_flow_files or not isinstance(user_flow_files, list) or len(user_flow_files) < 1):
         raise ValueError(f"Watershed '{watershed_dict.get('name', 'unknown')}' requires 'user_flow_files' as either a filepath string or a list of file paths when 'floodmap_mode' is 'user'.")
     
-    if isinstance(user_flow_files, str):
-        user_flow_files = [user_flow_files]
 
     return floodmap_mode, [os.path.normpath(f) for f in user_flow_files]
 
