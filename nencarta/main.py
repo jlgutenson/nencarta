@@ -613,6 +613,7 @@ def Read_Raster_GDAL(InRAST_Name):
     LOG.info('   xur = ' + str(xur))
     return RastArray, ncols, nrows, cellsize, yll, yur, xll, xur, lat, geotransform, Rast_Projection
 
+@njit(cache=True)
 def _clean_stream_raster(SN: np.ndarray, ncols: int, nrows: int):
     #Create an array that is slightly larger than the STRM Raster Array
     B = np.zeros((nrows+2,ncols+2), dtype=np.int64)
@@ -1141,11 +1142,11 @@ def process_dem(watershed_dict: dict, timer: Timer):
 
     # Validate data
     if watershed_dict.get('mapper') not in ["FloodSpreader", "Curve2Flood", "FLDPLNpy"]:
-        raise ValueError("Invalid mapper specified. Choose 'FloodSpreader', 'Curve2Flood', or 'FLDPLN'.")
+        raise ValueError("Invalid mapper specified. Choose 'FloodSpreader', 'Curve2Flood', or 'FLDPLNpy'.")
     
-    if watershed_dict.get('mapper') == 'FLDPLN':
+    if watershed_dict.get('mapper') == 'FLDPLNpy':
         if not all([watershed_dict.get('StrmOrder_Field'), watershed_dict.get('Downstream_Link_Field')]):
-            raise ValueError("StrmOrder_Field and Downstream_Link_Field must be specified when using 'FLDPLN' mapper.")
+            raise ValueError("StrmOrder_Field and Downstream_Link_Field must be specified when using  FLDPLNpy mapper.")
     
     if not watershed_dict.get('mannings_text_file'):
         Create_BaseLine_Manning_n_File_ESA(folder.mannings_n_text_file)
@@ -1320,8 +1321,8 @@ def process_watershed(input_dict: dict, timer: Timer = None):
 
     mapper = input_dict.get("mapper", "FloodSpreader")
     Downstream_Link_Field = input_dict.get("Downstream_Link_Field")
-    if mapper == 'FLDPLN' and not Downstream_Link_Field:
-        raise ValueError(f"Watershed '{watershed_name}': 'Downstream_Link_Field' must be specified when using 'FLDPLN' mapper.")
+    if mapper == "FLDPLNpy"and not Downstream_Link_Field:
+        raise ValueError(f"Watershed '{watershed_name}': 'Downstream_Link_Field' must be specified when using FLDPLNpy mapper.")
 
     watershed_dict = {
         "name": watershed_name,
