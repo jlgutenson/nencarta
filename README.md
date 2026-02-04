@@ -145,7 +145,7 @@ These inputs are:
 
 * **`mannings_text_file`** (String, optional): The full filepath to the Manning's n text file to be used in the flood mapping process. If not provided, NenCarta will use its built-in default Manning's n values.
 
-* **`mapper`** (String, optional): Here you're specifying if you're running "FloodSpreader", "Curve2Flood", or "FLDPLN" when performing bathymetry estimation and flood inundation mapping. Defaults to FloodSpreader
+* **`mapper`** (String, optional): Here you're specifying if you're running "FloodSpreader", "Curve2Flood", or "FLDPLNpy" when performing bathymetry estimation and flood inundation mapping. Defaults to FloodSpreader
 
 * **`nwm_api_key`** (String, optional): Required when streamflow_source is set to "NWM" or any "NWM_*" option. This is the NWM API key passed as the 'x-api-key' header for NWM requests. You must apply for an API key using these instructions: https://docs.ciroh.org/docuhub-staging/docs/products/data-management/bigquery-api/   
 

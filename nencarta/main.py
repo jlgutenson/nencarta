@@ -186,8 +186,8 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
                 LOG.error(f"User provided flow file does not exist: {ff}")
                 raise FileNotFoundError(f"User provided flow file does not exist: {ff}")
         
-    # if the mapper is "FLDPLN", we need to create a flow direction raster using the bathymetry based DEM.
-    if watershed_dict['mapper'] == "FLDPLN":
+    # if the mapper is "FLDPLNpy", we need to create a flow direction raster using the bathymetry based DEM.
+    if watershed_dict['mapper'] == "FLDPLNpy":
         folder.setup_fldpln_files()
         if os.path.exists(folder.flowdir_orig):
             LOG.info("The flow direction raster already exists and will not be recreated...")
@@ -299,7 +299,7 @@ def Create_ARC_Model_Input_File_Initial_for_cleaning_dem(folder: FloodFolder, wa
             out_file.write(f'\nFindBanksBasedOnLandCover\t{watershed_dict["find_banks_based_on_landcover"]}')
         # out_file.write(f'\nFloodLocalOnly')
         if watershed_dict['use_specified_depth_for_bathy_mask']:
-            if watershed_dict['mapper'] == "FLDPLN":
+            if watershed_dict['mapper'] == "FLDPLNpy":
                 _write_fldpln_section(out_file, folder, watershed_dict)
             out_file.write(f'\nOutFLD\t{folder.FloodMapFile_Initial}')
             out_file.write(f'\nOutSHP\t' + folder.FloodMapFile_Initial.replace('.tif', '.shp'))
@@ -338,7 +338,7 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
             out_file.write('\nMake_Output_GPKG\tFalse')
 
         if watershed_dict['use_specified_depth_for_bathy_mask']:
-            if watershed_dict['mapper'] == "FLDPLN":
+            if watershed_dict['mapper'] == "FLDPLNpy":
                 _write_fldpln_section(out_file, folder, watershed_dict, True)
             if len(watershed_dict['specify_depths_for_bathy_mask']) == 1:
                 specified_depth = watershed_dict['specify_depths_for_bathy_mask'][0]
@@ -378,7 +378,7 @@ def write_first_floodmap_inputs(out_file: TextIO, folder: FloodFolder, watershed
     out_file.write('\n\n#Mapper Input Data')
     out_file.write(f'\nStrmShp_File\t{folder.DEM_StrmShp}')
     out_file.write(f'\nComid_Flow_File\t{flow_file}')
-    if watershed_dict['mapper'] == "FLDPLN":
+    if watershed_dict['mapper'] == "FLDPLNpy":
         _write_fldpln_section(out_file, folder, watershed_dict, True)
     out_file.write(f'\nFS_ADJUST_FLOW_BY_FRACTION\t{floodmap_args.get("FS_ADJUST_FLOW_BY_FRACTION", 1.0)}')
     out_file.write(f'\nTW_MultFact\t{floodmap_args.get("TW_MultFact", 1.5)}')
@@ -405,7 +405,7 @@ def write_floodmap_outputs(out_file: TextIO, files: list[str], watershed_dict: d
 
 def create_input_file_for_user_flowfiles(folder: FloodFolder, watershed_dict: dict, flow_file: str):
     file_postfix = f"_{os.path.basename(flow_file).rsplit('.', 1)[0]}.tif"
-    model_input_file = os.path.join(folder.ARC_Folder, f"{watershed_dict['streamflow_source']}_ARC_Input_{folder.FileName}_{file_postfix.replace('.tif', '.txt')}")
+    model_input_file = os.path.join(folder.ARC_Folder, f"{watershed_dict['streamflow_source']}_ARC_Input_{folder.FileName}{folder.floodmap_id}_{file_postfix.replace('.tif', '.txt')}")
     LOG.info('Creating ARC Input File: ' + model_input_file)
     
     with open(model_input_file, 'w') as f:
@@ -862,7 +862,7 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
             floodspreader_path = os.path.join(script_dir, "floodspreader.py")
             call_mapper = f'python "{floodspreader_path}" {folder.ARC_FileName_Initial}'
             subprocess.call(call_mapper, shell=True)
-        elif (watershed_dict['mapper'] in ["Curve2Flood", "FLDPLN"]) and watershed_dict['use_specified_depth_for_bathy_mask']:
+        elif (watershed_dict['mapper'] in ["Curve2Flood", "FLDPLNpy"]) and watershed_dict['use_specified_depth_for_bathy_mask']:
             LOG.info(f"Executing Curve2Flood using {folder.ARC_FileName_Initial}")
             Curve2Flood_MainFunction(folder.ARC_FileName_Initial, quiet=watershed_dict['quiet'])
     
@@ -909,7 +909,7 @@ def create_bathymetry(folder: FloodFolder, watershed_dict: dict, timer: Timer):
                 # Build the subprocess call with the full path
                 call_mapper = f'python "{floodspreader_path}" {folder.ARC_FileName_Bathy}'
                 subprocess.call(call_mapper, shell=True)
-            elif (watershed_dict['mapper'] in ["Curve2Flood", "FLDPLN"]):
+            elif (watershed_dict['mapper'] in ["Curve2Flood", "FLDPLNpy"]):
                 LOG.info(f"Executing Curve2Flood using {folder.ARC_FileName_Bathy}")
                 Curve2Flood_MainFunction(folder.ARC_FileName_Bathy, quiet=watershed_dict['quiet'])
     else:
@@ -924,7 +924,7 @@ def run_flood_mapper(watershed_dict: dict, folder: FloodFolder, timer: Timer, in
             # Build the subprocess call with the full path
             call_mapper = f'python "{floodspreader_path}" {input_file}'
             subprocess.call(call_mapper, shell=True)
-        elif (watershed_dict['mapper'] == "Curve2Flood" or watershed_dict['mapper'] == "FLDPLN"):
+        elif (watershed_dict['mapper'] == "Curve2Flood" or watershed_dict['mapper'] == "FLDPLNpy"):
             LOG.info(f"Executing Curve2Flood using {input_file}")
             Curve2Flood_MainFunction(input_file, quiet=watershed_dict['quiet'])
 
@@ -1011,7 +1011,7 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
     create_bathymetry(folder, watershed_dict, timer)
 
     # if the mapper is FLDPLN, then we need to remake the flood direction raster using the bathymetry output from Curve2Flood
-    if watershed_dict['mapper'] == "FLDPLN":
+    if watershed_dict['mapper'] == "FLDPLNpy":
         LOG.info("Running FLDPLN to create flood direction raster...")
         if os.path.exists(folder.flowdir_bathy):
             LOG.info("The flow direction raster we are using to run FLDPLN already exists and we are not making it again...\n")
@@ -1140,7 +1140,7 @@ def process_dem(watershed_dict: dict, timer: Timer):
     folder = FloodFolder(watershed_dict)
 
     # Validate data
-    if watershed_dict.get('mapper') not in ["FloodSpreader", "Curve2Flood", "FLDPLN"]:
+    if watershed_dict.get('mapper') not in ["FloodSpreader", "Curve2Flood", "FLDPLNpy"]:
         raise ValueError("Invalid mapper specified. Choose 'FloodSpreader', 'Curve2Flood', or 'FLDPLN'.")
     
     if watershed_dict.get('mapper') == 'FLDPLN':
@@ -1469,7 +1469,7 @@ def main():
                         help="Land water value in the land cover raster (Required if --flood_waterlc_and_strm_cells is True)")
     cli_parser.add_argument("--clean_dem", action="store_true", help="Clean DEM data before processing")
     cli_parser.add_argument("--process_stream_network", action="store_true", help="Clean DEM data before processing")
-    cli_parser.add_argument("--mapper", type=str, default="Curve2Flood", choices=["FloodSpreader", "Curve2Flood", "FLDPLN"], help="Mapping method")
+    cli_parser.add_argument("--mapper", type=str, default="Curve2Flood", choices=["FloodSpreader", "Curve2Flood", "FLDPLNpy"], help="Mapping method")
     cli_parser.add_argument("--use_specified_depth_for_bathy_mask", action="store_true", help="Specify a depth for FloodSprederPy to use for bathymetry masking")
     cli_parser.add_argument("--age_of_forecast_days", type=int, default=7, help="Age of forecast in days")
     cli_parser.add_argument("--find_banks_based_on_landcover", action="store_true", help="Use landcover data for finding banks when estimating bathymetry")
