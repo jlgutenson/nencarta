@@ -4,6 +4,7 @@
 # built-in imports
 import gc
 import os
+import json
 
 # third-party imports
 import dask.dataframe as dd
@@ -404,8 +405,17 @@ class PatchedZarrStore(dict):
 def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFrame, rivid_field, folder: FloodFolder, watershed_dict: dict):
     # First let's remove the stream reaches that are in the stream_ids_in_lake_list
     # filter out the streams that are in the stream_ids_in_lake_list by using the "LINKNO values in stream_ids_in_lake_list"
-    if watershed_dict.get("stream_ids_in_lake_list"):
-        StrmShp_gdf = StrmShp_gdf[~StrmShp_gdf[rivid_field].isin(watershed_dict["stream_ids_in_lake_list"])]
+    lake_filter_json = watershed_dict.get('lake_filter_json', None)
+    if lake_filter_json:
+        with open(lake_filter_json, 'r') as f:
+            lake_filter: dict = json.load(f)
+            stream_ids_in_lake_list = []
+            for _k, v in lake_filter.items():
+                inside = v.get("inside", [])
+                for x in inside:
+                    if x is not None:
+                        stream_ids_in_lake_list.append(x)
+        StrmShp_gdf = StrmShp_gdf[~StrmShp_gdf[rivid_field].isin(stream_ids_in_lake_list)]
 
     # if the StrmOrder_Field and StrmOrder_Lower or StrmOrder_Upper are not None use these to filter the StrmShp_gdf
     if watershed_dict.get("StrmOrder_Field") and (watershed_dict.get("StrmOrder_Lower") is not None or watershed_dict.get("StrmOrder_Upper") is not None):
