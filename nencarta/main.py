@@ -613,7 +613,6 @@ def Read_Raster_GDAL(InRAST_Name):
     LOG.info('   xur = ' + str(xur))
     return RastArray, ncols, nrows, cellsize, yll, yur, xll, xur, lat, geotransform, Rast_Projection
 
-@njit(cache=True)
 def _clean_stream_raster(SN: np.ndarray, ncols: int, nrows: int):
     #Create an array that is slightly larger than the STRM Raster Array
     B = np.zeros((nrows+2,ncols+2), dtype=np.int64)
