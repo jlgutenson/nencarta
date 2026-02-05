@@ -53,7 +53,7 @@ class FloodFolder:
         # these will only vary based upon if they are NWM or GEOGLOWS
         self.ARC_FileName_Bathy = os.path.join(self.ARC_Folder, f"{match.group(0)}_ARC_Input_{self.FileName}_Bathy.txt")
         self.ARC_FileName_Initial = os.path.join(self.ARC_Folder, f"{match.group(0)}_ARC_Input_{self.FileName}_InitialFlood.txt")
-        self.DEM_File_Clean = os.path.join(self.dem_updated_folder, f"{match.group(0)}_{self.FileName}_Clean.tif") if watershed_dict['clean_dem'] else self.DEM_File
+        self.DEM_File_Clean = os.path.join(self.dem_updated_folder, f"{self.FileName}_Clean.tif") if watershed_dict['clean_dem'] else self.DEM_File
         self.VDT_Test_File = os.path.join(self.VDT_Folder, f"{match.group(0)}_{self.FileName}_VDT_FS.csv")
         self.VDT_Test_File_Bathy = self.VDT_Test_File.replace(".csv", "_Bathy.csv")
         self.STRM_File = os.path.join(self.strm_folder, f"{match.group(0)}_{self.FileName}_STRM_Raster.tif")
