@@ -138,7 +138,7 @@ def Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File
         forecastdate_formatted = f"{forecastdate[:4]}-{forecastdate[4:6]}-{forecastdate[6:]} {forecasthour}:00:00 UTC"
         print(f"Requesting NWM forecast data for {forecastdate_formatted} for {len(rivids)} rivids")
 
-        # loop through the five medium-range ensemble members
+        # loop through the ensemble members
         nwm_ensemble_df_list = []
         if not nwm_api_key:
             raise ValueError("nwm_api_key is required for NWM forecast requests.")

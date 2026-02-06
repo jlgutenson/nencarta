@@ -83,7 +83,7 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
                                              VDT_Test_File, STRM_File, STRM_File_Clean, 
                                              LAND_File, BathyFileFolder, FloodFolder, FLOW_Folder,
                                              Flow_Direction_Folder, ManningN, VDT_File, Curve_File, FloodMapFile, FloodDepthFile, FloodWSEFile, 
-                                             FloodVELFile, FloodMapFile_Initial,
+                                             FloodVELFile, FloodMapFile_Initial, FloodMapFileForecast,
                                              DepthMapFile, ARC_BathyFile, FS_BathyFile, DEM_StrmShp, 
                                              DEM_Reanalsyis_FlowFile, bathy_use_banks, flood_waterlc_and_strm_cells, 
                                              land_watervalue, clean_dem, use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask, 
@@ -245,9 +245,17 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
                                                                 filled_dem_orig, flowdir, flowdir_orig)
         # name the flowdir we will use for forecasts and that will be remade after the bathymetry is burned into the DEM
         flowdir_bathy = os.path.join(Flow_Direction_Folder, os.path.basename(FS_BathyFile).replace('.tif','_FlowDir.tif'))
+        # set the DEM_File as the filled_dem for use in the flow direction creation
+        DEM_File = filled_dem_orig
+        # variable names that will be used after the bathymetry is added to the DEM
+        FS_BathyFile_Projected = os.path.join(Flow_Direction_Folder, os.path.basename(FS_BathyFile).replace('.tif','_Projected.tif'))
+        FS_BathyFile_Projected_Filled = os.path.join(Flow_Direction_Folder, os.path.basename(FS_BathyFile).replace('.tif','_Projected_Filled.tif'))
+        FS_BathyFile_Projected_Filled_OriginalCRS = os.path.join(Flow_Direction_Folder, os.path.basename(FS_BathyFile).replace('.tif','_Projected_Filled_OriginalCRS.tif'))
+    # we are not using FLDPLNpy, so set these variables to None
     else:
         flowdir_orig = None
         flowdir_bathy = None
+        FS_BathyFile_Projected, FS_BathyFile_Projected_Filled, FS_BathyFile_Projected_Filled_OriginalCRS = None, None, None
     
     #Create a Starting AutoRoute Input File
     print('Creating ARC Input File: ' + ARC_FileName_Initial)
@@ -290,15 +298,18 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
 
     #Create the Forecast Input File
     print('Creating ARC Input File: ' + ARC_FileName_FloodForecast)
+    # this adds make the FS_BathyFile_Projected_Filled_OriginalCRS the DEM used for mapping if using FLDPLNpy
+    if mapper == "FLDPLNpy":
+        FS_BathyFile = FS_BathyFile_Projected_Filled_OriginalCRS
     Forecast_Flood_Map, Forecast_Flood_Depth_Raster = Create_ARC_Model_Input_File_FloodForecast(streamflow_source, mapper, ARC_FileName_FloodForecast, ForecastFlowFile, 
-                                                                                                STRM_File_Clean, VDT_File, Curve_File, ManningN, FloodMapFile, 
+                                                                                                STRM_File_Clean, VDT_File, Curve_File, ManningN, FloodMapFileForecast, 
                                                                                                 FloodDepthFile, FloodWSEFile, FloodVELFile, FS_BathyFile, 
                                                                                                 forecastdate, forecasthour, DEM_StrmShp, flood_waterlc_and_strm_cells, 
                                                                                                 land_watervalue, LAND_File, flowdir_bathy, StrmOrder_Field, Downstream_Link_Field)
     
     return (ARC_FileName_Initial, ARC_FileName_Bathy, ARC_FileName_FloodForecast, Forecast_Flood_Map, 
             DEM_Reanalsyis_FlowFile, ForecastFlowFile, DEM_StrmShp, forecastdate, Forecast_Flood_Depth_Raster, 
-            stream_id_field, ds_stream_id_field, flowdir_bathy)
+            stream_id_field, ds_stream_id_field, flowdir_bathy, FS_BathyFile_Projected, FS_BathyFile_Projected_Filled, FS_BathyFile_Projected_Filled_OriginalCRS)
 
 def Create_FlowFile(MainFlowFile, FlowFileName, OutputID, Qparam):
     infile = open(MainFlowFile,'r')
@@ -491,7 +502,7 @@ def Create_ARC_Model_Input_File_Bathy(ARC_FileName_Bathy, mapper, DEM_File_Clean
     out_file.close()
 
 def Create_ARC_Model_Input_File_FloodForecast(streamflow_source, mapper, ARC_FileName_FloodForecast, ForecastFlowFile, 
-                                                STRM_File_Clean, VDT_File, Curve_File, ManningN, FloodMapFile, FloodDepthFile, 
+                                                STRM_File_Clean, VDT_File, Curve_File, ManningN, FloodMapFileForecast, FloodDepthFile, 
                                                 FloodWSEFile, FloodVELFile, FS_BathyFile, forecastdate, forecasthour, 
                                                 DEM_StrmShp, flood_waterlc_and_strm_cells, land_watervalue, LAND_File,
                                                 flowdir_bathy, StrmOrder_Field, Downstream_Link_Field):
@@ -527,24 +538,26 @@ def Create_ARC_Model_Input_File_FloodForecast(streamflow_source, mapper, ARC_Fil
         # create the end of the file name that describes the forecast
         ending_of_forecast_file = '_Forecast_' + str(forecastdate) + '_' + str(forecasthour) + '.tif' 
         # rename the forecast of the extent raster based upon the type of NWM forecast we are using
-        Forecast_Flood_Map_Raster = FloodMapFile.replace('.tif', ending_of_forecast_file)
-        Forecast_Flood_Map_Raster = FloodMapFile.replace('NWM', streamflow_source)
+        Forecast_Flood_Map_Raster = FloodMapFileForecast.replace('.tif', ending_of_forecast_file)
+        Forecast_Flood_Map_Raster = FloodMapFileForecast.replace('NWM', streamflow_source)
     else:
         # create the end of the file name that describes the forecast
         ending_of_forecast_file = '_Forecast_' + str(forecastdate) + '.tif' 
-        Forecast_Flood_Map_Raster = FloodMapFile.replace('.tif', ending_of_forecast_file)
+        Forecast_Flood_Map_Raster = FloodMapFileForecast.replace('.tif', ending_of_forecast_file)
 
     Forecast_Flood_Depth_Raster = FloodDepthFile.replace('.tif', ending_of_forecast_file)
     Forecast_Flood_WSE_Raster = FloodWSEFile.replace('.tif', ending_of_forecast_file)
     Forecast_Flood_VEL_Raster = FloodVELFile.replace('.tif', ending_of_forecast_file)
-    Forecast_Flood_Map_Raster = FloodMapFile.replace('.tif', ending_of_forecast_file)
+    Forecast_Flood_Map_Raster = FloodMapFileForecast.replace('.tif', ending_of_forecast_file)
     # add the name of the file in the DEM_StrmShp file path to the Forecast_Flood_Map_Raster variable
     DEM_StrmShp_filname = os.path.basename(DEM_StrmShp)
 
     if flood_waterlc_and_strm_cells is True:
         out_file.write('\n' + 'Flood_WaterLC_and_STRM_Cells' + '\t' + str(flood_waterlc_and_strm_cells))
-        out_file.write('\n' + 'LU_Raster_SameRes	' + LAND_File)
-        out_file.write('\n' + 'LAND_WaterValue' + '\t' + str(land_watervalue))
+    
+    # these are needed for flood mapping if flood_waterlc_and_strm_cells is True but are also needed to for the current velocity estimation method.
+    out_file.write('\n' + 'LU_Raster_SameRes	' + LAND_File)
+    out_file.write('\n' + 'LAND_WaterValue' + '\t' + str(land_watervalue))
 
     # delete the old FloodSpreader outputs, it can cause issues otherwise
     if os.path.exists(Forecast_Flood_Map_Raster):
@@ -995,9 +1008,9 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
         FS_BathyFile = os.path.join(BathyFileFolder, match.group(0) +'_' +  FileName + '_FS_Bathy.tif')  
         FloodMapFile = os.path.join(FloodFolder, match.group(0) + '_' + FileName + '_ARC_Flood.tif')
 
-
         # these variables will have the full specifics of the streamflow source 
         ARC_FileName_FloodForecast = os.path.join(ARC_Folder, streamflow_source + '_ARC_Input_' + FileName + '_FloodForecast.txt')
+        FloodMapFileForecast = os.path.join(FloodFolder, streamflow_source + '_' + FileName + '_ARC_FloodForecast.tif')
         FloodDepthFile = os.path.join(FloodFolder, streamflow_source + '_' + FileName + '_ARC_FloodDepth.tif')
         FloodWSEFile = os.path.join(FloodFolder, streamflow_source + '_' + FileName + '_ARC_FloodWSE.tif') 
         FloodVELFile = os.path.join(FloodFolder, streamflow_source + '_' + FileName + '_ARC_FloodVEL.tif')
@@ -1025,23 +1038,24 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
         # It also does some of the geospatial processing
         (ARC_FileName_Initial, ARC_FileName_Bathy, ARC_FileName_FloodForecast, Forecast_Flood_Map, 
          DEM_Reanalsyis_FlowFile, ForecastFlowFile, DEM_StrmShp, forecastdate, Forecast_Flood_Depth_Raster, 
-         stream_id_field, ds_stream_id_field, flowdir_bathy) = Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial, 
-                                                                                                        ARC_FileName_Bathy, ARC_FileName_FloodForecast, 
-                                                                                                        DEM_File, DEM_File_Clean, LandCoverFile, 
-                                                                                                        VDT_Test_File, STRM_File, 
-                                                                                                        STRM_File_Clean, LAND_File, 
-                                                                                                        BathyFileFolder, FloodFolder, FLOW_Folder, Flow_Direction_Folder, ManningN, 
-                                                                                                        VDT_File, Curve_File, FloodMapFile, FloodDepthFile, FloodWSEFile, 
-                                                                                                        FloodVELFile, FloodMapFile_Initial,
-                                                                                                        DepthMapFile, ARC_BathyFile, FS_BathyFile, DEM_StrmShp, 
-                                                                                                        DEM_Reanalsyis_FlowFile, bathy_use_banks, 
-                                                                                                        flood_waterlc_and_strm_cells,
-                                                                                                        land_watervalue, clean_dem, 
-                                                                                                        use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask,
-                                                                                                        find_banks_based_on_landcover, create_reach_average_curve_file,
-                                                                                                        forensic_forecast_date, forensic_forecast_hour, specified_bathyflow_field, specified_highflow_field, 
-                                                                                                        stream_ids_in_lake_list, streamflow_source, mapper, StrmOrder_Field, Downstream_Link_Field,
-                                                                                                          StrmOrder_Lower, StrmOrder_Upper, nwm_api_key, StrmShp_gdf)  
+         stream_id_field, ds_stream_id_field, flowdir_bathy, FS_BathyFile_Projected, FS_BathyFile_Projected_Filled, 
+         FS_BathyFile_Projected_Filled_OriginalCRS) = Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial, 
+                                                                                               ARC_FileName_Bathy, ARC_FileName_FloodForecast, 
+                                                                                               DEM_File, DEM_File_Clean, LandCoverFile, 
+                                                                                               VDT_Test_File, STRM_File, 
+                                                                                               STRM_File_Clean, LAND_File, 
+                                                                                               BathyFileFolder, FloodFolder, FLOW_Folder, Flow_Direction_Folder, ManningN, 
+                                                                                               VDT_File, Curve_File, FloodMapFile, FloodDepthFile, FloodWSEFile, 
+                                                                                               FloodVELFile, FloodMapFile_Initial, FloodMapFileForecast,
+                                                                                               DepthMapFile, ARC_BathyFile, FS_BathyFile, DEM_StrmShp, 
+                                                                                               DEM_Reanalsyis_FlowFile, bathy_use_banks, 
+                                                                                               flood_waterlc_and_strm_cells,
+                                                                                               land_watervalue, clean_dem, 
+                                                                                               use_specified_depth_for_bathy_mask, specify_depths_for_bathy_mask,
+                                                                                               find_banks_based_on_landcover, create_reach_average_curve_file,
+                                                                                               forensic_forecast_date, forensic_forecast_hour, specified_bathyflow_field, specified_highflow_field, 
+                                                                                               stream_ids_in_lake_list, streamflow_source, mapper, StrmOrder_Field, Downstream_Link_Field,
+                                                                                               StrmOrder_Lower, StrmOrder_Upper, nwm_api_key, StrmShp_gdf)  
 
         # if the DEM_StrmShp file is empty, then we can't do anything
         if DEM_StrmShp is None:
@@ -1226,9 +1240,6 @@ def DEM_Forecast(DEM_Folder, DEM, Output_Dir, watershed, ESA_LC_Folder, STRM_Fol
         # if the mapper is FLDPLN, then we need to remake the flood direction raster using the bathymetry output from Curve2Flood
         if mapper == "FLDPLNpy":
             print("Running FLDPLNpy to create flood direction raster...")
-            FS_BathyFile_Projected = os.path.join(Flow_Direction_Folder, os.path.basename(FS_BathyFile).replace('.tif','_Projected.tif'))
-            FS_BathyFile_Projected_Filled = os.path.join(Flow_Direction_Folder, os.path.basename(FS_BathyFile).replace('.tif','_Projected_Filled.tif'))
-            FS_BathyFile_Projected_Filled_OriginalCRS = os.path.join(Flow_Direction_Folder, os.path.basename(FS_BathyFile).replace('.tif','_Projected_Filled_OriginalCRS.tif'))
             flowdir_projected = flowdir_bathy.replace('.tif','_Projected.tif')
             if os.path.exists(flowdir_bathy):
                 print("The flow direction raster we are using to run FLDPLNpy already exists and we are not making it again...\n")
@@ -1587,6 +1598,9 @@ def process_json_input_serial(json_file):
         use_specified_depth_for_bathy_mask = watershed.get("use_specified_depth_for_bathy_mask", True)
         specify_depths_for_bathy_mask = watershed.get("specify_depths_for_bathy_mask", None)
 
+        # read "streamflow_source" from the watershed dictionary, default to "GEOGLOWS" if not provided
+        streamflow_source = watershed.get("streamflow_source", "GEOGLOWS")
+
         # Check for flood_waterlc_and_strm_cells and land_watervalue
         flood_waterlc_and_strm_cells = watershed.get("flood_waterlc_and_strm_cells", False)
         if flood_waterlc_and_strm_cells == True:
@@ -1609,9 +1623,10 @@ def process_json_input_serial(json_file):
                     raise ValueError(f"Invalid forensic_forecast_date format: {forensic_forecast_date}")
             
             # sanity check (only if you want to enforce July 1, 2024 rule)
-            if forensic_forecast_date_dt < datetime(2024, 7, 1):
-                print(f"Warning: Forensic forecast date {forensic_forecast_date} is earlier than July 1, 2024. Exiting...")
-                sys.exit()
+            print(f"Joseph, the forensic forecast date you provided is {forensic_forecast_date_dt}.")
+            if forensic_forecast_date_dt < datetime(2024, 7, 1) and streamflow_source.upper().startswith("GEOGLOWS"):
+                    print(f"Warning: Forensic forecast date {forensic_forecast_date} is GEOGLOWS and starts earlier than July 1, 2024. Exiting...")
+                    sys.exit()
         else:
             forensic_forecast_date = None
 
@@ -1622,11 +1637,11 @@ def process_json_input_serial(json_file):
                 forensic_forecast_hour = int(forensic_forecast_hour)
                 if forensic_forecast_hour not in range(0, 24):
                     raise ValueError("forensic_forecast_hour must be between 0 and 23")
+                forensic_forecast_hour = f"{forensic_forecast_hour:02d}"
             except ValueError:
                 raise ValueError(f"Invalid forensic_forecast_hour: {forensic_forecast_hour}")
                 
-        # read "streamflow_source" from the watershed dictionary, default to "GEOGLOWS" if not provided
-        streamflow_source = watershed.get("streamflow_source", "GEOGLOWS")
+        # download the streamflow forecast
         short_range_forecast_hours = [f"{i:02d}" for i in range(0, 24)]
         medium_range_forecast_hours = ["00", "06", "12", "18"]
         long_range_forecast_hours = ["00"]
@@ -1883,10 +1898,16 @@ def process_cli_arguments(args):
     if not isinstance(forensic_forecast_date, str):
         forensic_forecast_date = None
 
-    # check if forensic_forecast_date is provided in the args and if not set forensic_forecast_date=None
+    # check if forensic_forecast_hour is provided in the args and normalize to "HH"
     forensic_forecast_hour = args.forensic_forecast_hour
-    if not isinstance(forensic_forecast_hour, str):
-        forensic_forecast_hour = None
+    if forensic_forecast_hour is not None:
+        try:
+            forensic_forecast_hour = int(forensic_forecast_hour)
+            if forensic_forecast_hour not in range(0, 24):
+                raise ValueError
+            forensic_forecast_hour = f"{forensic_forecast_hour:02d}"
+        except Exception:
+            raise ValueError(f"Invalid forensic_forecast_hour: {forensic_forecast_hour}")
     
     # check if lake_filter_json is provided in the args and if not set lake_filter_json=None
     lake_filter_json = args.lake_filter_json

@@ -25,6 +25,13 @@ FLOW_FIELD_OPTIONS = (
     + ["rp2", "rp5", "rp10", "rp25", "rp50", "rp100", "rp100_premium"]
 )
 
+STREAMFLOW_SOURCE_LABELS = {
+    "GEOGLOWS": "GEOGLOWS",
+    "NWM Short Range": "NWM_short_range",
+    "NWM Medium Range": "NWM_medium_range",
+    "NWM Long Range": "NWM_long_range",
+}
+
 
 
 # --- MOCK SIMULATION CORE (Integrated for self-containment) ---
@@ -477,7 +484,7 @@ class FloodSimulationGUI(QMainWindow):
         group_wf_layout.addWidget(QLabel("Mapper Method"), i+1, 0); group_wf_layout.addWidget(self.mapper, i+1, 1); self.input_fields['mapper'] = self.mapper; i+=2
 
         self.streamflow_source = QComboBox()
-        self.streamflow_source.addItems(["GEOGLOWS", "NWM"])
+        self.streamflow_source.addItems(list(STREAMFLOW_SOURCE_LABELS.keys()))
         group_wf_layout.addWidget(QLabel("Streamflow Source"), i+1, 0); group_wf_layout.addWidget(self.streamflow_source, i+1, 1); self.input_fields['streamflow_source'] = self.streamflow_source; i+=2
 
         self.nwm_api_key = QLineEdit()
@@ -594,6 +601,10 @@ class FloodSimulationGUI(QMainWindow):
                      params[key] = None
             elif isinstance(widget, QSpinBox):
                 params[key] = widget.value()
+
+        streamflow_label = params.get("streamflow_source")
+        if streamflow_label:
+            params["streamflow_source"] = STREAMFLOW_SOURCE_LABELS.get(streamflow_label, streamflow_label)
         
         # Convert empty strings/zero from optional fields to None/default if they should be
         if not params['forensic_forecast_date']: params['forensic_forecast_date'] = None
