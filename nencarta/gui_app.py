@@ -28,6 +28,13 @@ FLOW_FIELD_OPTIONS = (
     + ["rp2", "rp5", "rp10", "rp25", "rp50", "rp100", "rp100_premium"]
 )
 
+STREAMFLOW_SOURCE_LABELS = {
+    "GEOGLOWS": "GEOGLOWS",
+    "NWM Short Range": "NWM_short_range",
+    "NWM Medium Range": "NWM_medium_range",
+    "NWM Long Range": "NWM_long_range",
+}
+
 # Map of output keys to friendly names (from main.py output structure)
 SIMULATION_TIMES_MAP = {
     'arc_initial_simulation_time': "ARC Initial Flood",
@@ -493,7 +500,7 @@ class FloodSimulationGUI(QMainWindow):
         group_wf_layout.addWidget(QLabel("Mapper Method"), i+1, 0); group_wf_layout.addWidget(self.mapper, i+1, 1); self.input_fields['mapper'] = self.mapper; i+=2
 
         self.streamflow_source = QComboBox()
-        self.streamflow_source.addItems(["GEOGLOWS", "NWM"])
+        self.streamflow_source.addItems(list(STREAMFLOW_SOURCE_LABELS.keys()))
         self.streamflow_source.setCurrentText(settings.value("streamflow_source", "GEOGLOWS"))
         group_wf_layout.addWidget(QLabel("Streamflow Source"), i+1, 0); group_wf_layout.addWidget(self.streamflow_source, i+1, 1); self.input_fields['streamflow_source'] = self.streamflow_source; i+=2
 

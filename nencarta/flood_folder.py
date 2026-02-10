@@ -99,6 +99,8 @@ class FloodFolder:
     def setup_fldpln_files(self):
         self.flowdir_orig = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.DEM_File).replace(".tif","_flowdir_orig_crs.tif"))
         self.flowdir_bathy = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.FS_BathyFile).replace('.tif','_FlowDir.tif'))
+        self.filled_dem = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.DEM_File).replace('.tif','_filled_orig_crs.tif'))
+        self.FS_BathyFile_Projected_Filled_OriginalCRS = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.FS_BathyFile).replace('.tif','_Projected_Filled_OriginalCRS.tif'))
 
     def setup_flood_forecast_files(self, Forecast_Flood_Map: str, Forecast_Flood_Depth_Raster: str, ForecastFlowFile: str):
         self.Forecast_Flood_Map = Forecast_Flood_Map

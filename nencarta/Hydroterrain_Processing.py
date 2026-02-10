@@ -13,7 +13,7 @@ def _utm_epsg_from_lonlat(lon, lat):
     return 32600 + zone if lat >= 0 else 32700 + zone
 
 
-def create_flow_direction_raster(dem: str, out_dir: str, flowdir_orig: str):
+def create_flow_direction_raster(dem: str, filled_dem: str, out_dir: str, flowdir_orig: str):
     wbt = WhiteboxTools()
     wbt.set_verbose_mode(LOG.level <= logging.INFO)
     wbt.set_compress_rasters(True)
@@ -21,7 +21,7 @@ def create_flow_direction_raster(dem: str, out_dir: str, flowdir_orig: str):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         projected_dem = os.path.join(tmpdir, "projected_dem.tif")
-        filled_dem = os.path.join(tmpdir, "filled_dem.tif")
+        filled_dem_projected = os.path.join(tmpdir, "filled_dem_projected.tif")
         flowdir = os.path.join(tmpdir, "flowdir.tif")
 
         # Open input DEM
@@ -70,10 +70,11 @@ def create_flow_direction_raster(dem: str, out_dir: str, flowdir_orig: str):
             else:
                 dem_for_routing = dem
                 flowdir = flowdir_orig
+                filled_dem_projected = filled_dem
 
         # Whitebox operations
-        wbt.fill_depressions_wang_and_liu(dem_for_routing, filled_dem)
-        wbt.d8_pointer(filled_dem, flowdir)
+        wbt.fill_depressions_wang_and_liu(dem_for_routing, filled_dem_projected)
+        wbt.d8_pointer(filled_dem_projected, flowdir)
 
         if flowdir == flowdir_orig:
             # Why reproject if not needed?
@@ -98,5 +99,27 @@ def create_flow_direction_raster(dem: str, out_dir: str, flowdir_orig: str):
                     dst_transform=src_transform,
                     dst_crs=src_crs,
                     resampling=Resampling.nearest,
+                    src_nodata=src.nodata
+                )
+
+        # Reproject filled DEM back to original CRS
+        with rasterio.open(filled_dem_projected) as src:
+            profile = src_profile.copy()
+            profile.update(
+                crs=src_crs,
+                transform=src_transform,
+                width=src_width,
+                height=src_height,
+            )
+
+            with rasterio.open(filled_dem, "w", **profile) as dst:
+                reproject(
+                    source=rasterio.band(src, 1),
+                    destination=rasterio.band(dst, 1),
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=src_transform,
+                    dst_crs=src_crs,
+                    resampling=Resampling.bilinear,
                     src_nodata=src.nodata
                 )

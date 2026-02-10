@@ -153,7 +153,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
         stream_id_field = 'LINKNO'
     else:
         LOG.error(f"streamflow_source {streamflow_source} not recognized, please use either 'NWM' or 'GEOGLOWS'")
-        sys.exit()
+        raise ValueError(f"streamflow_source {streamflow_source} not recognized, please use either 'NWM' or 'GEOGLOWS'")
 
     rivids = get_rivids(folder, watershed_dict, DEM, stream_id_field)
     if rivids is None:
@@ -189,10 +189,11 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
     # if the mapper is "FLDPLNpy", we need to create a flow direction raster using the bathymetry based DEM.
     if watershed_dict['mapper'] == "FLDPLNpy":
         folder.setup_fldpln_files()
+        DEM = folder.filled_dem
         if os.path.exists(folder.flowdir_orig):
             LOG.info("The flow direction raster already exists and will not be recreated...")
         else:
-            Hydroterrain_Processing.create_flow_direction_raster(folder.DEM_File, folder.Flow_Direction_Folder, folder.flowdir_orig)
+            Hydroterrain_Processing.create_flow_direction_raster(folder.DEM_File, DEM, folder.Flow_Direction_Folder, folder.flowdir_orig)
     
     #Create a Starting AutoRoute Input File
     LOG.info('Creating ARC Input File: ' + folder.ARC_FileName_Initial)
@@ -206,6 +207,11 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
         Create_ARC_Model_Input_File_Initial_for_cleaning_dem(folder, watershed_dict, 'COMID')
 
     Create_ARC_Model_Input_File_Bathy(folder, watershed_dict, 'COMID')
+
+    # this adds make the FS_BathyFile_Projected_Filled_OriginalCRS the DEM used for mapping if using FLDPLNpy
+    if watershed_dict['mapper'] == "FLDPLNpy":
+        FS_BathyFileBefore = folder.FS_BathyFile
+        folder.FS_BathyFile = folder.FS_BathyFile_Projected_Filled_OriginalCRS
 
     if watershed_dict['floodmap_mode'] == 'forecast':
         Forecast_Flood_Map, Forecast_Flood_Depth_Raster = Create_ARC_Model_Input_File_FloodForecast(FlowFile, folder, watershed_dict)
@@ -221,6 +227,9 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
             model_input_files.append(model_input_file)
 
         folder.setup_flood_user_files(flood_maps, depth_maps, FlowFile, model_input_files)
+
+    if watershed_dict['mapper'] == "FLDPLNpy":
+        folder.FS_BathyFile = FS_BathyFileBefore
     
     return
 
@@ -1016,7 +1025,7 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
         if os.path.exists(folder.flowdir_bathy):
             LOG.info("The flow direction raster we are using to run FLDPLN already exists and we are not making it again...\n")
         else:
-            Hydroterrain_Processing.create_flow_direction_raster(folder.FS_BathyFile, folder.output_dir, folder.flowdir_bathy)
+            Hydroterrain_Processing.create_flow_direction_raster(folder.FS_BathyFile, folder.FS_BathyFile_Projected_Filled_OriginalCRS, folder.output_dir, folder.flowdir_bathy)
 
     if watershed_dict['floodmap_mode'] == 'forecast':
         run_forecast_floodmapping(folder, watershed_dict, timer)
@@ -1209,6 +1218,7 @@ def validate_forecast_hour(forensic_forecast_hour):
             forensic_forecast_hour = int(forensic_forecast_hour)
             if forensic_forecast_hour not in range(0, 24):
                 raise ValueError("forensic_forecast_hour must be between 0 and 23")
+            forensic_forecast_hour = f"{forensic_forecast_hour:02d}"
         except ValueError:
             raise ValueError(f"Invalid forensic_forecast_hour: {forensic_forecast_hour}")
             
@@ -1244,7 +1254,7 @@ def validate_specified_depths(use_specified_depth_for_bathy_mask: bool,
         elif len(specify_depths_for_bathy_mask) > 1 and not clean_dem:
             raise ValueError(f"Watershed '{watershed_name}' requires 'specify_depths_for_bathy_mask' as a list of one float when 'clean_dem' is False.")
         
-def validate_forecast_date(forensic_forecast_date: str):
+def validate_forecast_date(forensic_forecast_date: str, streamflow_source: str):
     # check if forensic_forecast_date and forensic_forecast_hour is provided in the watershed dictionary and if not set forensic_forecast_date=None
     # get forensic forecast date (string like "20231125" or "2023-11-25 06:00:00 UTC")
     if forensic_forecast_date:
@@ -1259,9 +1269,10 @@ def validate_forecast_date(forensic_forecast_date: str):
                 raise ValueError(f"Invalid forensic_forecast_date format: {forensic_forecast_date}")
         
         # sanity check (only if you want to enforce July 1, 2024 rule)
-        if forensic_forecast_date_dt < datetime(2024, 7, 1):
-            LOG.warning(f"Warning: Forensic forecast date {forensic_forecast_date} is earlier than July 1, 2024. Exiting...")
-            sys.exit()
+        LOG.info(f"The forensic forecast date provided is {forensic_forecast_date_dt}")
+        if forensic_forecast_date_dt < datetime(2024, 7, 1) and streamflow_source.upper().startswith("GEOGLOWS"):
+            LOG.error(f"Warning: Forensic forecast date {forensic_forecast_date} is earlier than July 1, 2024. Exiting...")
+            raise ValueError(f"Forensic forecast date {forensic_forecast_date} is earlier than July 1, 2024. Please provide a date on or after July 1, 2024.")
     else:
         forensic_forecast_date = None
         LOG.info("Forensic forecast date not provided; defaulting to None.")
@@ -1341,7 +1352,7 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "create_reach_average_curve_file": input_dict.get("create_reach_average_curve_file", False),
         "use_warning_flags_to_download_dem": input_dict.get("use_warning_flags_to_download_dem", False),
         "geoglows_vpu": input_dict.get("geoglows_vpu"),
-        "forensic_forecast_date": validate_forecast_date(input_dict.get("forensic_forecast_date")),
+        "forensic_forecast_date": validate_forecast_date(input_dict.get("forensic_forecast_date"), streamflow_source),
         "forensic_forecast_hour": forensic_forecast_hour,
         "specified_bathyflow_field":input_dict.get("specified_bathyflow_field", "p_exceed_50"),
         "specified_highflow_field":input_dict.get("specified_highflow_field", "rp100_premium"),
