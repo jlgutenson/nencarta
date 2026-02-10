@@ -189,12 +189,13 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
     # if the mapper is "FLDPLNpy", we need to create a flow direction raster using the bathymetry based DEM.
     if watershed_dict['mapper'] == "FLDPLNpy":
         folder.setup_fldpln_files()
-        DEM = folder.filled_dem
-        if os.path.exists(folder.flowdir_orig):
+        if os.path.exists(folder.flowdir_orig) and os.path.exists(folder.filled_dem):
             LOG.info("The flow direction raster already exists and will not be recreated...")
         else:
-            Hydroterrain_Processing.create_flow_direction_raster(folder.DEM_File, DEM, folder.Flow_Direction_Folder, folder.flowdir_orig)
-    
+            Hydroterrain_Processing.create_flow_direction_raster(folder.DEM_File, folder.filled_dem, folder.Flow_Direction_Folder, folder.flowdir_orig)
+        original_dem_file = folder.DEM_File
+        folder.DEM_File = folder.filled_dem
+        
     #Create a Starting AutoRoute Input File
     LOG.info('Creating ARC Input File: ' + folder.ARC_FileName_Initial)
     #Create the Initial Flow
@@ -230,6 +231,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
 
     if watershed_dict['mapper'] == "FLDPLNpy":
         folder.FS_BathyFile = FS_BathyFileBefore
+        folder.DEM_File = original_dem_file
     
     return
 
@@ -1022,7 +1024,7 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
     # if the mapper is FLDPLN, then we need to remake the flood direction raster using the bathymetry output from Curve2Flood
     if watershed_dict['mapper'] == "FLDPLNpy":
         LOG.info("Running FLDPLN to create flood direction raster...")
-        if os.path.exists(folder.flowdir_bathy):
+        if os.path.exists(folder.flowdir_bathy) and os.path.exists(folder.FS_BathyFile_Projected_Filled_OriginalCRS):
             LOG.info("The flow direction raster we are using to run FLDPLN already exists and we are not making it again...\n")
         else:
             Hydroterrain_Processing.create_flow_direction_raster(folder.FS_BathyFile, folder.FS_BathyFile_Projected_Filled_OriginalCRS, folder.output_dir, folder.flowdir_bathy)
