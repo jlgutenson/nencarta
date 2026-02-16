@@ -195,7 +195,7 @@ def Process_FloodForecasting_Geospatial_Data(ARC_Folder, ARC_FileName_Initial,
     else:
         # cycle through today through 12 days ago to find the most recent day with a forecast
         found = False
-        for fd in range(0,13):
+        for fd in range(0,700):
             for fh in range(0,24):
                 try:
                     demfilename = os.path.basename(DEM_File)
