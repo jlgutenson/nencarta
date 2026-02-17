@@ -8,7 +8,7 @@ geoglows
 geojson
 geopandas
 netCDF4
-noise
+numba
 numpy
 pandas
 pillow==9.0.1
@@ -24,3 +24,4 @@ shapely
 tqdm
 xarray
 whitebox
+zarr
