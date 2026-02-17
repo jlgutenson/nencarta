@@ -1,2 +1,0 @@
-[console_scripts]
-flood-mapping = nencarta.main:main
