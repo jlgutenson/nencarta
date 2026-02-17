@@ -1,0 +1,6 @@
+*.egg-info/
+*__pycache__/
+ignore/
+build/
+dist/
+.esa_worldcover_grid.parquet
