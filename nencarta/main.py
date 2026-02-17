@@ -110,7 +110,7 @@ def download_forecast_streamflows(watershed_dict: dict, folder: FloodFolder, riv
     else:
         # cycle through today through 12 days ago to find the most recent day with a forecast
         found = False
-        for fd in range(0,13):
+        for fd in range(0,700):
             for fh in range(0,24):
                 try:
                     demfilename = os.path.basename(folder.DEM_File)
