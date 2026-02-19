@@ -20,11 +20,10 @@ from contextlib import redirect_stdout, redirect_stderr
 # third-party imports
 import numpy as np
 import pandas as pd
-import geopandas as gpd
 from arc import Arc
-from numba import njit
-from osgeo import gdal
+import geopandas as gpd
 from pyproj import CRS
+from osgeo import gdal, osr, ogr
 from shapely.geometry import box
 from curve2flood import Curve2Flood_MainFunction
 from arc.Create_GeoJSON import Run_Main_VDT_to_GEOJSON_Program_Stream_Vector
@@ -136,7 +135,7 @@ def download_forecast_streamflows(watershed_dict: dict, folder: FloodFolder, riv
 
 def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str):
     #Get the Spatial Information from the DEM Raster
-    (minx, miny, maxx, maxy, dx, dy, ncols, nrows, _, dem_projection) = Get_Raster_Details(folder.DEM_File)
+    (minx, miny, maxx, maxy, dx, dy, ncols, nrows, gt, dem_projection) = Get_Raster_Details(folder.DEM_File)
     projWin_extents = [minx, maxy, maxx, miny]
     outputBounds = [minx, miny, maxx, maxy]  #https://gdal.org/api/python/osgeo.gdal.html
    
@@ -165,7 +164,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
         LOG.info(folder.STRM_File + ' Already Exists')
     else:
         LOG.info('Creating ' + folder.STRM_File)
-        Create_AR_StrmRaster(folder.DEM_StrmShp, folder.STRM_File, outputBounds, minx, miny, maxx, maxy, dx, dy, ncols, nrows, 'LINKNO')
+        Create_AR_StrmRaster(folder.DEM_StrmShp, folder.STRM_File, gt, ncols, nrows, 'LINKNO', dem_projection)
     
     if os.path.isfile(folder.STRM_File_Clean):
         LOG.info(folder.STRM_File_Clean + ' Already Exists')
@@ -510,18 +509,17 @@ def Create_AR_LandRaster(LandCoverFiles, LAND_File, projWin_extents, out_project
     gdal.Warp(LAND_File, LandCoverFiles, options=options)
     return
 
-def Create_AR_StrmRaster(StrmSHP, STRM_File, outputBounds, minx, miny, maxx, maxy, dx, dy, ncols, nrows, Param):
+def Create_AR_StrmRaster(StrmSHP, STRM_File, gt, ncols, nrows, Param, dem_projection):
     """
     Converts a vector stream dataset (GeoPackage or Shapefile) into a raster.
 
     Parameters:
     - StrmSHP (str): Path to the vector dataset (GeoPackage or Shapefile)
     - STRM_File (str): Output raster file (GeoTIFF)
-    - outputBounds (tuple): (minX, minY, maxX, maxY) defining the raster extent
-    - minx, miny, maxx, maxy: Bounding box coordinates (not explicitly needed if outputBounds is set)
-    - dx, dy: Resolution in X and Y directions
+    - gt (tuple): Geotransform tuple (minX, minY, cellSizeX, cellSizeY, rotationX, rotationY)
     - ncols, nrows: Number of columns and rows
     - Param (str): Attribute field to use for rasterization
+    - dem_projection (str): Projection string for the output raster
 
     Returns:
     - None
@@ -529,29 +527,37 @@ def Create_AR_StrmRaster(StrmSHP, STRM_File, outputBounds, minx, miny, maxx, max
     LOG.info(f"Processing: {StrmSHP}")
 
     # Open vector dataset (supports both .shp and .gpkg)
-    source_ds = gdal.OpenEx(StrmSHP, gdal.OF_VECTOR)
+    source_ds: gdal.Dataset = gdal.OpenEx(StrmSHP, gdal.OF_VECTOR)
     if source_ds is None:
         LOG.error(f"Error: Could not open {StrmSHP}")
         return
 
     # Get the first (only) layer
-    layer = source_ds.GetLayer(0)
+    layer: ogr.Layer = source_ds.GetLayer(0)
     if layer is None:
         LOG.error(f"Error: No layers found in {StrmSHP}")
         return
 
     layer_name = layer.GetName()  # Get the actual layer name
 
-    # Rasterization
-    gdal.Rasterize(
-        STRM_File, source_ds, format="GTiff", outputType=gdal.GDT_Int32,
-        outputBounds=outputBounds, width=ncols, height=nrows,
-        noData=-9999, attribute=Param,
+    # Create the output raster dataset; this allows the rasterization to reproject on the fly if needed
+    driver: gdal.Driver = gdal.GetDriverByName('GTiff')
+    out_ds: gdal.Dataset = driver.Create(STRM_File, ncols, nrows, 1, gdal.GDT_Int32, options=['COMPRESS=DEFLATE'])
+    out_ds.SetGeoTransform(gt)
+    out_ds.SetProjection(dem_projection)
+    out_ds.GetRasterBand(1).SetNoDataValue(-9999)
+
+    options = gdal.RasterizeOptions(
+        attribute=Param,
         layers=[layer_name] if StrmSHP.lower().endswith(".gpkg") else None,  # Fix layers param
-        creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=2"]
     )
 
+    # Rasterization
+    gdal.Rasterize(out_ds, source_ds, options=options)
+
     # Clean up
+    out_ds.FlushCache()
+    out_ds = None
     source_ds = None
     LOG.info(f"Rasterization complete: {STRM_File}")
 
