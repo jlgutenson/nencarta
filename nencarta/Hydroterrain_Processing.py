@@ -13,11 +13,10 @@ def _utm_epsg_from_lonlat(lon, lat):
     return 32600 + zone if lat >= 0 else 32700 + zone
 
 
-def create_flow_direction_raster(dem: str, filled_dem: str, out_dir: str, flowdir_orig: str):
+def create_flow_direction_raster(dem: str, filled_dem: str, flowdir_orig: str):
     wbt = WhiteboxTools()
     wbt.set_verbose_mode(LOG.level <= logging.INFO)
     wbt.set_compress_rasters(True)
-    wbt.work_dir = out_dir
 
     with tempfile.TemporaryDirectory() as tmpdir:
         projected_dem = os.path.join(tmpdir, "projected_dem.tif")

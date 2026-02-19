@@ -193,7 +193,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
         if os.path.exists(folder.flowdir_orig) and os.path.exists(folder.filled_dem):
             LOG.info("The flow direction raster already exists and will not be recreated...")
         else:
-            Hydroterrain_Processing.create_flow_direction_raster(folder.DEM_File, folder.filled_dem, folder.Flow_Direction_Folder, folder.flowdir_orig)
+            Hydroterrain_Processing.create_flow_direction_raster(folder.DEM_File, folder.filled_dem, folder.flowdir_orig)
         original_dem_file = folder.DEM_File
         folder.DEM_File = folder.filled_dem
         
@@ -1069,7 +1069,7 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
         if os.path.exists(folder.flowdir_bathy) and os.path.exists(folder.FS_BathyFile_Projected_Filled_OriginalCRS):
             LOG.info("The flow direction raster we are using to run FLDPLN already exists and we are not making it again...\n")
         else:
-            Hydroterrain_Processing.create_flow_direction_raster(folder.FS_BathyFile, folder.FS_BathyFile_Projected_Filled_OriginalCRS, folder.output_dir, folder.flowdir_bathy)
+            Hydroterrain_Processing.create_flow_direction_raster(folder.FS_BathyFile, folder.FS_BathyFile_Projected_Filled_OriginalCRS, folder.flowdir_bathy)
 
     if watershed_dict['floodmap_mode'] == 'forecast':
         run_forecast_floodmapping(folder, watershed_dict, timer)
