@@ -928,16 +928,22 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
 
 def create_bathymetry(folder: FloodFolder, watershed_dict: dict, timer: Timer):
     # Create a Bathymetry Raster Dataset
+    if not os.path.exists(folder.ARC_BathyFile):
+        LOG.info('Cannot find bathy file, so creating ' + folder.ARC_BathyFile)
+        # start time for the simulation
+        with timer('arc_bathy'):
+            arc = Arc(folder.ARC_FileName_Bathy, quiet=watershed_dict['quiet'])
+            arc.run()
+
+        if not os.path.exists(folder.ARC_BathyFile):
+            print(folder.ARC_FileName_Bathy)
+            LOG.error(f"Something went wrong and {folder.ARC_BathyFile} was not created successfully by Arc.")
+            raise FileNotFoundError(f"Something went wrong and {folder.ARC_BathyFile} was not created successfully by Arc.")
+    else:
+        LOG.info(f"{folder.ARC_BathyFile} exists and we aren't making it again...")   
+
     if not os.path.exists(folder.FS_BathyFile):
         LOG.info('Cannot find bathy file, so creating ' + folder.FS_BathyFile)
-        if not os.path.exists(folder.ARC_BathyFile):
-            # start time for the simulation
-            with timer('arc_bathy'):
-                arc = Arc(folder.ARC_FileName_Bathy, quiet=watershed_dict['quiet'])
-                arc.run()
-        else:
-            LOG.info(f"{folder.ARC_BathyFile} exists and we aren't making it again...")   
-
         with timer('flood_bathy'):
             if watershed_dict['mapper'] == "FloodSpreader":
                 # Resolve the path to floodspreader.py
@@ -949,6 +955,10 @@ def create_bathymetry(folder: FloodFolder, watershed_dict: dict, timer: Timer):
             elif (watershed_dict['mapper'] in ["Curve2Flood", "FLDPLNpy"]):
                 LOG.info(f"Executing Curve2Flood using {folder.ARC_FileName_Bathy}")
                 Curve2Flood_MainFunction(folder.ARC_FileName_Bathy, quiet=watershed_dict['quiet'])
+
+            if not os.path.exists(folder.FS_BathyFile):
+                LOG.error(f"Something went wrong and {folder.FS_BathyFile} was not created successfully by the flood mapper.")
+                raise FileNotFoundError(f"Something went wrong and {folder.FS_BathyFile} was not created successfully by the flood mapper.")
     else:
         LOG.info(f"{folder.FS_BathyFile} exists and we aren't making it again...")
 
