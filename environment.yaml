@@ -17,7 +17,7 @@ dependencies:
   - numba
   - numpy
   - pandas
-  - pillow=9.0.1
+  - pillow
   - progress
   - pyproj
   - pyqt>=5.15

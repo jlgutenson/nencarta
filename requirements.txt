@@ -11,7 +11,7 @@ netCDF4
 numba
 numpy
 pandas
-pillow==9.0.1
+pillow
 progress
 pygeos
 pyproj
