@@ -730,6 +730,8 @@ class FloodSimulationGUI(QMainWindow):
                      params[key] = None
             elif isinstance(widget, QSpinBox):
                 params[key] = widget.value()
+            elif isinstance(widget, QPlainTextEdit):
+                params[key] = widget.toPlainText()
 
         streamflow_label = params.get("streamflow_source")
         if streamflow_label:
