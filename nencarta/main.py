@@ -1037,7 +1037,7 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
         return
         
     folder.setup_folder_for_dem(DEM, watershed_dict)
-    folder.set_source_landcover_files(ESA.download_and_process_land_cover(folder))
+    folder.set_source_landcover_files(ESA.download_and_process_land_cover(folder, watershed_dict['land_use_cache_dir']))
 
     # This function sets-up the Input files for ARC and FloodSpreader
     # It also does some of the geospatial processing
@@ -1426,6 +1426,7 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "make_wse_maps": input_dict.get("make_wse_maps", True),
         "floodmap_identifier": input_dict.get("floodmap_identifier", ""),
         "quiet": input_dict.get("quiet", False),
+        'land_use_cache_dir': norm_or_none(input_dict.get('land_use_cache_dir')),
     }
 
     os.makedirs(watershed_dict["output_dir"], exist_ok=True)
