@@ -694,12 +694,20 @@ class FloodSimulationGUI(QMainWindow):
             "FS_ADJUST_FLOW_BY_FRACTION": 1.0,
             "TW_MultFact": 1.5, 
             "TopWidthPlausibleLimit": 2000,
-            "Bathy_Trap_H": 0.2
+            "Bathy_Trap_H": 0.2,
+            "X_Section_Dist": 5000.0,
+            "Degree_Manip": 6.1,
+            "Degree_Interval": 1.5,
+            "Low_Spot_Range": 2,
+            "Str_Limit_Val": 1,
+            "Gen_Dir_Dist": 10,
+            "Gen_Slope_Dist": 10,
+            "Stream_Slope_Method": "local_average_corrected",
         })
         self.bathy_args.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.bathy_args.setMinimumHeight((2 + self.bathy_args.table.rowCount()) * self.bathy_args.table.verticalHeader().defaultSectionSize())
         group_adv_layout.setRowStretch(i+1, 1)
-        group_adv_layout.addWidget(QLabel("Bathymetry Arguments"), i+1, 0); group_adv_layout.addWidget(self.bathy_args, i+1, 1); self.input_fields['bathy_args'] = self.bathy_args; i+=2
+        group_adv_layout.addWidget(QLabel("Pre-processsing/Bathymetry Arguments"), i+1, 0); group_adv_layout.addWidget(self.bathy_args, i+1, 1); self.input_fields['bathy_args'] = self.bathy_args; i+=2
 
         self.floodmap_args = DictTable()
         self.floodmap_args.set_dict({
@@ -730,14 +738,14 @@ class FloodSimulationGUI(QMainWindow):
                      params[key] = None
             elif isinstance(widget, QSpinBox):
                 params[key] = widget.value()
+            elif isinstance(widget, QPlainTextEdit):
+                params[key] = widget.toPlainText().strip()
+            elif isinstance(widget, DictTable):
+                params[key] = widget.to_dict()
 
         streamflow_label = params.get("streamflow_source")
         if streamflow_label:
             params["streamflow_source"] = STREAMFLOW_SOURCE_LABELS.get(streamflow_label, streamflow_label)
-        elif isinstance(widget, QPlainTextEdit):
-            params[key] = widget.toPlainText()
-        elif isinstance(widget, DictTable):
-            params[key] = widget.to_dict()
     
         return params
 

@@ -530,7 +530,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
         
         # Check if rp_df is empty
         if rp_df.empty:
-            print(f"Skipping processing for {DEM_Tile} because rp_df is empty.")
+            LOG.warning(f"Skipping processing for {folder.DEM_File} because rp_df is empty.")
             CSV_File_Name = None
             OutShp_File_Name = None
             rivids_int = None

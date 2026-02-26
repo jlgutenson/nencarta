@@ -78,7 +78,7 @@ These inputs are:
 
 * **`age_of_forecast_days`** (Integer, optional): This is how old previous forecasts will be allowed to be based upon the current day. For example, specifying 7 days will delete all forecast flood inundation maps that are older than 7 days. Default 7.
 
-* **`bathy_args`** (Dictionary, optional): A dictionary of arguments that will be passed to ARC when estimating bathymetry in each cross-section. See the ARC documentation for more information on these arguments.
+* **`bathy_args`** (Dictionary, optional): A dictionary of arguments that will be passed to ARC and the flood mapper when estimating bathymetry in each cross-section. See the ARC and the respective flood mapper documentation for more information on these arguments.
 
 * **`bathy_use_banks`** (Bool, optional): Setting this to True will allow the system to use estimated bank elevations to estimate bathymetry using the streamflow specified in specified_bathyflow_field. Setting this value to False will allow the system to use the estimated water surface elevation to estimate bathymetry the using the streamflow specified in specified_bathyflow_field. Default False.
 

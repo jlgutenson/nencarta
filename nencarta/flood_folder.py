@@ -28,6 +28,8 @@ class FloodFolder:
             self.mannings_n_text_file = os.path.join(self.land_folder, 'AR_Manning_n_MED.txt')
         self.flowdir_orig = ''
         self.flowdir_bathy = ''
+        self.flowacc_orig = ''
+        self.flowacc_bathy = ''
         self.floodmap_mode = configs.get('floodmap_mode', 'forecast')
 
     def _create_and_get_folder(self, subfolder_name: str) -> str:
@@ -99,6 +101,8 @@ class FloodFolder:
     def setup_fldpln_files(self):
         self.flowdir_orig = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.DEM_File).replace(".tif","_flowdir_orig_crs.tif"))
         self.flowdir_bathy = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.FS_BathyFile).replace('.tif','_FlowDir.tif'))
+        self.flowacc_orig = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.DEM_File).replace(".tif","_flowacc_orig_crs.tif"))
+        self.flowacc_bathy = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.FS_BathyFile).replace('.tif','_FlowAcc.tif'))
         self.filled_dem = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.DEM_File).replace('.tif','_filled_orig_crs.tif'))
         self.FS_BathyFile_Projected_Filled_OriginalCRS = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.FS_BathyFile).replace('.tif','_Projected_Filled_OriginalCRS.tif'))
 

@@ -73,7 +73,11 @@ def get_rivids(folder: FloodFolder, watershed_dict: dict, DEM: str, stream_id_fi
     if os.path.isfile(folder.DEM_StrmShp) and os.path.isfile(folder.DEM_Reanalsyis_FlowFile):
         LOG.info(folder.DEM_StrmShp + ' Already Exists')
         LOG.info(folder.DEM_Reanalsyis_FlowFile + ' Already Exists')
-        rivids = gpd.read_file(folder.DEM_StrmShp, columns=[stream_id_field], use_arrow=True).values
+        rivids = gpd.read_file(
+            folder.DEM_StrmShp,
+            columns=[stream_id_field],
+            use_arrow=True
+        )[stream_id_field].tolist()
     else:
         # Before we get too far ahead, let's make sure that our DEM and Flowlines have the same coordinate system
         StrmShp_gdf = process_river_geometry(folder, watershed_dict, DEM) 
@@ -115,6 +119,7 @@ def download_forecast_streamflows(watershed_dict: dict, folder: FloodFolder, riv
                 try:
                     demfilename = os.path.basename(folder.DEM_File)
                     forecastdate, forecasthour = ForecastFlows.Get_Date_For_Forecast(fd, fh, streamflow_source) 
+                    LOG.info(f"Attempting to download forecast for date: {forecastdate} and hour: {forecasthour}...")
                     # we only need the forecast date for GEOGLOWS, for NWM we need the forecast hour as well               
                     if streamflow_source.upper() == "GEOGLOWS":
                         ForecastFlowFile = os.path.join(folder.FLOW_Folder, f'{demfilename[:-4]}_{str(forecastdate)}_{streamflow_source}_forecast.csv')
@@ -191,10 +196,12 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
     # if the mapper is "FLDPLNpy", we need to create a flow direction raster using the bathymetry based DEM.
     if watershed_dict['mapper'] == "FLDPLNpy":
         folder.setup_fldpln_files()
-        if os.path.exists(folder.flowdir_orig) and os.path.exists(folder.filled_dem):
-            LOG.info("The flow direction raster already exists and will not be recreated...")
+        if os.path.exists(folder.flowdir_orig) and os.path.exists(folder.flowacc_orig) and os.path.exists(folder.filled_dem):
+            LOG.info("The flow direction/accumulation rasters already exist and will not be recreated...")
         else:
-            Hydroterrain_Processing.create_flow_direction_raster(folder.DEM_File, folder.filled_dem, folder.Flow_Direction_Folder, folder.flowdir_orig)
+            Hydroterrain_Processing.create_flow_direction_raster(
+                folder.DEM_File, folder.filled_dem, folder.Flow_Direction_Folder, folder.flowdir_orig, folder.flowacc_orig
+            )
         original_dem_file = folder.DEM_File
         folder.DEM_File = folder.filled_dem
         
@@ -260,6 +267,7 @@ def Create_FlowFile(MainFlowFile, FlowFileName, OutputID, Qparam):
     return
 
 def _write_arc_input_section(out_file: TextIO, folder: FloodFolder, watershed_dict: dict, COMID_Param: str, maybe_use_clean_dem: bool):
+    bathy_args: dict = watershed_dict['bathy_args']
     out_file.write('#ARC_Inputs')
     out_file.write(f'\nDEM_File\t{folder.DEM_File_Clean if maybe_use_clean_dem else folder.DEM_File}') # use_clean_dem will auto pick the cleaned DEM if it was created, else we force using the original DEM
     out_file.write(f'\nStream_File\t{folder.STRM_File_Clean}')
@@ -270,19 +278,20 @@ def _write_arc_input_section(out_file: TextIO, folder: FloodFolder, watershed_di
     out_file.write(f"\nFlow_File_BF\t{watershed_dict['specified_bathyflow_field']}")
     out_file.write(f'\nFlow_File_QMax\t{watershed_dict["specified_highflow_field"]}')
     out_file.write(f'\nSpatial_Units\tdeg')
-    out_file.write(f'\nX_Section_Dist\t5000.0')
-    out_file.write(f'\nDegree_Manip\t6.1')
-    out_file.write(f'\nDegree_Interval\t1.5')
-    out_file.write(f'\nLow_Spot_Range\t2')
-    out_file.write(f'\nStr_Limit_Val\t1')
-    out_file.write(f'\nGen_Dir_Dist\t10')
-    out_file.write(f'\nGen_Slope_Dist\t10')
-    out_file.write(f'\nStream_Slope_Method\tlocal_average_corrected')
+    out_file.write(f'\nX_Section_Dist\t{bathy_args["X_Section_Dist"]}')
+    out_file.write(f'\nDegree_Manip\t{bathy_args["Degree_Manip"]}')
+    out_file.write(f'\nDegree_Interval\t{bathy_args["Degree_Interval"]}')
+    out_file.write(f'\nLow_Spot_Range\t{bathy_args["Low_Spot_Range"]}')
+    out_file.write(f'\nStr_Limit_Val\t{bathy_args["Str_Limit_Val"]}')
+    out_file.write(f'\nGen_Dir_Dist\t{bathy_args["Gen_Dir_Dist"]}')
+    out_file.write(f'\nGen_Slope_Dist\t{bathy_args["Gen_Slope_Dist"]}')
+    out_file.write(f'\nStream_Slope_Method\t{bathy_args["Stream_Slope_Method"]}')
 
 def _write_fldpln_section(out_file: TextIO, folder: FloodFolder, watershed_dict: dict, use_bathy_flow_dir: bool = False):
     out_file.write('\n\n#FLDPLN_Specific_Inputs')
     out_file.write(f'\nUse_FLDPLN_Model\tTrue')
     out_file.write(f'\nFlow_Direction_File\t{folder.flowdir_bathy if use_bathy_flow_dir else folder.flowdir_orig}')
+    out_file.write(f'\nFlow_Accumulation_File\t{folder.flowacc_bathy if use_bathy_flow_dir else folder.flowacc_orig}')
     out_file.write(f"\nStrmOrder_Field\t{watershed_dict['StrmOrder_Field']}")
     out_file.write(f"\nDownstream_Link_Field\t{watershed_dict['Downstream_Link_Field']}")
     out_file.write(f'\nFLDPLN_fldmn\t0.01')
@@ -1050,10 +1059,16 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
     # if the mapper is FLDPLN, then we need to remake the flood direction raster using the bathymetry output from Curve2Flood
     if watershed_dict['mapper'] == "FLDPLNpy":
         LOG.info("Running FLDPLN to create flood direction raster...")
-        if os.path.exists(folder.flowdir_bathy) and os.path.exists(folder.FS_BathyFile_Projected_Filled_OriginalCRS):
-            LOG.info("The flow direction raster we are using to run FLDPLN already exists and we are not making it again...\n")
+        if os.path.exists(folder.flowdir_bathy) and os.path.exists(folder.flowacc_bathy) and os.path.exists(folder.FS_BathyFile_Projected_Filled_OriginalCRS):
+            LOG.info("The flow direction/accumulation rasters we are using to run FLDPLN already exist and will not be remade...\n")
         else:
-            Hydroterrain_Processing.create_flow_direction_raster(folder.FS_BathyFile, folder.FS_BathyFile_Projected_Filled_OriginalCRS, folder.output_dir, folder.flowdir_bathy)
+            Hydroterrain_Processing.create_flow_direction_raster(
+                folder.FS_BathyFile,
+                folder.FS_BathyFile_Projected_Filled_OriginalCRS,
+                folder.output_dir,
+                folder.flowdir_bathy,
+                folder.flowacc_bathy,
+            )
 
     if watershed_dict['floodmap_mode'] == 'forecast':
         run_forecast_floodmapping(folder, watershed_dict, timer)

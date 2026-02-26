@@ -8,21 +8,16 @@ Created on Wed Apr 10 16:47:37 2024
 # local imports
 from . import Download_USGS_DEM
 
-#conda create --name geoglows
-#conda activate geoglows
-import dask.dataframe as dd
-from dask.diagnostics import ProgressBar
+from . import LOG
 import io
 import pandas as pd
-import gc
 import geopandas as gpd  #pip3 install geopandas
-import geoglows       #pip install geoglows -q     #conda install pip      #https://gist.github.com/rileyhales/873896e426a5bd1c4e68120b286bc029
 import requests
 import s3fs
 import xarray as xr
 
 # built-in imports
-from datetime import date, datetime, timedelta, datetime, timezone
+from datetime import datetime, timedelta, datetime, timezone
 import os
 import sys
 
@@ -73,17 +68,12 @@ def Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File
         
         s3store = s3fs.S3Map(root=f'{ODP_FORECAST_S3_BUCKET_URI}/{forecastdate}00.zarr', s3=s3, check=False)
         
-        
-        print('Pulling ' + str(len(rivids)) + ' river ids from GeoGLOWS Forecast Bucket')
+        LOG.info('Pulling ' + str(len(rivids)) + ' river ids from GeoGLOWS Forecast Bucket')
         df = xr.open_zarr(s3store).sel(rivid=rivids).to_dataframe().round(2).reset_index()
-        
-        #This was just for testing to see all the values for a single RIVID
-        #CSV_File_Name = 'testcase.csv'
-        #df.to_csv(CSV_File_Name, index=False)
-        #print(df.columns)
+
         
         #Create a new column called riv_ens, which is just the rivid with the ensemble number tagged on the end.
-        print('Calculating the peak flow for each ensemble member of each rivid')
+        LOG.info('Calculating the peak flow for each ensemble member of each rivid')
         new_col_num = len(df.columns)
         riv_ens = df.rivid.values.astype(int)
         df.insert(new_col_num,'riv_ens',riv_ens)
@@ -97,9 +87,8 @@ def Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File
         maxflows = list(maxflows)
         
         #Create a dataframe that has the riv_ens and the max flow rate (Qmax).  Qmax is for each ensemble of each rivid.
-        print('Evaluting the min/med/max peak flows of the ensemble-members for each rivid')
+        LOG.info('Evaluting the min/med/max peak flows of the ensemble-members for each rivid')
         df_max = pd.DataFrame(list(zip(riv_ens_list, maxflows)), columns=['riv_ens', 'Qmax'])
-        #print(df_max.columns)
         
         #Create a new column for the rivid.  Simply divide the riv_ens by 100 to get the rivid.
         new_col_num = len(df_max.columns)
@@ -114,7 +103,7 @@ def Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File
         median_series = df_max.reset_index().groupby('rivid').median()['Qmax'].to_frame()
         
         #Collect all the information and print to a csv.
-        print('Writing output file: ' + CSV_File_Name)
+        LOG.info('Writing output file: ' + CSV_File_Name)
         df_max = median_series.merge(min_series, left_index=True, right_index=True).merge(max_series, left_index=True, right_index=True)
         df_max.columns = ['median', 'min', 'max']
         df_max = df_max.reset_index()
@@ -136,7 +125,7 @@ def Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File
 
         # Reformat the forecastdate which is currently YYYYMMDD to "2023-11-25 06:00:00 UTC"
         forecastdate_formatted = f"{forecastdate[:4]}-{forecastdate[4:6]}-{forecastdate[6:]} {forecasthour}:00:00 UTC"
-        print(f"Requesting NWM forecast data for {forecastdate_formatted} for {len(rivids)} rivids")
+        LOG.info(f"Requesting NWM forecast data for {forecastdate_formatted} for {len(rivids)} rivids")
 
         # loop through the ensemble members
         nwm_ensemble_df_list = []
@@ -177,8 +166,8 @@ def Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File
 
     #Write the output to a csv file
     df_max.to_csv(CSV_File_Name, index=False)
-    print('\nExample of the output data....')
-    print(df_max)
+    LOG.info('\nExample of the output data....')
+    LOG.info(df_max)
 
     return df_max
 
@@ -209,7 +198,7 @@ def Download_USGS_DEM_Data_Using_WarningFlag_Data(vpu, DEM_save_dir, forensic_fo
         try:
             # Parse the forensic forecast date
             forecastdate = forensic_forecast_date
-            print(f"Using forensic forecast date: {forecastdate}")
+            LOG.info(f"Using forensic forecast date: {forecastdate}")
             warning_flag_df = None
             
             # Construct parquet path
@@ -218,10 +207,10 @@ def Download_USGS_DEM_Data_Using_WarningFlag_Data(vpu, DEM_save_dir, forensic_fo
             # Try to read the parquet file
             warning_flag_df = pd.read_parquet(parquet_path, engine='pyarrow', filesystem=s3)
             warning_flag_df = warning_flag_df[warning_flag_df['ret_per']> 0]
-            print(f"Successfully loaded forecast warning flags for date: {forecastdate}")
+            LOG.info(f"Successfully loaded forecast warning flags for date: {forecastdate}")
             
         except ValueError:
-            print("Something is up with the GEOGLOWS warning flag data while trying to use the forensic forecast date, please check your date or please try again later and/or notify GEOGLOWS...")
+            LOG.info("Something is up with the GEOGLOWS warning flag data while trying to use the forensic forecast date, please check your date or please try again later and/or notify GEOGLOWS...")
             sys.exit()
     else:
         # don't try more than seven days in the past
@@ -240,17 +229,17 @@ def Download_USGS_DEM_Data_Using_WarningFlag_Data(vpu, DEM_save_dir, forensic_fo
                 # Try to read the parquet file
                 warning_flag_df = pd.read_parquet(parquet_path, engine='pyarrow', filesystem=s3)
                 warning_flag_df = warning_flag_df[warning_flag_df['ret_per']> 0]
-                print(f"Successfully loaded forecast warning flags for date: {forecastdate}")
+                LOG.info(f"Successfully loaded forecast warning flags for date: {forecastdate}")
                 break  # Exit loop on success
             except FileNotFoundError:
                 # Go back one day if file not found
-                print(f"Warning flag parquet file not found for {forecastdate}, trying previous day...")
+                LOG.info(f"Warning flag parquet file not found for {forecastdate}, trying previous day...")
                 current_date -= timedelta(days=1)
                 days_past = days_past + 1
                 warning_flag_df = None
         
         if days_past == 7 and warning_flag_df is None:
-            print("Something is up with the GEOGLOWS warning flag data, please try again later and/or notify GEOGLOWS...")
+            LOG.info("Something is up with the GEOGLOWS warning flag data, please try again later and/or notify GEOGLOWS...")
             sys.exit()
 
     # uniqueify a list of "comid" values from the warning flag dataframe
@@ -297,7 +286,7 @@ def Download_USGS_DEM_Data_Using_WarningFlag_Data(vpu, DEM_save_dir, forensic_fo
     if len(bad_url_list) > 0:
         bad_url_df = pd.DataFrame(bad_url_list, columns=['bad_url'])
         bad_url_df.to_csv(bad_urls_csv_path, index=False)
-        print(f"Bad URLs written to {bad_urls_csv_path}")
+        LOG.info(f"Bad URLs written to {bad_urls_csv_path}")
 
     return DEMs_with_flooding_forecast
     
@@ -318,12 +307,12 @@ def Get_Date_For_Forecast(day_back, hour_back, streamflow_source):
     # get the date and time in UTC
     today = datetime.now(timezone.utc)
     # today = date.today()
-    print('Current date:  ' + str(today))
+    LOG.info('Current date:  ' + str(today))
     
     new_date = today - timedelta(days=day_back, hours=hour_back)
-    print('Forecast date: ', str(new_date))
+    LOG.info('Forecast date: ' + str(new_date))
     forecastdate = new_date.strftime("%Y%m%d")
-    print('Forecast date: ', str(forecastdate))
+    LOG.info('Forecast date: ' + str(forecastdate))
     forecasthour = new_date.strftime("%H")
 
     # set forecast hour based upon the streamflow source
@@ -359,23 +348,3 @@ def Get_Date_For_Forecast(day_back, hour_back, streamflow_source):
         pass    
         
     return forecastdate, forecasthour
-
-
-if __name__ == "__main__":
-    #MAIN INPUTS
-    Riv_Method = 'Shapefile'  #Options are 'TerminalLink' or 'Shapefile'
-    parquet_file_from_geoglows = 'v2-model-table.parquet'     #http://geoglows-v2.s3-website-us-west-2.amazonaws.com/#tables/
-    TermLinkNumber = 280274809   #280274809 is the Volga River before it dumps into the Caspian Sea
-    StrmShpFile = r"C:\Users\jlgut\OneDrive\Desktop\AutomatedRatingCurve_TestCase\Yellowstone_TestCase\StrmShp\Yellowstone_Streams_GeoGLoWS_4269_clipped_to_basin.shp"
-
-    
-    #Get list of rivids that you want forecast values for
-    rivids = Get_RIVID_Values(Riv_Method, parquet_file_from_geoglows, TermLinkNumber, StrmShpFile)
-    
-    streamflow_source = "GEOGLOWS"
-    forecastdate, forecasthour = Get_Date_For_Forecast(1, 0, streamflow_source)
-    
-    CSV_File_Name = 'PeakFlow_GeoGLOWS_forecast.csv'
-    print('Forecast data will written to ' + CSV_File_Name)
-    
-    Process_and_Write_Forecast_Data(forecastdate, forecasthour, rivids, CSV_File_Name, streamflow_source, nwm_api_key=None)
