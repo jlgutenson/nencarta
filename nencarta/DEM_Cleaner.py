@@ -1245,9 +1245,12 @@ def MergeStreamElevationsWithDEM(E, B, Flood, FloodImpact, Elev_Streams, ES_R, E
         
         #The FloodBig basically clips any analysis to only the cells that are considered flooded.
         #  OIn 2/7/2024 I started using 'FloodBigImpact' instead of 'FloodBig'
-        mask = WeightBox[w_r_min:w_r_max,w_c_min:w_c_max] * np.where(FloodImpact[r_min:r_max,c_min:c_max]==COMID_Value, 1.0, 0.0) * ElipseMask[COMID_TW, w_r_min:w_r_max,w_c_min:w_c_max]
-        Elev_Times_Weight[r_min:r_max,c_min:c_max] += ELEV * mask
-        Total_Weight[r_min:r_max,c_min:c_max] += mask
+        try:
+            mask = WeightBox[w_r_min:w_r_max,w_c_min:w_c_max] * (FloodImpact[r_min:r_max,c_min:c_max]==COMID_Value) * ElipseMask[COMID_TW, w_r_min:w_r_max,w_c_min:w_c_max]
+            Elev_Times_Weight[r_min:r_max,c_min:c_max] += ELEV * mask
+            Total_Weight[r_min:r_max,c_min:c_max] += mask
+        except (ValueError, IndexError):
+            pass
         
         #LOG.info(ELEV)
         #LOG.info(Elev_Times_Weight[r_min:r_max,c_min:c_max])
@@ -1535,7 +1538,11 @@ def DEM_Cleaner_Program(OutputID,
                         #    E_Start = E_Min_from_Path
                         
                         num_steps = len(R_List)
-                        slope = (E_End - E_Start) / sum(D_List[0:num_steps-1])
+                        denominator = sum(D_List[0:num_steps-1])
+                        if denominator==0.0:
+                            slope = 0.0
+                        else:
+                            slope = (E_End - E_Start) / sum(D_List[0:num_steps-1])
                         E_Use = E_Start
                         
                         E_Temp = np.zeros(num_steps)
@@ -1649,7 +1656,7 @@ def DEM_Cleaner_Program(OutputID,
             Last_Ditch_Effort_To_Smooth_Stream_Bumps(Elev_Streams, nrows, ncols, CON_r, CON_c)
             
                 
-            print('Creating Elevation-Streams File...' + ElevStreamsName)
+            LOG.info('Creating Elevation-Streams File...' + ElevStreamsName)
             Write_Output_Raster(ElevStreamsName, Elev_Streams, ncols, nrows, dem_geotransform, dem_projection, "GTiff", gdal.GDT_Float32)
         
         
