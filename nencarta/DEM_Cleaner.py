@@ -1,11 +1,12 @@
 
 #This code looks at a DEM raster to find the dimensions, then writes a script to create a STRM raster.
 
-import sys, os, subprocess
+import os, subprocess
 
 import numpy as np
 from osgeo import gdal
 import matplotlib.pyplot as plt
+from numba import njit
 
 from .logger import LOG
 
@@ -398,16 +399,13 @@ def Clean_STRM_Raster(STRM_File, STRM_File_Clean):
     #return B[1:nrows+1,1:ncols+1], ncols, nrows, cellsize, yll, yur, xll, xur
     return
 
+@njit(cache=True)
+def FindStreamCharacteristics(E, B, COMID_Unique, COMID_to_ID, MinCOMID, RR, CC, num_comids):
+    E_Min = np.full(num_comids, 99999999.9, dtype=np.float64)
+    E_Max = np.zeros(num_comids, np.float64)
+    E_Avg = np.zeros(num_comids, np.float64)
+    N = np.zeros(num_comids, np.int64)    #Number of Cells
 
-def FindStreamCharacteristics( E, B, COMID_Unique, COMID_to_ID, MinCOMID, RR, CC, nrows, ncols, dx, dy, dz, num_comids):
-    E_Min = np.zeros(num_comids).astype(float)
-    E_Min = E_Min + 99999999.9
-    E_Max = np.zeros(num_comids).astype(float)
-    E_Avg = np.zeros(num_comids).astype(float)
-    N = np.zeros(num_comids).astype(int)    #Number of Cells
-    L = np.zeros(num_comids).astype(float)    #Length of Stream
-    SEED = np.zeros(num_comids).astype(int)    #Number of Cells
-    
     num_strm_cells = len(RR)
     
     p_count = 0
@@ -416,115 +414,48 @@ def FindStreamCharacteristics( E, B, COMID_Unique, COMID_to_ID, MinCOMID, RR, CC
     for x in range(num_strm_cells):
         if x>=p_count*p_percent:
             p_count = p_count + 1
-            LOG.info(' ' + str(p_count))
         r=RR[x]
         c=CC[x]
         V = B[r,c]
         Elev = E[r,c]
-        if V>0:
-            i = COMID_to_ID[(V-MinCOMID)]
-            if V==750104382:
-                LOG.info(str(i) + ' ' + str(V) + ' ' + str(Elev))
-            
-            
-            if Elev < E_Min[i]:
-                E_Min[i] = Elev 
-            if Elev > E_Max[i]:
-                E_Max[i] = Elev 
-            E_Avg[i] = E_Avg[i] + Elev/100.0
-            N[i] = N[i] + 1
-            
-            if B[r-1,c]==V:
-                L[i] = L[i] + dy*0.5
-            if B[r+1,c]==V:
-                L[i] = L[i] + dy*0.5
-            if B[r,c+1]==V:
-                L[i] = L[i] + dx*0.5
-            if B[r,c-1]==V:
-                L[i] = L[i] + dx*0.5
-            if B[r-1,c-1]==V:
-                L[i] = L[i] + dz*0.5
-            if B[r-1,c+1]==V:
-                L[i] = L[i] + dz*0.5
-            if B[r+1,c-1]==V:
-                L[i] = L[i] + dz*0.5
-            if B[r+1,c+1]==V:
-                L[i] = L[i] + dz*0.5
+        if V<=0:
+            continue
+
+        i = COMID_to_ID[(V-MinCOMID)]
+        
+        if Elev < E_Min[i]:
+            E_Min[i] = Elev 
+        if Elev > E_Max[i]:
+            E_Max[i] = Elev 
+        E_Avg[i] = E_Avg[i] + Elev/100.0
+        N[i] += 1        
     
     for x in range(num_comids):
         i = COMID_to_ID[int(int(COMID_Unique[x])-MinCOMID)]
 
         E_Avg[i] = E_Avg[i]*100 / N[i]
         #L[i] = L[i] / 2.0  #This has to be average because we did a lot of double-counting of stream cells
-    return E_Min, E_Avg, E_Max, N, L, SEED
+    return E_Min, E_Avg, E_Max
 
-
-def Find_SEED_and_CONNECTIONS(RR, CC, B, E_Min, E_Max, COMID_to_ID, MinCOMID, nrows, ncols, SEED_Val, CON_Val, yur, xll, dx, dy):
+@njit(cache=True)
+def Find_SEED_and_CONNECTIONS(RR, CC, B, E_Min, E_Max, COMID_to_ID, MinCOMID, nrows, ncols, SEED_Val, CON_Val):
     # todo: doc string
 
     ### Define the placeholder arrays ###
     SEED_r = []
     SEED_c = []
-    SEED_Lat=[]
-    SEED_Lon=[]
-    SEED_COMID=[]
     SEED_MinElev=[]
     SEED_MaxElev=[]
 
     ### Create the connection matrix ###
-    SEEDCONNECT = np.zeros((nrows, ncols))
+    SEEDCONNECT = np.zeros((nrows, ncols), dtype=np.int8)
 
     ### Perform initial calculations ###
     # Count the number of nonzero cells
     num_nonzero = len(RR)
 
-    # ### Loop and process cells ###
-    # with Bar('Finding SEED and Connection Locations', max=num_nonzero, suffix='%(percent).1f%% - %(eta)ds', check_tty=False) as bar:
-    #     for x in range(num_nonzero):
-
-    #         # Get the location of the current cell
-    #         r = RR[x]
-    #         c = CC[x]
-
-    #         # Count the number of cells in the nine cell window with the same stream id. The current cell is included in the count
-    #         n_same = np.count_nonzero(B[r-1:r+2, c-1:c+2] == B[r, c])
-
-    #         # Count the total number of cells in the nine cell window that are stream cells
-    #         n = np.count_nonzero(B[r-1:r+2, c-1:c+2])
-
-    #         # If the there are only two stream cells in the current block of nine, the block is at the start or end of that stream. Record it as a fixed position. The remaining special
-    #         # cases handle logic associated with the boundary of the stream raster
-    #         if n <= 2 or r == 1 or c == 1 or r == nrows - 2 or c == ncols - 2:
-    #             #LOG.info('SEED ' + str(B[r,c]))
-    #             #LOG.info(B[r-1:r+2,c-1:c+2])
-
-    #             # Calculate the latitude and longitude of the position
-    #             lat_for_seed = float(yur - (0.5 * dy) - ((r - 1) * dy))
-    #             lon_for_seed = float(xll + (0.5 * dx) + ((c - 1) * dx))
-
-    #             # Append values into the remaining holders
-    #             SEED_Lat.append(lat_for_seed)
-    #             SEED_Lon.append(lon_for_seed)
-    #             SEED_COMID.append(int(B[r, c]))
-    #             SEED_r.append(r - 1)
-    #             SEED_c.append(c - 1)
-    #             if B[r, c] > 0:
-    #                 i_val = COMID_to_ID[(B[r, c] - MinCOMID)]
-    #                 SEED_MinElev.append(E_Min[i_val])
-    #                 SEED_MaxElev.append(E_Max[i_val])
-    #                 SEEDCONNECT[r - 1, c - 1] = SEED_Val
-    #             else:
-    #                 pass
-
-    #         # Handle complex connectivity by filling with flag value for later cleaning
-    #         if n != n_same or n > 3:
-    #             SEEDCONNECT[r - 1, c - 1] = CON_Val
-
-    #         # Advance the progress bar
-    #         bar.next()
     ### Loop and process cells ###
     for x in range(num_nonzero):
-
         # Get the location of the current cell
         r = RR[x]
         c = CC[x]
@@ -538,17 +469,6 @@ def Find_SEED_and_CONNECTIONS(RR, CC, B, E_Min, E_Max, COMID_to_ID, MinCOMID, nr
         # If the there are only two stream cells in the current block of nine, the block is at the start or end of that stream. Record it as a fixed position. The remaining special
         # cases handle logic associated with the boundary of the stream raster
         if n <= 2 or r == 1 or c == 1 or r == nrows - 2 or c == ncols - 2:
-            #LOG.info('SEED ' + str(B[r,c]))
-            #LOG.info(B[r-1:r+2,c-1:c+2])
-
-            # Calculate the latitude and longitude of the position
-            lat_for_seed = float(yur - (0.5 * dy) - ((r - 1) * dy))
-            lon_for_seed = float(xll + (0.5 * dx) + ((c - 1) * dx))
-
-            # Append values into the remaining holders
-            SEED_Lat.append(lat_for_seed)
-            SEED_Lon.append(lon_for_seed)
-            SEED_COMID.append(int(B[r, c]))
             SEED_r.append(r - 1)
             SEED_c.append(c - 1)
             if B[r, c] > 0:
@@ -556,15 +476,13 @@ def Find_SEED_and_CONNECTIONS(RR, CC, B, E_Min, E_Max, COMID_to_ID, MinCOMID, nr
                 SEED_MinElev.append(E_Min[i_val])
                 SEED_MaxElev.append(E_Max[i_val])
                 SEEDCONNECT[r - 1, c - 1] = SEED_Val
-            else:
-                pass
 
         # Handle complex connectivity by filling with flag value for later cleaning
         if n != n_same or n > 3:
             SEEDCONNECT[r - 1, c - 1] = CON_Val
 
     ### Return to the calling function ###
-    return SEED_r, SEED_c, SEED_Lat, SEED_Lon, SEED_COMID, SEEDCONNECT
+    return SEED_r, SEED_c, SEEDCONNECT
 
 
 def Clean_Connections_NewMethod(SEEDCONNECT, B, nrows, ncols, ConnectVal, sd):
@@ -807,112 +725,61 @@ def Assign_Connections(nrows, ncols, CON_r, CON_c, B, SEEDCONNECT, COMID_Unique,
     ### Return to the calling function ###
     return Upstream_Connection, Downstream_Connection
 
-'''
-def FindNext(r, c, r_prev, c_prev, B, INDEXVALS):
-    for (rrr,ccc,d)in INDEXVALS:
-        rtest = r+rrr
-        ctest = c+ccc
-        #LOG.info(str(rrr) + '  ' + str(ccc) + '  ' + str(rtest) + ' ' + str(ctest) + '  ' + str(B[rtest,ctest]))
-        if (rtest!=r_prev or ctest!=c_prev) and B[rtest,ctest]!=0:
-            return rtest, ctest, d
-    return -9999, -9999, 0
-    
-def FindPathToNextAnchor(r_start, c_start, ANCHOR, B, E, dx, dy, dz, num_limit):
-    R_List=[] 
-    C_List=[]
-    D_List=[]
-    
-    INDEXVALS = [[1,0,dy],[-1,0,dy],[0,1,dx],[0,-1,dx],[1,1,dz],[1,-1,dz],[-1,-1,dz],[-1,1,dz]]
-    
-    E_Start = E[r_start, c_start]
-    E_End = -9999.9
-    r=r_start
-    c=c_start
-    A1 = r*(ncols+2)+c
-    A2=-999
-    r_prev = -99
-    c_prev = -99
-    n=0
-    while r>0:
-        n=n+1 
-        if n>num_limit:
-            LOG.info('Look Limit Hit')
-            return R_List, C_List, A1, A2, E_Start, E_End, D_List
-        (r_next, c_next, d) = FindNext(r, c, r_prev, c_prev, B, INDEXVALS)
-        r_prev=r
-        c_prev=c
-        r=r_next
-        c=c_next
-        if r_next>0:
-            R_List.append(r_next-1)
-            C_List.append(c_next-1)
-            D_List.append(d)
-        if ANCHOR[r,c]>0:
-            E_End = E[r,c]
-            r=-9999
-            A2 = r*(ncols+2)+c
-    return R_List, C_List, A1, A2, E_Start, E_End, D_List
-'''
-
-def FindNext(r, c, nrows, ncols, RC_List, B, ANCHOR, INDEXVALS):
-    
+@njit(cache=True)
+def FindNext(r, c,  ncols, RC_Set: set, B, ANCHOR, dx, dy, dz):
     #Trying to find a connection, but prefer at first prefer it is NOT and Acnhor and that it has the SAME COMID value
     COMID_Current = B[r,c]
-    for (rrr,ccc,d)in INDEXVALS:
+    anchor_candidate = (-9999, -9999, 0.0)
+    offsets = (
+        (1, 0),
+        (-1, 0),
+        (0, 1),
+        (0, -1),
+        (1, 1),
+        (1, -1),
+        (-1, -1),
+        (-1, 1),
+    )
+
+    seen = False
+    for i in range(8):
+        rrr = offsets[i][0]
+        ccc = offsets[i][1]
         rtest = r+rrr
         ctest = c+ccc
         rc = rtest*(ncols+2)+ctest
-        #LOG.info(str(rrr) + '  ' + str(ccc) + '  ' + str(rtest) + ' ' + str(ctest) + '  ' + str(B[rtest,ctest]))
-        #if rc not in RC_List and (B[rtest,ctest]!=0 or ANCHOR[rtest,ctest]!=0):
-        if rc not in RC_List and (B[rtest,ctest]==COMID_Current) and ANCHOR[rtest,ctest]<=0:
+        if rrr == 0:
+            d = dx
+        elif ccc == 0:
+            d = dy
+        else:
+            d = dz
+
+        if rc not in RC_Set and (B[rtest,ctest]==COMID_Current) and ANCHOR[rtest,ctest]<=0:
             return rtest, ctest, d
+        
+        #Can't find a connection to a similar stream type (COMID), therefore search for an ANCHOR
+        if not seen and rc not in RC_Set and ANCHOR[rtest,ctest]>0:
+            anchor_candidate = (rtest, ctest, d)
+            seen = True
     
-    '''
-    #Trying to find a connection, but prefer at first if it is NOT an Anchor
-    for (rrr,ccc,d)in INDEXVALS:
-        rtest = r+rrr
-        ctest = c+ccc
-        rc = rtest*(ncols+2)+ctest
-        #LOG.info(str(rrr) + '  ' + str(ccc) + '  ' + str(rtest) + ' ' + str(ctest) + '  ' + str(B[rtest,ctest]))
-        #if rc not in RC_List and (B[rtest,ctest]!=0 or ANCHOR[rtest,ctest]!=0):
-        if rc not in RC_List and (B[rtest,ctest]!=0) and ANCHOR[rtest,ctest]<=0:
-            return rtest, ctest, d
-    
-    #If no non-Anchor connection could be found, run again but this time the connection can be an anchor
-    for (rrr,ccc,d)in INDEXVALS:
-        rtest = r+rrr
-        ctest = c+ccc
-        rc = rtest*(ncols+2)+ctest
-        if rc not in RC_List and (B[rtest,ctest]!=0):
-            return rtest, ctest, d
-    '''
-    #Can't find a connection to a similar stream type (COMID), therefore search for an ANCHOR
-    for (rrr,ccc,d)in INDEXVALS:
-        rtest = r+rrr
-        ctest = c+ccc
-        rc = rtest*(ncols+2)+ctest
-        if rc not in RC_List and ANCHOR[rtest,ctest]>0:
-            return rtest, ctest, d
-    return -9999, -9999, 0
-    
-def FindPathToNextAnchor(COMID_to_Evaluate, r_start, c_start, nrows, ncols, ANCHOR, B, E, DEM, dx, dy, dz, num_limit, search_dist_perp_cells, Flood):
+    return anchor_candidate
+
+@njit(cache=True)
+def FindPathToNextAnchor(r_start, c_start, ncols, ANCHOR, B, E, dx, dy, dz, num_limit):
     R_List=[] 
     C_List=[]
     D_List=[]
-    RC_List = []
-    
-    INDEXVALS = [[1,0,dy],[-1,0,dy],[0,1,dx],[0,-1,dx],[1,1,dz],[1,-1,dz],[-1,-1,dz],[-1,1,dz]]
-    
+    RC_Set = set()
+
     E_Start = E[r_start, c_start]
     E_End = -9999.9
     r=r_start
     c=c_start
-    A1 = r*(ncols+2)+c
-    A2=-999
-    
+
     R_List.append(r_start-1)
     C_List.append(c_start-1)
-    RC_List.append(r_start*(ncols+2)+c_start)
+    RC_Set.add(r_start*(ncols+2)+c_start)
     
     E_Min = 99999999.9
     
@@ -920,52 +787,40 @@ def FindPathToNextAnchor(COMID_to_Evaluate, r_start, c_start, nrows, ncols, ANCH
     while r>0:
         n=n+1 
         if n>num_limit:
-            LOG.info('Look Limit Hit')
-            return R_List, C_List, A1, A2, E_Start, E_End, E_Min, D_List
-        (r_next, c_next, d) = FindNext(r, c, nrows, ncols, RC_List, B, ANCHOR, INDEXVALS)
-        
+            return R_List, C_List,  E_Start, E_End, E_Min, D_List
+        next_ = FindNext(r, c, ncols, RC_Set, B, ANCHOR, dx, dy, dz)
+        r_next = next_[0]
+        c_next = next_[1]
+        d = next_[2]
+
         r=r_next
         c=c_next
         if r_next>0:
             R_List.append(r_next-1)
             C_List.append(c_next-1)
-            RC_List.append(r_next*(ncols+2)+c_next)
+            RC_Set.add(r_next*(ncols+2)+c_next)
             D_List.append(d)
             if E[r_next][c_next] < E_Min:
                 E_Min = E[r_next][c_next]
         if r_next>0 and ANCHOR[r,c]>0:
             E_End = E[r,c]
             r=-9999
-            A2 = r*(ncols+2)+c
-            
+
         #Couldn't find a connecting stream, so we're done here.
         if r_next<0:
             E_End = E[r,c]
             r=-9999
-            #A2 = r*(ncols+2)+c
-            A2 = -9999
-        
-        #if int(COMID_to_Evaluate)==750073008:
-        #    LOG.info(E[r_next][c_next])
-    if int(COMID_to_Evaluate)==750073008:
-        for n in range(len(R_List)):
-            LOG.info(str(int(B[R_List[n]+1][C_List[n]+1])) + '  ' + str(R_List[n]) + '  ' + str(C_List[n]) + '  ' + str(sum(D_List[0:n])) + '  ' + str( E[R_List[n]+1][C_List[n]+1]) )
-    #    asdfasdfasdf
-    
-    
-    '''
-    #Make sure we have the correct Elevations (surrounding cells may be a little lower)
-    if search_dist_perp_cells>0:
-        E_Start = Adjust_Elevations_By_Perpendicular_Cells(E_Start, 0, R_List, C_List, nrows, ncols, B, DEM, search_dist_perp_cells)
-        E_End = Adjust_Elevations_By_Perpendicular_Cells(E_End, (len(R_List)-1), R_List, C_List, nrows, ncols, B, DEM, search_dist_perp_cells)
-    '''
     
     
     #In reality, we want E_Start to be the higher elevation
     if E_Start > E_End:
-        return R_List, C_List, A1, A2, E_Start, E_End, E_Min, D_List
-    else:
-        return np.flip(R_List).tolist(), np.flip(C_List).tolist(), A2, A1, E_End, E_Start, E_Min, np.flip(D_List).tolist()
+        return R_List, C_List, E_Start, E_End, E_Min, D_List
+
+    R_List.reverse()
+    C_List.reverse()
+    D_List.reverse()
+    
+    return R_List, C_List, E_End, E_Start, E_Min, D_List
 
 
 def Adjust_Start_End_Elevations_By_Perpendicular_Cells(E_Start, E_End, R_List, C_List, nrows, ncols, B, DEM, searchdist):
@@ -1138,7 +993,7 @@ def FloodAllLocalAreas(WSE, E_Box, r_min, r_max, c_min, c_max, r_use, c_use):
 
 
 def CreateWeightAndElipseMask(TW, dx, dy):
-    ElipseMask = np.zeros((TW+1,int(TW*2+1),int(TW*2+1)))  #3D Array
+    ElipseMask = np.zeros((TW+1,int(TW*2+1),int(TW*2+1)), dtype=np.bool_)  #3D Array
     WeightBox = np.zeros((int(TW*2+1),int(TW*2+1)))  #2D Array
     for i in range(1,TW+1):
         TWDX = i*dx*i*dx
@@ -1147,10 +1002,10 @@ def CreateWeightAndElipseMask(TW, dx, dy):
             for c in range(0,i+1):
                 is_elipse = (c*dx*c*dx/(TWDX)) + (r*dy*r*dy/(TWDY))   #https://www.mathopenref.com/coordgeneralellipse.html
                 if is_elipse<=1.0:
-                    ElipseMask[i,TW+r,TW+c] = 1.0
-                    ElipseMask[i,TW-r,TW+c] = 1.0
-                    ElipseMask[i,TW+r,TW-c] = 1.0
-                    ElipseMask[i,TW-r,TW-c] = 1.0
+                    ElipseMask[i,TW+r,TW+c] = True
+                    ElipseMask[i,TW-r,TW+c] = True
+                    ElipseMask[i,TW+r,TW-c] = True
+                    ElipseMask[i,TW-r,TW-c] = True
     #LOG.info(ElipseMask[2,TW-4:TW+4+1,TW-4:TW+4+1].astype(int))
     #LOG.info(ElipseMask[10,TW-14:TW+14+1,TW-14:TW+14+1].astype(int))
     #LOG.info(ElipseMask[40,TW-44:TW+44+1,TW-44:TW+44+1].astype(int))
@@ -1168,10 +1023,8 @@ def CreateWeightAndElipseMask(TW, dx, dy):
     return WeightBox, ElipseMask
 
 def CreateSimpleFloodMap(RR, CC, E, B, nrows, ncols, y_depth, sd, TW_m, dx, dy, LocalFloodOption, COMID_Unique, COMID_to_ID, MinCOMID, COMID_Unique_TW, COMID_Unique_Depth, WeightBox, ElipseMask, TW):
-    #Flood = np.zeros((nrows+2,ncols+2))
-    
-    WSE_Times_Weight = np.zeros((nrows+2,ncols+2)).astype(float)
-    Total_Weight = np.zeros((nrows+2,ncols+2)).astype(float)
+    WSE_Times_Weight = np.zeros((nrows+2,ncols+2), dtype=float)
+    Total_Weight = np.zeros((nrows+2,ncols+2), dtype=float)
     
     #Now go through each cell
     num_nonzero = len(RR)
@@ -1222,7 +1075,7 @@ def CreateSimpleFloodMap(RR, CC, E, B, nrows, ncols, y_depth, sd, TW_m, dx, dy, 
             c_max=ncols+1
         
         #Find what would flood local
-        if LocalFloodOption==True:
+        if LocalFloodOption:
             E_Box = E[r_min:r_max,c_min:c_max]
             FloodLocalMask = FloodAllLocalAreas(WSE, E_Box, r_min, r_max, c_min, c_max, r_use, c_use)
         
@@ -1239,7 +1092,7 @@ def CreateSimpleFloodMap(RR, CC, E, B, nrows, ncols, y_depth, sd, TW_m, dx, dy, 
         #LOG.info(FloodLocalMask.shape)
         
         #Create the Weight Matrix.  Account for the Weight Box as well as what would actually flood Locally
-        if LocalFloodOption==True:
+        if LocalFloodOption:
             WSE_Times_Weight[r_min:r_max,c_min:c_max] = WSE_Times_Weight[r_min:r_max,c_min:c_max] + WSE * WeightBox[w_r_min:w_r_max,w_c_min:w_c_max] * ElipseMask[COMID_TW, w_r_min:w_r_max,w_c_min:w_c_max] * FloodLocalMask
             Total_Weight[r_min:r_max,c_min:c_max] = Total_Weight[r_min:r_max,c_min:c_max] + WeightBox[w_r_min:w_r_max,w_c_min:w_c_max] * ElipseMask[COMID_TW, w_r_min:w_r_max,w_c_min:w_c_max] * FloodLocalMask
         else:
@@ -1247,34 +1100,28 @@ def CreateSimpleFloodMap(RR, CC, E, B, nrows, ncols, y_depth, sd, TW_m, dx, dy, 
             Total_Weight[r_min:r_max,c_min:c_max] = Total_Weight[r_min:r_max,c_min:c_max] + WeightBox[w_r_min:w_r_max,w_c_min:w_c_max] * ElipseMask[COMID_TW, w_r_min:w_r_max,w_c_min:w_c_max]
         
     WSE_divided_by_weight = WSE_Times_Weight / Total_Weight
-    #Also make sure all the Cells that have Stream are counted as flooded.
-    Flooded = np.where(WSE_divided_by_weight>E,1,0)
+    Flooded = np.where(WSE_divided_by_weight>E,1,0).astype(np.uint8)
     
+    #Also make sure all the Cells that have Stream are counted as flooded.
     for i in range(num_nonzero):
         Flooded[RR[i],CC[i]] = 1
+
     return Flooded
 
-
-def CreateFloodImpactMap(Flood, RR, CC, E, B, nrows, ncols, sd, TW_m, dx, dy, LocalFloodOption, COMID_Unique, COMID_to_ID, MinCOMID, COMID_Unique_TW, COMID_Unique_Depth, WeightBox, ElipseMask, TW):
-    FloodImpact = np.zeros((nrows+2,ncols+2))
-    
-    B = B.astype(int)
-    ElipseMask = ElipseMask.astype(int)
+@njit(cache=True)
+def CreateFloodImpactMap(Flood, B, nrows, ncols, TW_m, dx, dy, COMID_to_ID, MinCOMID, COMID_Unique_TW, ElipseMask, TW):
+    FloodImpact = np.zeros((nrows+2,ncols+2), dtype=np.int32)
     
     #Find all the flooded cells
     # (Flood_R, Flood_C)= Flood.nonzero()
     (Flood_R, Flood_C)= np.where(Flood > 0)
 
     num_flooded_cells = len(Flood_R)
-    
-    LOG.info('\nWorking through ' + str(num_flooded_cells) + ' flooded cells:')
-    
+        
     p_increment=int(num_flooded_cells/20)
     pcount = p_increment
     for i in range(num_flooded_cells):
-        
         if i>=pcount:
-            LOG.info('  Worked through ' + str(pcount) + ' cells')
             pcount = pcount + p_increment
         
         r = Flood_R[i]
@@ -1308,11 +1155,10 @@ def CreateFloodImpactMap(Flood, RR, CC, E, B, nrows, ncols, sd, TW_m, dx, dy, Lo
         
         #Get list of Unique Values
         Subset_Unique = np.unique(Flood_Raster_Potential_Influence)
-        Subset_Unique = Subset_Unique[np.where(Subset_Unique > 0)]
-        # Subset_Unique = np.delete(Subset_Unique, 0)  #We don't need the first entry of zero
+        Subset_Unique = Subset_Unique[Subset_Unique > 0]
+
         COMID_to_Print = 0
         if len(Subset_Unique)<1:
-            # LOG.info('WE HAVE ISSUES, SHOULD HAVE AT LEAST ONE VALUE HERE')
             COMID_to_Print = 0
         elif len(Subset_Unique)==1:
             COMID_to_Print = Subset_Unique[0]
@@ -1330,27 +1176,7 @@ def CreateFloodImpactMap(Flood, RR, CC, E, B, nrows, ncols, sd, TW_m, dx, dy, Lo
                 
                 #Now we want to go smaller based on the TW of the specific COMID.  Do we still see impact from those.
                 #Note that the these now use COMID_TW, not TW
-                '''
-                r_min = r_use-COMID_TW
-                r_max = r_use+COMID_TW+1
-                if r_min<1:
-                    r_min = 1 
-                if r_max>(nrows+1):
-                    r_max=nrows+1
-                c_min = c_use-COMID_TW
-                c_max = c_use+COMID_TW+1
-                if c_min<1:
-                    c_min = 1 
-                if c_max>(ncols+1):
-                    c_max=ncols+1
-                
-                w_r_min = COMID_TW-(r_use-r_min)
-                w_r_max = COMID_TW+r_max-r_use
-                w_c_min = COMID_TW-(c_use-c_min)
-                w_c_max = COMID_TW+c_max-c_use
-                
-                Subset_Flood_Raster_Potential_Influence = B[r_min:r_max,c_min:c_max] * ElipseMask[COMID_TW, w_r_min:w_r_max,w_c_min:w_c_max]
-                '''
+
                 Subset_Flood_Raster_Potential_Influence = B[r_min:r_max,c_min:c_max] * ElipseMask[COMID_TW, w_r_min:w_r_max,w_c_min:w_c_max]
                 
                 count_for_comid = np.count_nonzero(Subset_Flood_Raster_Potential_Influence == COMID_Value)
@@ -1363,19 +1189,13 @@ def CreateFloodImpactMap(Flood, RR, CC, E, B, nrows, ncols, sd, TW_m, dx, dy, Lo
         
         #Find cell that has impact the most times and record it in the 'FloodImpact' Raster.
         FloodImpact[r,c] = COMID_to_Print
-    LOG.info('Finished Process for Flood Impact')
+    
     return FloodImpact
 
 
 def MergeStreamElevationsWithDEM(E, B, Flood, FloodImpact, Elev_Streams, ES_R, ES_C, ncols, nrows, TW_m, dx, dy, COMID_Unique, COMID_to_ID, MinCOMID, COMID_Unique_TW, COMID_Unique_Depth, WeightBox, ElipseMask, TW):
-    
-    Elev_Times_Weight = np.zeros((nrows+2,ncols+2)).astype(float)
-    Total_Weight = np.zeros((nrows+2,ncols+2)).astype(float)
-    FloodBig = Flood.astype(float)
-    
-    #This will further limit the flooding to only the cells that are flooded by the corresponding COMID Value
-    FloodBigImpact = np.zeros((nrows+2,ncols+2)).astype(float)
-    FloodImpact = FloodImpact.astype(int)
+    Elev_Times_Weight = np.zeros((nrows+2,ncols+2), dtype=np.float64)
+    Total_Weight = np.zeros((nrows+2,ncols+2), dtype=np.float64)
     
     num_nonzero = len(ES_R)
     for i in range(num_nonzero):
@@ -1383,59 +1203,59 @@ def MergeStreamElevationsWithDEM(E, B, Flood, FloodImpact, Elev_Streams, ES_R, E
         c_use = ES_C[i] + 1
         
         #Get COMID, TopWidth, and Depth Information for this cell
-        COMID_Value = int(B[r_use,c_use])
-        if COMID_Value > 0:
-            iii = COMID_to_ID[COMID_Value - MinCOMID]
-            COMID_TW_m = COMID_Unique_TW[iii]
-            COMID_D = COMID_Unique_Depth[iii]
-            if COMID_TW_m > TW_m:
-                COMID_TW_m = TW_m
-            COMID_TW = int(max(round(COMID_TW_m/dx,0),round(COMID_TW_m/dy,0)))  #This is how many cells we will be looking at surrounding our stream cell
-            if COMID_TW<=1:
-                COMID_TW=2
-            
-            #Now start with rows and start evaluating all surrounding cells
-            ELEV = float(Elev_Streams[ES_R[i],ES_C[i]])
-            r_min = r_use-COMID_TW
-            r_max = r_use+COMID_TW+1
-            if r_min<1:
-                r_min = 1 
-            if r_max>(nrows+1):
-                r_max=nrows+1
-            c_min = c_use-COMID_TW
-            c_max = c_use+COMID_TW+1
-            if c_min<1:
-                c_min = 1 
-            if c_max>(ncols+1):
-                c_max=ncols+1
-            
-            #This uses the weighting method from FloodSpreader to create a flood map
-            #   Here we use TW instead of COMID_TW.  This is because we are trying to find the center of the weight raster, which was set based on TW (not COMID_TW).  COMID_TW mainly applies to the r_min, r_max, c_min, c_max
-            w_r_min = TW-(r_use-r_min)
-            w_r_max = TW+r_max-r_use
-            w_c_min = TW-(c_use-c_min)
-            w_c_max = TW+c_max-c_use
-            
-            
-            #Create an Impact multiplier that is 1 if the cell is flooded by the current COMID, and 0 if it is not
-            #FloodBigImpact[r_min:r_max,c_min:c_max].fill(0)  #Sets all the values to 0
-            FloodBigImpact[r_min:r_max,c_min:c_max] = np.where(FloodImpact[r_min:r_max,c_min:c_max]==COMID_Value, 1.0, 0.0)
-            
-            
-            #The FloodBig basically clips any analysis to only the cells that are considered flooded.
-            #  OIn 2/7/2024 I started using 'FloodBigImpact' instead of 'FloodBig'
-            Elev_Times_Weight[r_min:r_max,c_min:c_max] = Elev_Times_Weight[r_min:r_max,c_min:c_max] + ELEV * WeightBox[w_r_min:w_r_max,w_c_min:w_c_max] * FloodBigImpact[r_min:r_max,c_min:c_max] * ElipseMask[COMID_TW, w_r_min:w_r_max,w_c_min:w_c_max]
-            Total_Weight[r_min:r_max,c_min:c_max] = Total_Weight[r_min:r_max,c_min:c_max] + WeightBox[w_r_min:w_r_max,w_c_min:w_c_max] * FloodBigImpact[r_min:r_max,c_min:c_max] * ElipseMask[COMID_TW, w_r_min:w_r_max,w_c_min:w_c_max]
-            
-            #LOG.info(ELEV)
-            #LOG.info(Elev_Times_Weight[r_min:r_max,c_min:c_max])
-            #LOG.info(FloodBig[r_min:r_max,c_min:c_max])
-            #LOG.info(Elev_Times_Weight[r_min:r_max,c_min:c_max].max())
-            #LOG.info(FloodBig[r_min:r_max,c_min:c_max].max())
-        else:
-            pass
+        COMID_Value = B[r_use,c_use]
+        if COMID_Value <= 0:
+            continue
+
+        iii = COMID_to_ID[COMID_Value - MinCOMID]
+        COMID_TW_m = COMID_Unique_TW[iii]
+        if COMID_TW_m > TW_m:
+            COMID_TW_m = TW_m
+        COMID_TW = int(max(round(COMID_TW_m/dx,0),round(COMID_TW_m/dy,0)))  #This is how many cells we will be looking at surrounding our stream cell
+        if COMID_TW<=1:
+            COMID_TW=2
+        
+        #Now start with rows and start evaluating all surrounding cells
+        ELEV = float(Elev_Streams[ES_R[i],ES_C[i]])
+        r_min = r_use-COMID_TW
+        r_max = r_use+COMID_TW+1
+        if r_min<1:
+            r_min = 1 
+        if r_max>(nrows+1):
+            r_max=nrows+1
+        c_min = c_use-COMID_TW
+        c_max = c_use+COMID_TW+1
+        if c_min<1:
+            c_min = 1 
+        if c_max>(ncols+1):
+            c_max=ncols+1
+        
+        #This uses the weighting method from FloodSpreader to create a flood map
+        #   Here we use TW instead of COMID_TW.  This is because we are trying to find the center of the weight raster, which was set based on TW (not COMID_TW).  COMID_TW mainly applies to the r_min, r_max, c_min, c_max
+        w_r_min = TW-(r_use-r_min)
+        w_r_max = TW+r_max-r_use
+        w_c_min = TW-(c_use-c_min)
+        w_c_max = TW+c_max-c_use
+        
+        
+        #Create an Impact multiplier that is 1 if the cell is flooded by the current COMID, and 0 if it is not
+        #FloodBigImpact[r_min:r_max,c_min:c_max].fill(0)  #Sets all the values to 0
+        # FloodBigImpact[r_min:r_max,c_min:c_max] = np.where(FloodImpact[r_min:r_max,c_min:c_max]==COMID_Value, 1.0, 0.0)
+        
+        
+        #The FloodBig basically clips any analysis to only the cells that are considered flooded.
+        #  OIn 2/7/2024 I started using 'FloodBigImpact' instead of 'FloodBig'
+        mask = WeightBox[w_r_min:w_r_max,w_c_min:w_c_max] * np.where(FloodImpact[r_min:r_max,c_min:c_max]==COMID_Value, 1.0, 0.0) * ElipseMask[COMID_TW, w_r_min:w_r_max,w_c_min:w_c_max]
+        Elev_Times_Weight[r_min:r_max,c_min:c_max] += ELEV * mask
+        Total_Weight[r_min:r_max,c_min:c_max] += mask
+        
+        #LOG.info(ELEV)
+        #LOG.info(Elev_Times_Weight[r_min:r_max,c_min:c_max])
+        #LOG.info(FloodBig[r_min:r_max,c_min:c_max])
+        #LOG.info(Elev_Times_Weight[r_min:r_max,c_min:c_max].max())
+        #LOG.info(FloodBig[r_min:r_max,c_min:c_max].max())
     
-    
+    Total_Weight[Total_Weight == 0] = 1e-12 
     Elev_divided_by_weight = Elev_Times_Weight / Total_Weight
     
     #If a cell is in the channel (determined by Flood raster) then use the weighted stream elevation, otherwise use the DEM data (E)
@@ -1453,7 +1273,6 @@ def Last_Ditch_Effort_To_Smooth_Stream_Bumps(Elev_Streams, nrows, ncols, CON_r, 
                     if Elev_Streams[r,c] < Elev_Streams[CON_r[x],CON_c[x]]:
                         Elev_Streams[CON_r[x],CON_c[x]] = Elev_Streams[r,c]
     return
-
 
 def DEM_Cleaner_Program(OutputID, 
                         StreamShapefile, 
@@ -1516,18 +1335,16 @@ def DEM_Cleaner_Program(OutputID,
         
         
         
-        E = np.zeros((nrows+2,ncols+2))  #Create an array that is slightly larger than the STRM Raster Array
+        E = np.zeros((nrows+2,ncols+2), dtype=float)  #Create an array that is slightly larger than the STRM Raster Array
         E[1:(nrows+1), 1:(ncols+1)] = DEM
-        E = E.astype(float)
         
         #Get Cellsize Information
         (dx, dy, dm) = convert_cell_size(cellsize, yll, yur)
         dz = pow(dx*dx+dy*dy,0.5)
         
         #Get list of Uniqe Stream IDs.  Also find where all the cell values are.
-        B = np.zeros((nrows+2,ncols+2))  #Create an array that is slightly larger than the STRM Raster Array
+        B = np.zeros((nrows+2,ncols+2), dtype=np.int32)  #Create an array that is slightly larger than the STRM Raster Array
         B[1:(nrows+1), 1:(ncols+1)] = S
-        B = B.astype(int)
         # (RR,CC) = B.nonzero()
         (RR,CC) = np.where(B > 0)
         
@@ -1579,9 +1396,6 @@ def DEM_Cleaner_Program(OutputID,
         (WeightBox, ElipseMask) = CreateWeightAndElipseMask(TW, dx, dy)  #3D Array with the same row/col dimensions as the WeightBox
         
         #Create a simple Flood Map
-        y_depth = 0.25
-        #TopWidthMax = 400.0
-        LocalFloodOption = False
         if os.path.isfile(FloodMapName):
             LOG.info('Using Flood Map: ' + FloodMapName)
             Flood = np.zeros((nrows+2,ncols+2))
@@ -1596,24 +1410,25 @@ def DEM_Cleaner_Program(OutputID,
         FloodImpact_File = os.path.join(Working_Folder, 'FLOOD_IMPACT_' + DEM_List[ddd])
         if os.path.isfile(FloodImpact_File):
             LOG.info('Using Existing Flood Map: FLOOD_IMPACT_' + DEM_List[ddd])
-            FloodImpact = np.zeros((nrows+2,ncols+2))
+            FloodImpact = np.zeros((nrows+2,ncols+2), dtype=np.int32)
             (FloodImpact[1:nrows+1,1:ncols+1], ncols, nrows, cellsize, yll, yur, xll, xur, lat, dem_geotransform, dem_projection) = Read_Raster_GDAL(FloodImpact_File)
         else:
             LOG.info('Creating Flood Impact Map: ' + FloodImpact_File)
             COMID_Unique_TW_Reduced = COMID_Unique_TW * 0.75
-            FloodImpact = CreateFloodImpactMap(Flood, RR, CC, E, B, nrows, ncols, search_dist_for_min_elev, TopWidthMax, dx, dy, LocalFloodOption, COMID_Unique, COMID_to_ID, MinCOMID, COMID_Unique_TW_Reduced, COMID_Unique_Depth, WeightBox, ElipseMask, TW)
+            FloodImpact = CreateFloodImpactMap(Flood, B, nrows, ncols, TopWidthMax, dx, dy, COMID_to_ID, MinCOMID, COMID_Unique_TW_Reduced, ElipseMask, TW)
+            LOG.info('Finished Process for Flood Impact')
             Write_Output_Raster(FloodImpact_File, FloodImpact[1:nrows+1,1:ncols+1], ncols, nrows, dem_geotransform, dem_projection, "GTiff", gdal.GDT_Int32)
         
         
         LOG.info('Finding Stream Data: Length and Elevation Data')
-        (E_Min, E_Avg, E_Max, N, L, SEED) = FindStreamCharacteristics(E, B, COMID_Unique, COMID_to_ID, MinCOMID, RR, CC, nrows, ncols, dx, dy, dz, num_comids)
+        (E_Min, E_Avg, E_Max) = FindStreamCharacteristics(E, B, COMID_Unique, COMID_to_ID, MinCOMID, RR, CC, num_comids)
         
         
         #Find SEED locations as well as where connections between streams occur.
         LOG.info('Finding SEED and Connection Locations')
         SEED_Val = 1 
         CON_Val = 2
-        (SEED_r, SEED_c, SEED_Lat, SEED_Lon, SEED_COMID, SEEDCONNECT) = Find_SEED_and_CONNECTIONS(RR, CC, B, E_Min, E_Max, COMID_to_ID, MinCOMID, nrows, ncols, SEED_Val, CON_Val, yur, xll, dx, dy) 
+        (SEED_r, SEED_c, SEEDCONNECT) = Find_SEED_and_CONNECTIONS(RR, CC, B, E_Min, E_Max, COMID_to_ID, MinCOMID, nrows, ncols, SEED_Val, CON_Val) 
         (SEEDCONNECT, CON_r, CON_c) = Clean_Connections(SEEDCONNECT, B, nrows, ncols, CON_Val, 0)
         #(SEEDCONNECT, CON_r, CON_c) = Clean_Connections(SEEDCONNECT, B, nrows, ncols, CON_Val, 3)
         #(SEEDCONNECT, CON_r, CON_c) = Clean_Connections_NewMethod(SEEDCONNECT, B, nrows, ncols, CON_Val, 3)
@@ -1666,7 +1481,7 @@ def DEM_Cleaner_Program(OutputID,
                 Elev_Streams[A_R[i],A_C[i]] = DEM[A_R[i],A_C[i]]
                 if A_RC[i]!=0:
                     COMID_to_Evaluate = B[A_R[i]+1,A_C[i]+1]
-                    (R_List, C_List, A1, A2, E_Start, E_End, E_Min_from_Path, D_List) = FindPathToNextAnchor(COMID_to_Evaluate, A_R[i]+1, A_C[i]+1, nrows, ncols, ANCHOR, B, E, DEM, dx, dy, dz, 9999, search_dist_perp_cells, Flood)
+                    (R_List, C_List, E_Start, E_End, E_Min_from_Path, D_List) = FindPathToNextAnchor(A_R[i]+1, A_C[i]+1, ncols, ANCHOR, B, E, dx, dy, dz, 9999)
                     
                     #SEt the A_RC to zero for the Anchors we just evaluated.  This prevents redundantly evaluating the same stream cells
                     #aaa = np.where(A_RC==A1)
