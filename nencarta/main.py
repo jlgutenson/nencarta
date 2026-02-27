@@ -458,21 +458,21 @@ def Create_ARC_Model_Input_File_FloodForecast(ForecastFlowFile: str, folder: Flo
         #out_file.write(f'\nFloodLocalOnly')
         if watershed_dict['streamflow_source'].upper().startswith("NWM"):
             # create the end of the file name that describes the forecast
-            if watershed_dict['forensic_forecast_date'] != "":
+            if watershed_dict['forensic_forecast_date'] != None:
                 ending_of_forecast_file = '_Forecast_' + str(watershed_dict['forensic_forecast_date']) + '_' + str(watershed_dict['forensic_forecast_hour']) + '.tif' 
-            elif watershed_dict['forensic_forecast_date'] == "":
+            elif watershed_dict['forecastdate'] != None:
                 ending_of_forecast_file = '_Forecast_' + str(watershed_dict['forecastdate']) + '_' + str(watershed_dict['forecasthour']) + '.tif' 
             # rename the forecast of the extent raster based upon the type of NWM forecast we are using
             Forecast_Flood_Map_Raster = folder.FloodMapFile.replace('.tif', ending_of_forecast_file)
             Forecast_Flood_Map_Raster = folder.FloodMapFile.replace('NWM', watershed_dict['streamflow_source'])
         elif watershed_dict['streamflow_source'].upper().startswith("GEOGLOWS"):
             # create the end of the file name that describes the forecast
-            if watershed_dict['forensic_forecast_date'] != "":
+            if watershed_dict['forensic_forecast_date'] != None:
                 ending_of_forecast_file = '_Forecast_' + str(watershed_dict['forensic_forecast_date']) + '.tif'
-            elif watershed_dict['forensic_forecast_date'] == "":
+            elif watershed_dict['forecastdate'] != None:
                 ending_of_forecast_file = '_Forecast_' + str(watershed_dict['forecastdate']) + '.tif'
             Forecast_Flood_Map_Raster = folder.FloodMapFile.replace('.tif', ending_of_forecast_file)
-
+        
         Forecast_Flood_Depth_Raster = folder.FloodDepthFile.replace('.tif', ending_of_forecast_file)
         Forecast_Flood_WSE_Raster = folder.FloodWSEFile.replace('.tif', ending_of_forecast_file)
         Forecast_Flood_VEL_Raster = folder.FloodVELFile.replace('.tif', ending_of_forecast_file)
@@ -1034,7 +1034,7 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
 
     # This function sets-up the Input files for ARC and FloodSpreader
     # It also does some of the geospatial processing
-    Process_Geospatial_Data(folder, watershed_dict, DEM)  
+    Process_Geospatial_Data(folder, watershed_dict, DEM) 
 
     # if the DEM_StrmShp file is empty, then we can't do anything
     if not folder.DEM_StrmShp:
