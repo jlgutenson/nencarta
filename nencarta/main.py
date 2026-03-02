@@ -836,8 +836,11 @@ def create_fist_inputs(folder: FloodFolder, watershed_dict: dict, timer: Timer):
         streamflow_forecast_df = pd.read_csv(flow_file)
         streamflow_columns = streamflow_forecast_df.select_dtypes(include=['float']).columns.tolist()
 
-        for streamflow_column in streamflow_columns:
-            streamflow_forecast_filtered_df = streamflow_forecast_df[['rivid', streamflow_column]]
+        # grab the stream id column, which should be the first column in the flow file and should be named 'rivid' or 'comid' depending on the source of streamflow data
+        id_column_name = streamflow_forecast_df.columns[0]
+
+        for streamflow_column in streamflow_columns:            
+            streamflow_forecast_filtered_df = streamflow_forecast_df[[id_column_name, streamflow_column]]
             if watershed_dict['floodmap_mode'] == 'forecast':
                 GeoJSON_File = os.path.join(folder.FIST_Folder, f"{folder.FileName}_{watershed_dict['forensic_forecast_date']}_{streamflow_column}.geojson") 
             elif watershed_dict['floodmap_mode'] == 'user':
