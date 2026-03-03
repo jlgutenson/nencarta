@@ -1060,7 +1060,6 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
         Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder, watershed_dict['land_watervalue'])
 
     run_dem_cleaner(folder, watershed_dict, timer, DEM)
-    return
     create_bathymetry(folder, watershed_dict, timer)
 
     # if the mapper is FLDPLN, then we need to remake the flood direction raster using the bathymetry output from Curve2Flood
