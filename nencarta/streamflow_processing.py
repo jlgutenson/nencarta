@@ -647,6 +647,36 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
 
         LOG.info(final_df)
 
+    q_baseflow_threshold = watershed_dict.get("q_baseflow_threshold")
+    if q_baseflow_threshold is not None:
+        baseflow_field = watershed_dict.get("specified_bathyflow_field")
+        if baseflow_field not in final_df.columns:
+            LOG.warning(
+                f"q_baseflow_threshold was provided ({q_baseflow_threshold}), but baseflow field "
+                f"'{baseflow_field}' was not found in streamflow data. Skipping baseflow threshold filter."
+            )
+        else:
+            final_df_before_filter_count = len(final_df)
+            final_df = final_df[final_df[baseflow_field] >= q_baseflow_threshold].copy()
+            removed_count = final_df_before_filter_count - len(final_df)
+            if final_df.empty:
+                LOG.warning(
+                    f"All streams were removed by q_baseflow_threshold={q_baseflow_threshold} "
+                    f"using field '{baseflow_field}'."
+                )
+                return (None, None)
+
+            keep_ids = set(pd.to_numeric(final_df[target_column], errors="coerce").dropna().astype(int).tolist())
+            StrmShp_filtered_gdf = StrmShp_filtered_gdf[
+                pd.to_numeric(StrmShp_filtered_gdf[rivid_field], errors="coerce").astype("Int64").isin(keep_ids)
+            ].copy()
+            rivids_int = sorted(keep_ids)
+            StrmShp_filtered_gdf.to_file(folder.DEM_StrmShp, driver="GPKG")
+            LOG.info(
+                f"Applied q_baseflow_threshold={q_baseflow_threshold} on '{baseflow_field}'. "
+                f"Removed {removed_count} streams; kept {len(rivids_int)}."
+            )
+
     # Write the final Dask DataFrame to CSV
     final_df.to_csv(folder.DEM_Reanalsyis_FlowFile, index=False)
 

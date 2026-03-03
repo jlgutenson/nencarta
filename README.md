@@ -142,6 +142,8 @@ These inputs are:
 
 * **`process_stream_network`** (Bool, optional): Setting this value to True will direct the forecast system to take the flowline network (your flowline variable) and determine which flowlines are within each of your DEM tiles and download the necessary ECMWF GEOGLOWS Streamflow Service historic data for each DEM tile. Setting this value to False will bypass the creation of these system inputs and assumes that those inputs already exist. Default False.
 
+* **`q_baseflow_threshold`** (Float, optional): Setting this value (in cubic meters per second) equal to a float value will filter out all streams in your domain that have a baseflow (from `specified_bathyflow_field`) that are less than the specified value. Default is None. 
+
 * **`quiet`** (Bool, optional): Setting this value to True will suppress ARC and Curve2Flood output. Default False.
 
 * **`remove_old_forecast_files`** (Bool, optional): If True, check existing flood maps and see if they have forecast data older than `age_of_forecast_days`. If so, remove. Default True.

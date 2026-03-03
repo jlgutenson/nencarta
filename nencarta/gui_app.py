@@ -626,6 +626,11 @@ class FloodSimulationGUI(QMainWindow):
         self.strmorder_upper.setText(settings.value("strmorder_upper", ""))
         group_adv_layout.addWidget(QLabel("Stream Order Upper"), i+1, 0); group_adv_layout.addWidget(self.strmorder_upper, i+1, 1); self.input_fields['StrmOrder_Upper'] = self.strmorder_upper; i+=2
 
+        self.q_baseflow_threshold = QLineEdit()
+        self.q_baseflow_threshold.setPlaceholderText("Optional float")
+        self.q_baseflow_threshold.setText(settings.value("q_baseflow_threshold", ""))
+        group_adv_layout.addWidget(QLabel("Baseflow Threshold"), i+1, 0); group_adv_layout.addWidget(self.q_baseflow_threshold, i+1, 1); self.input_fields['q_baseflow_threshold'] = self.q_baseflow_threshold; i+=2
+
         self.lake_filter_json = QLineEdit()
         self.lake_filter_json.setPlaceholderText("Path to JSON (Optional)")
         self.lake_filter_json.setText(settings.value("lake_filter_json", ""))

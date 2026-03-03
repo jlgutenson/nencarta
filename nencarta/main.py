@@ -1349,6 +1349,14 @@ def validate_user_floodmaps(watershed_dict: dict):
 def norm_or_none(path: str):
     return os.path.normpath(path) if path else None
 
+def float_or_none(value):
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid q_baseflow_threshold: {value}") from exc
+
 def process_watershed(input_dict: dict, timer: Timer = None):
     """The core logic for processing a watershed."""
     verify_required_keys(input_dict)
@@ -1407,6 +1415,7 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "Downstream_Link_Field": Downstream_Link_Field,
         "StrmOrder_Lower": input_dict.get("StrmOrder_Lower"),
         "StrmOrder_Upper": input_dict.get("StrmOrder_Upper"),
+        "q_baseflow_threshold": float_or_none(input_dict.get("q_baseflow_threshold")),
         "lake_filter_json": norm_or_none(input_dict.get("lake_filter_json")),
         "estimate_consequences": input_dict.get("estimate_consequences", False),
         "streamflow_source": streamflow_source,
@@ -1541,6 +1550,7 @@ def main():
     cli_parser.add_argument("--Downstream_Link_Field", type=str, default=None, help="Downstream link field in the stream shapefile (optional)")
     cli_parser.add_argument("--StrmOrder_Lower", type=int, default=None, help="Lower bound for stream order (optional)")
     cli_parser.add_argument("--StrmOrder_Upper", type=int, default=None, help="Upper bound for stream order (optional)")
+    cli_parser.add_argument("--q_baseflow_threshold", type=float, default=None, help="Drop streams whose baseflow is below this threshold (optional)")
     cli_parser.add_argument("--use_warning_flags_to_download_dem", action="store_true", help="Use warning flags to download DEM data")
     cli_parser.add_argument("--geoglows_vpu", type=int, default=None, help="GEOGLOWS VPU ID (required if --use_warning_flags_to_download_dem is set to True)")
     cli_parser.add_argument("--lake_filter_json", type=str, default=None, help="Path to the lake filter JSON file (optional)")
