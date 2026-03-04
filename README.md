@@ -86,7 +86,7 @@ These inputs are:
 
 * **`create_reach_average_curve_file`** (Bool, optional): Setting this value to true instructs NenCarta to direct ARC to output the curve file by taking velocity, depth, and top-width estimates for all stream cells on an individual stream reach and creating the curve parameters for each stream cell. Setting this value to False instructs NenCarta to direct ARC to output the curve file using velocity, depth, and top-width estimates for each stream cell. Default False.
 
-* **`dem_dir`** (String): A full filepath to the directory containing one or more DEMs that you will be using as input in NenCarta.
+* **`dem_dir`** (String): A full filepath to the directory containing one or more DEMs that you will be using as input in NenCarta. Currently, NenCarta, ARC, and Curve2Flood require that the DEM be in a geographic coordinate system like the North American Datum of 1983 (NAD83) or World Geodetic System 1984 (WGS84).
 
 * **`dem_filter`** (String, optional): A glob string with which files in the `dem_dir` must match to be included in the run. By default, "*", or all files.
 
