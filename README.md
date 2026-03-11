@@ -132,9 +132,13 @@ These inputs are:
 
 * **`mapper`** (String, optional): Here you're specifying if you're running "FloodSpreader", "Curve2Flood", or "FLDPLNpy" when performing bathymetry estimation and flood inundation mapping. Defaults to FloodSpreader
 
-* **`nwm_api_key`** (String, optional): Required when streamflow_source is set to "NWM" or any "NWM_*" option. This is the NWM API key passed as the 'x-api-key' header for NWM requests. You must apply for an API key using these instructions: https://docs.ciroh.org/docuhub-staging/docs/products/data-management/bigquery-api/   
+* **`move_stream_network_to_new_locations`** (Bool, optional): If True, this option will allow NenCarta to use Whitebox to create a new stream network and attempt to conflate the existing network with the new terrain derived network. Default is False. This is required if using FLDPLNpy as the `mapper` option. This option should not be used if your DEM does not contain the entire contribution upstream area of your area of interest.
 
 * **`name`** (String): The name of the watershed you're modeling.
+
+* **`new_strm_threshold_km2`** (Float, optional): This value represents the contributing area used to create a new stream network with the DEM when enabling the `move_stream_network_to_new_locations` option as True. The value is in square km and is required when `move_stream_network_to_new_locations`is True.
+
+* **`nwm_api_key`** (String, optional): Required when streamflow_source is set to "NWM" or any "NWM_*" option. This is the NWM API key passed as the 'x-api-key' header for NWM requests. You must apply for an API key using these instructions: https://docs.ciroh.org/docuhub-staging/docs/products/data-management/bigquery-api/ 
 
 * **`output_dir`** (String): The full filepath to the directory where your output will be saved.
 

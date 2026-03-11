@@ -671,6 +671,9 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
                 pd.to_numeric(StrmShp_filtered_gdf[rivid_field], errors="coerce").astype("Int64").isin(keep_ids)
             ].copy()
             rivids_int = sorted(keep_ids)
+            # remove the old folder.DEM_StrmShp and make a new one
+            if os.path.exists(folder.DEM_StrmShp):
+                os.remove(folder.DEM_StrmShp)
             StrmShp_filtered_gdf.to_file(folder.DEM_StrmShp, driver="GPKG")
             LOG.info(
                 f"Applied q_baseflow_threshold={q_baseflow_threshold} on '{baseflow_field}'. "

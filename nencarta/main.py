@@ -68,20 +68,25 @@ def _resolve_parallel_settings(data, cli_parallel=None, cli_num_workers=None):
 
     return bool(parallel), num_workers
 
-def get_rivids(folder: FloodFolder, watershed_dict: dict, DEM: str, stream_id_field: str) -> np.ndarray | None:
+def process_streams_locations_in_dem(folder: FloodFolder, watershed_dict: dict, DEM: str, stream_id_field: str):
     # now we need to figure out if our DEM_StrmShp and DEM_Reanalysis_Flowfile exists and if not, create it
     if os.path.isfile(folder.DEM_StrmShp) and os.path.isfile(folder.DEM_Reanalsyis_FlowFile):
         LOG.info(folder.DEM_StrmShp + ' Already Exists')
         LOG.info(folder.DEM_Reanalsyis_FlowFile + ' Already Exists')
-        rivids = gpd.read_file(
-            folder.DEM_StrmShp,
-            columns=[stream_id_field],
-            use_arrow=True
-        )[stream_id_field].tolist()
     else:
         # Before we get too far ahead, let's make sure that our DEM and Flowlines have the same coordinate system
         StrmShp_gdf = process_river_geometry(folder, watershed_dict, DEM) 
-        rivids, _ = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, stream_id_field, folder, watershed_dict)
+        # save the initial network as a geopackage
+        StrmShp_gdf.to_file(folder.DEM_StrmShp, driver="GPKG")
+    
+    return
+
+
+def get_rivids(folder: FloodFolder, watershed_dict: dict, DEM: str, stream_id_field: str) -> np.ndarray | None:
+
+    StrmShp_gdf = gpd.read_file(folder.DEM_StrmShp, driver='GPKG')
+
+    rivids, _ = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, stream_id_field, folder, watershed_dict)
 
     if rivids is None or len(rivids) == 0:
         LOG.info('DEM_StrmShp is empty, returning None values')
@@ -144,6 +149,37 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
     (minx, miny, maxx, maxy, dx, dy, ncols, nrows, _, dem_projection) = Get_Raster_Details(folder.DEM_File)
     projWin_extents = [minx, maxy, maxx, miny]
     outputBounds = [minx, miny, maxx, maxy]  #https://gdal.org/api/python/osgeo.gdal.html
+
+    #Check the coordinate system of the rasters and if they are not in meters or degrees, end with log an error message and stop processing
+    unit_aliases = {
+        'meter': 'meter',
+        'meters': 'meter',
+        'metre': 'meter',
+        'metres': 'meter',
+        'degree': 'degree',
+        'degrees': 'degree'
+    }
+    raster_projections = {
+        'DEM': dem_projection,
+    }
+    for raster_name, raster_projection in raster_projections.items():
+        try:
+            raster_crs = CRS.from_wkt(raster_projection)
+        except Exception as ex:
+            LOG.error(f'Unable to parse CRS for {raster_name} raster: {ex}')
+            return
+
+        axis_units = {(axis.unit_name or '').strip().lower() for axis in raster_crs.axis_info if axis is not None}
+        axis_units.discard('')
+        if not axis_units:
+            LOG.error(f'Unable to determine CRS units for {raster_name} raster.')
+            return
+
+        invalid_units = [u for u in sorted(axis_units) if unit_aliases.get(u) not in {'meter', 'degree'}]
+        if invalid_units:
+            LOG.error(f'{raster_name} raster CRS units are not meters or degrees: {", ".join(invalid_units)}')
+            return
+
    
     #Create Land Dataset
     if os.path.isfile(folder.LAND_File):
@@ -152,6 +188,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
         LOG.info('Creating ' + folder.LAND_File) 
         Create_AR_LandRaster(folder.LandCoverFiles, folder.LAND_File, projWin_extents, dem_projection, ncols, nrows)
 
+    #Describe the streamflow forecast source we are using
     streamflow_source = watershed_dict['streamflow_source']
     # set the ID used for the stream network
     if streamflow_source.upper().startswith("NWM"):
@@ -161,18 +198,79 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
     else:
         LOG.error(f"streamflow_source {streamflow_source} not recognized, please use either 'NWM' or 'GEOGLOWS'")
         raise ValueError(f"streamflow_source {streamflow_source} not recognized, please use either 'NWM' or 'GEOGLOWS'")
+    
+    #Initially process the stream network for the DEM we are using.
+    if watershed_dict['process_stream_network'] is False:
+        LOG.info("We are not processing the stream network using the DEM.")
+    else:
+        LOG.info("Initially processing the provided stream network with the DEM.")
+        StrmShp_gdf = process_streams_locations_in_dem(folder, watershed_dict, DEM, stream_id_field)
 
-    rivids = get_rivids(folder, watershed_dict, DEM, stream_id_field)
+    
+    #Determine if we want to move the stream network using the move_stream_network_to_new_locations argument. 
+    #The stream has to move if we are using FLDPLNpy
+    move_stream_network_to_new_locations = bool(watershed_dict['move_stream_network_to_new_locations'])
+    if move_stream_network_to_new_locations is True or watershed_dict['mapper'] == "FLDPLNpy" or watershed_dict['process_stream_network'] is True:
+        # check if the stream threshold was provided, otherwise throw an error:
+        if watershed_dict['new_strm_threshold_km2'] is None:
+            LOG.error("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using FLPDLNpy. Please provide new_strm_threshold_km2.")
+            raise ValueError("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using FLPDLNpy. Please provide new_strm_threshold_km2.")
+        folder.setup_fldpln_files()
+        if os.path.exists(folder.flowdir) and os.path.exists(folder.flowacc) and os.path.exists(folder.filled_dem) and watershed_dict['process_stream_network'] is False:
+            LOG.info("The flow direction/accumulation rasters already exist and will not be recreated...")
+        elif watershed_dict['process_stream_network'] is True:
+            Hydroterrain_Processing.create_flow_direction_and_flow_accumulation_raster(
+                folder.DEM_File, folder.filled_dem, folder.Flow_Direction_Folder, folder.flowdir, folder.flowacc
+            )
+        if os.path.exists(folder.new_StrmShp) and os.path.exists(folder.new_catchment) and watershed_dict['process_stream_network'] is False:
+            LOG.info("The flow direction/accumulation rasters already exist and will not be recreated...")
+        elif watershed_dict['process_stream_network'] is True:
+            Hydroterrain_Processing.create_catchments_and_flowlines_with_flow_direction_and_accumulation(
+                                                                                                            folder.flowdir,
+                                                                                                            folder.flowacc,
+                                                                                                            folder.Flow_Direction_Folder,
+                                                                                                            watershed_dict['new_strm_threshold_km2'],
+                                                                                                            folder.new_StrmShp,
+                                                                                                            folder.new_catchment
+                                                                                                        )
+            Hydroterrain_Processing.match_new_streams_to_old_streams(
+                                                                        folder.new_StrmShp,
+                                                                        folder.DEM_StrmShp,
+                                                                        folder.new_StrmShp_matched,
+                                                                        stream_id_field,
+                                                                        watershed_dict["Downstream_Link_Field"],
+                                                                        watershed_dict["StrmOrder_Field"],
+                                                                        max_centroid_distance_m = 2000.0,
+                                                                        require_overlap = True,
+                                                                        remove_detached_upstream = True,
+                                                                        connectivity_tolerance_m = 30.0,
+                                                                    )
+        # Update what things are since we've decided to use FLDPLNpy or to move the stream network.
+        original_dem_file = folder.DEM_File
+        folder.DEM_File = folder.filled_dem
+        folder.DEM_StrmShp = folder.new_StrmShp_matched
+
+    # Get stream IDs and retrospective data, if we need it.
+    if watershed_dict['process_stream_network'] is False:
+        LOG.info("We have our stream network as we want it, skipping the downloading of reanalysis data.")
+        StrmShp_gdf = gpd.read_file(folder.DEM_StrmShp, driver='GPKG')
+        keep_ids = set(pd.to_numeric(StrmShp_gdf[stream_id_field], errors="coerce").dropna().astype(int).tolist())
+        rivids = sorted(keep_ids)
+    else:
+        LOG.info("Downloading reanalysis data and finishing processing of the stream network.")
+        rivids = get_rivids(folder, watershed_dict, DEM, stream_id_field)
+
     if rivids is None:
         return
 
-    if os.path.isfile(folder.STRM_File):
+    #Create the Stream Raster
+    if os.path.isfile(folder.STRM_File) and watershed_dict['process_stream_network'] is False:
         LOG.info(folder.STRM_File + ' Already Exists')
     else:
         LOG.info('Creating ' + folder.STRM_File)
         Create_AR_StrmRaster(folder.DEM_StrmShp, folder.STRM_File, outputBounds, minx, miny, maxx, maxy, dx, dy, ncols, nrows, 'LINKNO')
     
-    if os.path.isfile(folder.STRM_File_Clean):
+    if os.path.isfile(folder.STRM_File_Clean) and watershed_dict['process_stream_network'] is False:
         LOG.info(folder.STRM_File_Clean + ' Already Exists')
     else:
         LOG.info('Creating ' + folder.STRM_File_Clean)
@@ -192,36 +290,20 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
             if not os.path.isfile(ff):
                 LOG.error(f"User provided flow file does not exist: {ff}")
                 raise FileNotFoundError(f"User provided flow file does not exist: {ff}")
-        
-    # if the mapper is "FLDPLNpy", we need to create a flow direction raster using the bathymetry based DEM.
-    if watershed_dict['mapper'] == "FLDPLNpy":
-        folder.setup_fldpln_files()
-        if os.path.exists(folder.flowdir_orig) and os.path.exists(folder.flowacc_orig) and os.path.exists(folder.filled_dem):
-            LOG.info("The flow direction/accumulation rasters already exist and will not be recreated...")
-        else:
-            Hydroterrain_Processing.create_flow_direction_raster(
-                folder.DEM_File, folder.filled_dem, folder.Flow_Direction_Folder, folder.flowdir_orig, folder.flowacc_orig
-            )
-        original_dem_file = folder.DEM_File
-        folder.DEM_File = folder.filled_dem
-        
-    #Create a Starting AutoRoute Input File
-    LOG.info('Creating ARC Input File: ' + folder.ARC_FileName_Initial)
-    #Create the Initial Flow
-    LOG.info(f"Using the field '{watershed_dict['specified_bathyflow_field']}' for bathymetry estimation and '{watershed_dict['specified_highflow_field']}' for flood mapping...\n")
 
-    Create_FlowFile(folder.DEM_Reanalsyis_FlowFile, folder.COMID_Q_File, 'COMID', 'rp2')
+    if watershed_dict['process_stream_network'] is True:
+        #Create a Starting AutoRoute Input File
+        LOG.info('Creating ARC Input File: ' + folder.ARC_FileName_Initial)
+        #Create the Initial Flow
+        LOG.info(f"Using the field '{watershed_dict['specified_bathyflow_field']}' for bathymetry estimation and '{watershed_dict['specified_highflow_field']}' for flood mapping...\n")
 
-    # Create the Initial input file which is only used if cleaning the DEM
-    if watershed_dict['clean_dem']: 
-        Create_ARC_Model_Input_File_Initial_for_cleaning_dem(folder, watershed_dict, 'COMID')
+        Create_FlowFile(folder.DEM_Reanalsyis_FlowFile, folder.COMID_Q_File, 'COMID', 'rp2')
 
-    Create_ARC_Model_Input_File_Bathy(folder, watershed_dict, 'COMID')
+        # Create the Initial input file which is only used if cleaning the DEM
+        if watershed_dict['clean_dem']: 
+            Create_ARC_Model_Input_File_Initial_for_cleaning_dem(folder, watershed_dict, 'COMID')
 
-    # this adds make the FS_BathyFile_Projected_Filled_OriginalCRS the DEM used for mapping if using FLDPLNpy
-    if watershed_dict['mapper'] == "FLDPLNpy":
-        FS_BathyFileBefore = folder.FS_BathyFile
-        folder.FS_BathyFile = folder.FS_BathyFile_Projected_Filled_OriginalCRS
+        Create_ARC_Model_Input_File_Bathy(folder, watershed_dict, 'COMID')
 
     if watershed_dict['floodmap_mode'] == 'forecast':
         Forecast_Flood_Map, Forecast_Flood_Depth_Raster = Create_ARC_Model_Input_File_FloodForecast(FlowFile, folder, watershed_dict)
@@ -237,10 +319,6 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
             model_input_files.append(model_input_file)
 
         folder.setup_flood_user_files(flood_maps, depth_maps, FlowFile, model_input_files)
-
-    if watershed_dict['mapper'] == "FLDPLNpy":
-        folder.FS_BathyFile = FS_BathyFileBefore
-        folder.DEM_File = original_dem_file
     
     return
 
@@ -290,8 +368,8 @@ def _write_arc_input_section(out_file: TextIO, folder: FloodFolder, watershed_di
 def _write_fldpln_section(out_file: TextIO, folder: FloodFolder, watershed_dict: dict, use_bathy_flow_dir: bool = False):
     out_file.write('\n\n#FLDPLN_Specific_Inputs')
     out_file.write(f'\nUse_FLDPLN_Model\tTrue')
-    out_file.write(f'\nFlow_Direction_File\t{folder.flowdir_bathy if use_bathy_flow_dir else folder.flowdir_orig}')
-    out_file.write(f'\nFlow_Accumulation_File\t{folder.flowacc_bathy if use_bathy_flow_dir else folder.flowacc_orig}')
+    out_file.write(f'\nFlow_Direction_File\t{folder.flowdir if use_bathy_flow_dir else folder.flowdir}')
+    out_file.write(f'\nFlow_Accumulation_File\t{folder.flowacc if use_bathy_flow_dir else folder.flowacc}')
     out_file.write(f"\nStrmOrder_Field\t{watershed_dict['StrmOrder_Field']}")
     out_file.write(f"\nDownstream_Link_Field\t{watershed_dict['Downstream_Link_Field']}")
     out_file.write(f'\nFLDPLN_fldmn\t0.01')
@@ -893,7 +971,7 @@ def remove_old_forecast_files(folder: FloodFolder, watershed_dict: dict):
 
 def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM: str):
     # Run the DEM Cleaner Program, if you wanna
-    if os.path.exists(folder.DEM_File_Clean) or not watershed_dict['clean_dem']:
+    if os.path.exists(folder.DEM_File_Clean) or not watershed_dict['clean_dem'] or watershed_dict['process_stream_network'] is False:
         return
     
     if not os.path.exists(folder.Curve_File_Initial):
@@ -940,7 +1018,7 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
 
 def create_bathymetry(folder: FloodFolder, watershed_dict: dict, timer: Timer):
     # Create a Bathymetry Raster Dataset
-    if not os.path.exists(folder.FS_BathyFile):
+    if not os.path.exists(folder.FS_BathyFile) or watershed_dict['process_stream_network'] is True:
         LOG.info('Cannot find bathy file, so creating ' + folder.FS_BathyFile)
         if not os.path.exists(folder.ARC_BathyFile):
             # start time for the simulation
@@ -1055,23 +1133,9 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
     # # creat the initial flood map with the stream raster and land cover data
     if not watershed_dict['use_specified_depth_for_bathy_mask'] or watershed_dict['clean_dem']:
         Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder, watershed_dict['land_watervalue'])
-
-    run_dem_cleaner(folder, watershed_dict, timer, DEM)
-    create_bathymetry(folder, watershed_dict, timer)
-
-    # if the mapper is FLDPLN, then we need to remake the flood direction raster using the bathymetry output from Curve2Flood
-    if watershed_dict['mapper'] == "FLDPLNpy":
-        LOG.info("Running FLDPLN to create flood direction raster...")
-        if os.path.exists(folder.flowdir_bathy) and os.path.exists(folder.flowacc_bathy) and os.path.exists(folder.FS_BathyFile_Projected_Filled_OriginalCRS):
-            LOG.info("The flow direction/accumulation rasters we are using to run FLDPLN already exist and will not be remade...\n")
-        else:
-            Hydroterrain_Processing.create_flow_direction_raster(
-                folder.FS_BathyFile,
-                folder.FS_BathyFile_Projected_Filled_OriginalCRS,
-                folder.output_dir,
-                folder.flowdir_bathy,
-                folder.flowacc_bathy,
-            )
+    
+        run_dem_cleaner(folder, watershed_dict, timer, DEM)
+        create_bathymetry(folder, watershed_dict, timer)
 
     if watershed_dict['floodmap_mode'] == 'forecast':
         run_forecast_floodmapping(folder, watershed_dict, timer)
@@ -1191,7 +1255,7 @@ def process_dem(watershed_dict: dict, timer: Timer):
     if watershed_dict['streamflow_source'].upper().startswith("NWM") and not watershed_dict.get('nwm_api_key'):
         raise ValueError("nwm_api_key is required when streamflow_source is NWM.")
 
-    #Folder Management
+    # Folder Management
     folder = FloodFolder(watershed_dict)
 
     # Validate data
@@ -1436,6 +1500,8 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "make_velocity_maps": input_dict.get("make_velocity_maps", True),
         "make_wse_maps": input_dict.get("make_wse_maps", True),
         "floodmap_identifier": input_dict.get("floodmap_identifier", ""),
+        "move_stream_network_to_new_locations": input_dict.get("move_stream_network_to_new_locations", False),
+        "new_strm_threshold_km2": float_or_none(input_dict.get("new_strm_threshold_km2")),
         "quiet": input_dict.get("quiet", False),
     }
 
@@ -1560,6 +1626,8 @@ def main():
     cli_parser.add_argument("--overwrite_floodmaps", action="store_true", help="Overwrite existing forecast flood maps")
     cli_parser.add_argument("--remove_old_forecast_files", action="store_true", help="Remove old forecast files before processing")
     cli_parser.add_argument("--make_fist_inputs", action="store_true", help="Make FIST inputs after processing")
+    cli_parser.add_argument("--move_stream_network_to_new_locations", action="store_true", help="Move stream network to new locations")
+    cli_parser.add_argument("--new_strm_threshold_km2", type=float, default=None, help="The stream threshold for creating a new stream network for the DEM that you will be using. Use in conjunction with move_stream_network_to_new_locations and FLDPLNpy")
 
     # add subcommand for GUI
     gui_parser = subparsers.add_parser("gui", help="Summon the GUI application")
