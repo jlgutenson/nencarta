@@ -223,7 +223,6 @@ def match_new_streams_to_old_streams(
     out_streams_vector: str | None = None,
     old_linkno_field: str = "LINKNO",
     old_dslinkno_field: str = "DSLINKNO",
-    old_stream_order_field: str = "StrmOrder",
     max_centroid_distance_m: float = 300.0,
     min_match_score: float = 0.55,
     require_overlap: bool = True,
@@ -297,11 +296,8 @@ def match_new_streams_to_old_streams(
         raise KeyError(f"Missing old stream ID field '{old_linkno_field}'.")
     if old_dslinkno_field.upper() not in old_cols_upper:
         raise KeyError(f"Missing old stream downstream ID field '{old_dslinkno_field}'.")
-    if old_stream_order_field.upper() not in old_cols_upper:
-        raise KeyError(f"Missing old stream stream order field '{old_stream_order_field}'.")
     old_linkno_col = old_cols_upper[old_linkno_field.upper()]
     old_dslinkno_col = old_cols_upper[old_dslinkno_field.upper()]
-    old_stream_order_col = old_cols_upper[old_stream_order_field.upper()]
 
     # Align CRS first: convert old streams into the new-stream CRS.
     if old_streams.crs != new_streams.crs:
@@ -361,7 +357,6 @@ def match_new_streams_to_old_streams(
                     "score": score,
                     "LINKNO": orow[old_linkno_col],
                     "DSLINKNO": orow[old_dslinkno_col],
-                    "StrmOrder": orow[old_stream_order_col],
                     "centroid_dist_m": cdist,
                     "line_dist_m": ldist,
                     "overlap_hit": int(ngeom.intersects(ogeom)),
@@ -377,7 +372,6 @@ def match_new_streams_to_old_streams(
         out = dict(nrow.drop(labels=["_centroid"], errors="ignore"))
         out["LINKNO"] = best["LINKNO"]
         out["DSLINKNO"] = best["DSLINKNO"]
-        out["StrmOrder"] = best["StrmOrder"]
         out["match_score"] = float(best["score"])
         out["centroid_dist_m"] = float(best["centroid_dist_m"])
         out["line_dist_m"] = float(best["line_dist_m"])

@@ -191,10 +191,9 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
     #Describe the streamflow forecast source we are using
     streamflow_source = watershed_dict['streamflow_source']
     # set the ID used for the stream network
-    if streamflow_source.upper().startswith("NWM"):
-        stream_id_field = 'COMID'
-    elif streamflow_source.upper() == "GEOGLOWS":
-        stream_id_field = 'LINKNO'
+    stream_id_field, ds_stream_id_field = get_streamids_from_source(streamflow_source)
+    if streamflow_source.upper().startswith("NWM") or streamflow_source.upper() == "GEOGLOWS":
+        pass
     else:
         LOG.error(f"streamflow_source {streamflow_source} not recognized, please use either 'NWM' or 'GEOGLOWS'")
         raise ValueError(f"streamflow_source {streamflow_source} not recognized, please use either 'NWM' or 'GEOGLOWS'")
@@ -238,8 +237,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
                                                                         folder.DEM_StrmShp,
                                                                         folder.new_StrmShp_matched,
                                                                         stream_id_field,
-                                                                        watershed_dict["Downstream_Link_Field"],
-                                                                        watershed_dict["StrmOrder_Field"],
+                                                                        ds_stream_id_field,
                                                                         max_centroid_distance_m = 2000.0,
                                                                         require_overlap = True,
                                                                         remove_detached_upstream = True,
@@ -369,14 +367,6 @@ def _write_fldpln_section(out_file: TextIO, folder: FloodFolder, watershed_dict:
     out_file.write('\n\n#FLDPLN_Specific_Inputs')
     out_file.write(f'\nUse_FLDPLN_Model\tTrue')
     out_file.write(f'\nFlow_Direction_File\t{folder.flowdir if use_bathy_flow_dir else folder.flowdir}')
-    out_file.write(f'\nFlow_Accumulation_File\t{folder.flowacc if use_bathy_flow_dir else folder.flowacc}')
-    out_file.write(f"\nStrmOrder_Field\t{watershed_dict['StrmOrder_Field']}")
-    out_file.write(f"\nDownstream_Link_Field\t{watershed_dict['Downstream_Link_Field']}")
-    out_file.write(f'\nFLDPLN_fldmn\t0.01')
-    out_file.write(f'\nFLDPLN_fldmx\t50')
-    out_file.write(f'\nFLDPLN_dh\t0.5')
-    out_file.write(f'\nFLDPLN_mxht0\t0.0')
-    out_file.write(f'\nFLDPLN_ssflg\t1')
 
 def Create_ARC_Model_Input_File_Initial_for_cleaning_dem(folder: FloodFolder, watershed_dict: dict, COMID_Param: str):
     with open(folder.ARC_FileName_Initial, 'w') as out_file:
@@ -1263,8 +1253,9 @@ def process_dem(watershed_dict: dict, timer: Timer):
         raise ValueError("Invalid mapper specified. Choose 'FloodSpreader', 'Curve2Flood', or 'FLDPLNpy'.")
     
     if watershed_dict.get('mapper') == 'FLDPLNpy':
-        if not all([watershed_dict.get('StrmOrder_Field'), watershed_dict.get('Downstream_Link_Field')]):
-            raise ValueError("StrmOrder_Field and Downstream_Link_Field must be specified when using  FLDPLNpy mapper.")
+        if watershed_dict.get('move_stream_network_to_new_locations') is False:
+            raise ValueError("The stream network needs to be moved to use the FLDPLNpy mapper. " \
+            "Please set move_stream_network_to_new_locations to true in order to proceed...")
     
     if not watershed_dict.get('mannings_text_file'):
         Create_BaseLine_Manning_n_File_ESA(folder.mannings_n_text_file)
@@ -1448,10 +1439,10 @@ def process_watershed(input_dict: dict, timer: Timer = None):
     if not dem_filter:
         dem_filter = "*"
 
-    mapper = input_dict.get("mapper", "FloodSpreader")
-    Downstream_Link_Field = input_dict.get("Downstream_Link_Field")
-    if mapper == "FLDPLNpy"and not Downstream_Link_Field:
-        raise ValueError(f"Watershed '{watershed_name}': 'Downstream_Link_Field' must be specified when using FLDPLNpy mapper.")
+    move_stream_network_to_new_locations = input_dict.get("move_stream_network_to_new_locations", False)
+    stream_order_threshold = float_or_none(input_dict.get("new_strm_threshold_km2"))
+    if move_stream_network_to_new_locations is True and stream_order_threshold is None:
+        raise ValueError(f"Watershed '{watershed_name}': 'stream_order_threshold' must be specified when moving stream network.")
 
     watershed_dict = {
         "name": watershed_name,
@@ -1462,7 +1453,7 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "flood_waterlc_and_strm_cells": input_dict.get("flood_waterlc_and_strm_cells", False),
         "land_watervalue": input_dict.get("land_watervalue", 80),
         "clean_dem": clean_dem,
-        "mapper": mapper,
+        "mapper": input_dict.get("mapper", "FloodSpreader"),
         "process_stream_network": input_dict.get("process_stream_network", False),
         "use_specified_depth_for_bathy_mask": use_specified_depth_for_bathy_mask,
         "age_of_forecast_days": input_dict.get("age_of_forecast_days", 7),
@@ -1475,8 +1466,6 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "forensic_forecast_hour": forensic_forecast_hour,
         "specified_bathyflow_field":input_dict.get("specified_bathyflow_field", "p_exceed_50"),
         "specified_highflow_field":input_dict.get("specified_highflow_field", "rp100_premium"),
-        "StrmOrder_Field": input_dict.get("StrmOrder_Field"),
-        "Downstream_Link_Field": Downstream_Link_Field,
         "StrmOrder_Lower": input_dict.get("StrmOrder_Lower"),
         "StrmOrder_Upper": input_dict.get("StrmOrder_Upper"),
         "q_baseflow_threshold": float_or_none(input_dict.get("q_baseflow_threshold")),
@@ -1613,8 +1602,6 @@ def main():
     cli_parser.add_argument("--specified_bathyflow_field", type=str, default="p_exceed_50", help="Specify the streamflow field in the streamflow reanalysis file that will be used for bathymetry estimation  (defaults to 'p_exceed_50') ")
     cli_parser.add_argument("--specified_highflow_field", type=str, default="rp100_premium", help="Specify the highflow field in the streamflow reanalysis file that will be used by ARC as the highest flow for the VDT database and curvefile creation (defaults to 'rp100_premium')")
     cli_parser.add_argument("--StrmOrder_Field", type=str, default=None, help="Stream order field in the stream shapefile (optional)")
-    cli_parser.add_argument("--Downstream_Link_Field", type=str, default=None, help="Downstream link field in the stream shapefile (optional)")
-    cli_parser.add_argument("--StrmOrder_Lower", type=int, default=None, help="Lower bound for stream order (optional)")
     cli_parser.add_argument("--StrmOrder_Upper", type=int, default=None, help="Upper bound for stream order (optional)")
     cli_parser.add_argument("--q_baseflow_threshold", type=float, default=None, help="Drop streams whose baseflow is below this threshold (optional)")
     cli_parser.add_argument("--use_warning_flags_to_download_dem", action="store_true", help="Use warning flags to download DEM data")

@@ -606,16 +606,6 @@ class FloodSimulationGUI(QMainWindow):
         self.specified_highflow_field.setCurrentText(settings.value("specified_highflow_field", "rp100_premium"))
         group_adv_layout.addWidget(QLabel("High Flow Field"), i+1, 0); group_adv_layout.addWidget(self.specified_highflow_field, i+1, 1); self.input_fields['specified_highflow_field'] = self.specified_highflow_field; i+=2
 
-        self.strmorder_field = QLineEdit()
-        self.strmorder_field.setPlaceholderText("strmOrder (Optional)")
-        self.strmorder_field.setText(settings.value("strmorder_field", ""))
-        group_adv_layout.addWidget(QLabel("Stream Order Field"), i+1, 0); group_adv_layout.addWidget(self.strmorder_field, i+1, 1); self.input_fields['StrmOrder_Field'] = self.strmorder_field; i+=2
-
-        self.downstream_link_field = QLineEdit()
-        self.downstream_link_field.setPlaceholderText("DSLINKNO (Optional)")
-        self.downstream_link_field.setText(settings.value("downstream_link_field", ""))
-        group_adv_layout.addWidget(QLabel("Downstream Link Field"), i+1, 0); group_adv_layout.addWidget(self.downstream_link_field, i+1, 1); self.input_fields['Downstream_Link_Field'] = self.downstream_link_field; i+=2
-
         self.move_stream_network_to_new_locations = QCheckBox("Move Stream Network to Match DEM (Optional)")
         self.move_stream_network_to_new_locations.setChecked(settings.value("move_stream_network_to_new_locations", False, type=bool))
         group_adv_layout.addWidget(self.move_stream_network_to_new_locations, i, 0, 1, 2); self.input_fields['move_stream_network_to_new_locations'] = self.move_stream_network_to_new_locations; i+=1
