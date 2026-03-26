@@ -224,22 +224,24 @@ def match_new_streams_to_old_streams(
     old_linkno_field: str = "LINKNO",
     old_dslinkno_field: str = "DSLINKNO",
     max_centroid_distance_m: float = 300.0,
-    min_match_score: float = 0.55,
+    min_match_score: float = 0.05,
     require_overlap: bool = True,
     remove_detached_upstream: bool = True,
     connectivity_tolerance_m: float = 30.0,
+    buffer_distance_m: float = 50.0,
 ):
     """
     Match new stream segments to an old reference stream network and transfer
     stream attributes stream ID (e.g., LINKNO or COMID) from the best match.
 
     Method summary
-    - Reprojects both networks to a metric CRS (UTM if source CRS is geographic).
-    - For each new stream segment, builds candidate old segments from a centroid
-      distance search window.
-    - Applies a hard centroid-distance gate.
+    - Reprojects both networks to a local metric CRS (UTM) so all distances and
+      buffer sizes are interpreted in meters.
+    - Builds a buffer around each new and old stream segment.
+    - For each new stream segment, finds nearby old-stream buffers and ranks
+      candidates by buffered overlap score, using overlap area as a tie-breaker.
     - Optionally requires geometric intersection (`require_overlap=True`).
-    - Keeps only the closest centroid candidate per new segment.
+    - Keeps only the highest-overlap candidate per new segment.
     - Drops matches below `min_match_score`.
     - Optionally removes detached subnetworks from the matched output by keeping
       only the main connected component (largest total segment length), where
@@ -254,15 +256,15 @@ def match_new_streams_to_old_streams(
     - `old_linkno_field`: Field in `old_streams_vector` holding LINKNO values.
     - `old_dslinkno_field`: Field in `old_streams_vector` holding downstream
       LINKNO values.
-    - `old_stream_order_field`: Field in `old_streams_vector` holding stream order.
-    - `max_centroid_distance_m`: Max centroid-to-centroid distance allowed.
-    - `max_line_distance_m`: Deprecated in centroid-only matching (ignored).
-    - `min_match_score`: Minimum centroid-based score required to keep a match.
+    - `max_centroid_distance_m`: Retained for API compatibility and diagnostics.
+    - `min_match_score`: Minimum buffered-overlap score required to keep a match.
     - `require_overlap`: If `True`, candidate lines must intersect.
     - `remove_detached_upstream`: If `True`, remove detached subnetworks by
       retaining only the largest connected component.
     - `connectivity_tolerance_m`: Distance tolerance used to connect near-touching
       lines when `remove_detached_upstream=True`.
+    - `buffer_distance_m`: Buffer distance, in meters, used to compare new and
+      old stream corridor overlap.
 
     Returns
     - Dict with output path and basic counts:
@@ -308,25 +310,29 @@ def match_new_streams_to_old_streams(
     new_streams = new_streams[new_streams.geometry.notnull() & (~new_streams.geometry.is_empty)].copy()
     if old_streams.empty or new_streams.empty:
         raise ValueError("No valid stream geometries available after filtering null/empty.")
+    if buffer_distance_m <= 0:
+        raise ValueError("buffer_distance_m must be > 0.")
 
-    # Precompute old stream centroids and spatial index for fast candidate lookup.
+    # Precompute old stream centroids and buffers for fast candidate lookup.
     old_streams["_oidx"] = np.arange(len(old_streams), dtype=np.int64)
     old_streams["_centroid"] = old_streams.geometry.centroid
-    old_sindex = old_streams.sindex
+    old_streams["_buffer_geom"] = old_streams.geometry.buffer(buffer_distance_m)
+    old_buffer_sindex = gpd.GeoSeries(old_streams["_buffer_geom"], crs=old_streams.crs).sindex
 
-    # Precompute new stream centroids and spatial index for fast candidate lookup.
+    # Precompute new stream centroids for diagnostics.
     new_streams["_oidx"] = np.arange(len(new_streams), dtype=np.int64)
     new_streams["_centroid"] = new_streams.geometry.centroid
-    # new_sindex = new_streams.sindex
 
-    # Match each new stream to the nearest old-stream centroid.
+    # Match each new stream to the old stream with the greatest buffered overlap.
     matched_rows = []
     for nidx, nrow in new_streams.iterrows():
         ngeom = nrow.geometry
         ncent = nrow["_centroid"]
-        # Candidate search by centroid buffer to reduce comparisons.
-        nb = ncent.buffer(max_centroid_distance_m).bounds
-        cand_ids = list(old_sindex.intersection(nb))
+        nbuf = ngeom.buffer(buffer_distance_m)
+        nbuf_area = max(float(nbuf.area), 1e-9)
+
+        # Candidate search by buffered stream corridor to reduce comparisons.
+        cand_ids = list(old_buffer_sindex.intersection(nbuf.bounds))
         if not cand_ids:
             continue
 
@@ -337,28 +343,44 @@ def match_new_streams_to_old_streams(
             ogeom = orow.geometry
             if ogeom is None or ogeom.is_empty:
                 continue
+            obuf = orow["_buffer_geom"]
 
-            # Hard distance gates: skip unlikely candidates early.
             cdist = float(ncent.distance(orow["_centroid"]))
-            if cdist > max_centroid_distance_m:
-                continue
+            ldist = float(ngeom.distance(ogeom))
 
             # Optional strict overlap requirement.
             if require_overlap and (not ngeom.intersects(ogeom)):
                 continue
 
-            # Centroid-only score.
-            score = max(0.0, 1.0 - (cdist / max_centroid_distance_m))
-            ldist = float(ngeom.distance(ogeom))
+            overlap_area = float(nbuf.intersection(obuf).area)
+            if overlap_area <= 0.0:
+                continue
+            score = overlap_area / nbuf_area
 
-            # Keep only the closest-centroid old stream for this new stream.
-            if (best is None) or (cdist < best["centroid_dist_m"]):
+            # Keep the candidate with the strongest buffered overlap, then break
+            # ties by larger overlap area and smaller centroid distance.
+            if (
+                (best is None)
+                or (score > best["score"])
+                or (
+                    math.isclose(score, best["score"])
+                    and (
+                        (overlap_area > best["overlap_area_m2"])
+                        or (
+                            math.isclose(overlap_area, best["overlap_area_m2"])
+                            and (cdist < best["centroid_dist_m"])
+                        )
+                    )
+                )
+            ):
                 best = {
                     "score": score,
                     "LINKNO": orow[old_linkno_col],
                     "DSLINKNO": orow[old_dslinkno_col],
                     "centroid_dist_m": cdist,
                     "line_dist_m": ldist,
+                    "overlap_area_m2": overlap_area,
+                    "overlap_ratio": score,
                     "overlap_hit": int(ngeom.intersects(ogeom)),
                 }
 
@@ -369,12 +391,14 @@ def match_new_streams_to_old_streams(
             continue
 
         # Copy new stream row and append transferred attributes + diagnostics.
-        out = dict(nrow.drop(labels=["_centroid"], errors="ignore"))
+        out = dict(nrow.drop(labels=["_oidx", "_centroid"], errors="ignore"))
         out["LINKNO"] = best["LINKNO"]
         out["DSLINKNO"] = best["DSLINKNO"]
         out["match_score"] = float(best["score"])
         out["centroid_dist_m"] = float(best["centroid_dist_m"])
         out["line_dist_m"] = float(best["line_dist_m"])
+        out["overlap_area_m2"] = float(best["overlap_area_m2"])
+        out["overlap_ratio"] = float(best["overlap_ratio"])
         out["overlap_hit"] = int(best["overlap_hit"])
         matched_rows.append(out)
 

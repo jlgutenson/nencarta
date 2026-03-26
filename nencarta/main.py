@@ -209,12 +209,12 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
     #Determine if we want to move the stream network using the move_stream_network_to_new_locations argument. 
     #The stream has to move if we are using FLDPLNpy
     move_stream_network_to_new_locations = bool(watershed_dict['move_stream_network_to_new_locations'])
+    folder.setup_fldpln_files()
     if (move_stream_network_to_new_locations is True or watershed_dict['mapper'] == "FLDPLNpy") and watershed_dict['process_stream_network'] is True:
         # check if the stream threshold was provided, otherwise throw an error:
         if watershed_dict['new_strm_threshold_km2'] is None:
             LOG.error("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using FLPDLNpy. Please provide new_strm_threshold_km2.")
             raise ValueError("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using FLPDLNpy. Please provide new_strm_threshold_km2.")
-        folder.setup_fldpln_files()
         if os.path.exists(folder.flowdir) and os.path.exists(folder.flowacc) and os.path.exists(folder.filled_dem) and watershed_dict['process_stream_network'] is False:
             LOG.info("The flow direction/accumulation rasters already exist and will not be recreated...")
         elif watershed_dict['process_stream_network'] is True:
@@ -238,6 +238,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
                                                                         folder.new_StrmShp_matched,
                                                                         stream_id_field,
                                                                         ds_stream_id_field,
+                                                                        min_match_score = watershed_dict['min_match_score'],
                                                                         max_centroid_distance_m = 2000.0,
                                                                         require_overlap = True,
                                                                         remove_detached_upstream = True,
@@ -1491,6 +1492,7 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "floodmap_identifier": input_dict.get("floodmap_identifier", ""),
         "move_stream_network_to_new_locations": input_dict.get("move_stream_network_to_new_locations", False),
         "new_strm_threshold_km2": float_or_none(input_dict.get("new_strm_threshold_km2")),
+        "min_match_score": float_or_none(input_dict.get("min_match_score")),
         "quiet": input_dict.get("quiet", False),
     }
 
@@ -1615,8 +1617,7 @@ def main():
     cli_parser.add_argument("--make_fist_inputs", action="store_true", help="Make FIST inputs after processing")
     cli_parser.add_argument("--move_stream_network_to_new_locations", action="store_true", help="Move stream network to new locations")
     cli_parser.add_argument("--new_strm_threshold_km2", type=float, default=None, help="The stream threshold for creating a new stream network for the DEM that you will be using. Use in conjunction with move_stream_network_to_new_locations and FLDPLNpy")
-
-    # add subcommand for GUI
+    cli_parser.add_argument("--min_match_score", type=float, default=None, help="The score needed to conflate the new DEM based network with the one provided by the as the `flowline` input")
     gui_parser = subparsers.add_parser("gui", help="Summon the GUI application")
 
     args = parser.parse_args()

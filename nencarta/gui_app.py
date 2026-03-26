@@ -615,6 +615,11 @@ class FloodSimulationGUI(QMainWindow):
         self.new_strm_threshold_km2.setText(settings.value("new_strm_threshold_km2", ""))
         group_adv_layout.addWidget(QLabel("Stream Threshold for New Stream Network"), i+1, 0); group_adv_layout.addWidget(self.new_strm_threshold_km2, i+1, 1); self.input_fields['new_strm_threshold_km2'] = self.new_strm_threshold_km2; i+=2
 
+        self.min_match_score = QLineEdit()
+        self.min_match_score.setPlaceholderText("Optional float")
+        self.min_match_score.setText(settings.value("min_match_score", ""))
+        group_adv_layout.addWidget(QLabel("Minimum Match Score"), i+1, 0); group_adv_layout.addWidget(self.min_match_score, i+1, 1); self.input_fields['min_match_score'] = self.min_match_score; i+=2
+
         self.strmorder_lower = QLineEdit()
         self.strmorder_lower.setPlaceholderText("Optional integer")
         self.strmorder_lower.setText(settings.value("strmorder_lower", ""))

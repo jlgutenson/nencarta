@@ -90,8 +90,6 @@ These inputs are:
 
 * **`dem_filter`** (String, optional): A glob string with which files in the `dem_dir` must match to be included in the run. By default, "*", or all files.
 
-* **`Downstream_Link_Field`** (String, optional): The field in the flowline file that describes the ID of each streams downstream reach or the reach that it flows into. Required if using FLDPLN as your mapper selection.
-
 * **`estimate_consequences`** (Bool, optional): Setting this equal to true will utilize Go-Consequences and the National Structure Inventory (NSI) to perform consequence assessment for the area within each flood inundation map. This functionality is currently only available for the coterminous United States. Default False.
 
 * **`find_banks_based_on_landcover`** (Bool, optional): Setting this value to True will direct NenCarta to first try finding the banks using the land cover. If the stream cell is in a water pixel, NenCarta will direct ARC to search for the end of the water surrounding the stream cell and this will location will be designated as the banks. Setting this value to False will direct NenCarta and ARC to find the banks by assuming the channel is flat in the DEM and allowing ARC to find the banks when the flat water surface ends in the cross-section. Default True.
@@ -132,6 +130,8 @@ These inputs are:
 
 * **`mapper`** (String, optional): Here you're specifying if you're running "FloodSpreader", "Curve2Flood", or "FLDPLNpy" when performing bathymetry estimation and flood inundation mapping. Defaults to FloodSpreader
 
+* **`min_match_score`** (Float, optional): This is the threshold value that is used to determine if a good match is made when using the `move_stream_network_to_new_locations` option. NenCarta scores the match between each new stream and old stream by creating a 50 m buffer around each old and new stream and determining what proportion of the two areas overlap. The `min_match_score` is the minimum proportion that can be considered a credible match by the system. 
+
 * **`move_stream_network_to_new_locations`** (Bool, optional): If True, this option will allow NenCarta to use Whitebox to create a new stream network and attempt to conflate the existing network with the new terrain derived network. Default is False. This is required if using FLDPLNpy as the `mapper` option. This option should not be used if your DEM does not contain the entire contribution upstream area of your area of interest.
 
 * **`name`** (String): The name of the watershed you're modeling.
@@ -159,8 +159,6 @@ These inputs are:
 * **`specified_highflow_field`** (String, optional): The field in the GEOGLOWS downloaded reanalysis data that will be provided to ARC as the highest flow used to estimate water surface elevation. For "GEOGLOWS" it must be one of "p_exceed_0", "p_exceed_5", "p_exceed_10", "p_exceed_15", "p_exceed_20", "p_exceed_25", "p_exceed_30", "p_exceed_35", "p_exceed_40", "p_exceed_45", "p_exceed_50", "p_exceed_65", "p_exceed_70", "p_exceed_75", "p_exceed_80", "p_exceed_85", "p_exceed_90", "p_exceed_95", "p_exceed_100", "rp2", "rp5", "rp10", "rp25", "rp50", "rp100","p_exceed_0_premium", or "rp100_premium". For "NWM" it must be one of "rp2", "rp5", "rp10", "rp25", "rp50", "rp100", or "rp100_premium". Default is "rp100_premium".
 
 * **`streamflow_source`** (String, optional): Setting this equal to "GEOGLOWS" will force NenCarta to use GEOGLOWS retrospective and forecast streamflow data. The deafult is GEOGLOWS. Setting this to "NWM_short_range" will force NenCarta to use the National Water Model retrospective and short-range forecast streamflow data. Setting this to "NWM_medium_range" will force NenCarta to use the National Water Model retrospective and medium-range forecast streamflow data. Setting this to "NWM_long_range" will force NenCarta to use the National Water Model retrospective and long-range forecast streamflow data. Default "GEOGLOWS".
-
-* **`StrmOrder_Field`** (String, optional): The field in the flowline GIS data that specifies the stream order of the streams in your model domain. This input is required if you want to use FLDPLN as your mapper or if you plan to use StrmOrder_Lower or StrmOrder_Upper to limit which streams will be used for flood inundation mapping by NenCarta.
 
 * **`StrmOrder_Lower`** (Integer, optional): The lowest value of stream order that you plan to use in your NenCarta simulation.
 
