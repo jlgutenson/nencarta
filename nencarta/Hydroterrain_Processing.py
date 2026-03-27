@@ -223,6 +223,7 @@ def match_new_streams_to_old_streams(
     out_streams_vector: str | None = None,
     old_linkno_field: str = "LINKNO",
     old_dslinkno_field: str = "DSLINKNO",
+    old_stream_order_field: str | None = "StrmOrder",
     max_centroid_distance_m: float = 300.0,
     min_match_score: float = 0.05,
     require_overlap: bool = True,
@@ -256,6 +257,9 @@ def match_new_streams_to_old_streams(
     - `old_linkno_field`: Field in `old_streams_vector` holding LINKNO values.
     - `old_dslinkno_field`: Field in `old_streams_vector` holding downstream
       LINKNO values.
+    - `old_stream_order_field`: Optional field in `old_streams_vector` holding
+      stream order values to transfer into the matched output. When `None` or
+      not present, stream order is skipped.
     - `max_centroid_distance_m`: Retained for API compatibility and diagnostics.
     - `min_match_score`: Minimum buffered-overlap score required to keep a match.
     - `require_overlap`: If `True`, candidate lines must intersect.
@@ -300,6 +304,12 @@ def match_new_streams_to_old_streams(
         raise KeyError(f"Missing old stream downstream ID field '{old_dslinkno_field}'.")
     old_linkno_col = old_cols_upper[old_linkno_field.upper()]
     old_dslinkno_col = old_cols_upper[old_dslinkno_field.upper()]
+    # Stream order transfer is optional. Only resolve it when explicitly
+    # requested and present on the old-stream layer.
+    if old_stream_order_field is not None and old_stream_order_field.upper() in old_cols_upper:
+        old_stream_order_col = old_cols_upper[old_stream_order_field.upper()]
+    else:
+        old_stream_order_col = None
 
     # Align CRS first: convert old streams into the new-stream CRS.
     if old_streams.crs != new_streams.crs:
@@ -377,6 +387,7 @@ def match_new_streams_to_old_streams(
                     "score": score,
                     "LINKNO": orow[old_linkno_col],
                     "DSLINKNO": orow[old_dslinkno_col],
+                    "stream_order": (orow[old_stream_order_col] if old_stream_order_col is not None else None),
                     "centroid_dist_m": cdist,
                     "line_dist_m": ldist,
                     "overlap_area_m2": overlap_area,
@@ -394,6 +405,8 @@ def match_new_streams_to_old_streams(
         out = dict(nrow.drop(labels=["_oidx", "_centroid"], errors="ignore"))
         out["LINKNO"] = best["LINKNO"]
         out["DSLINKNO"] = best["DSLINKNO"]
+        if old_stream_order_col is not None:
+            out[old_stream_order_col] = best["stream_order"]
         out["match_score"] = float(best["score"])
         out["centroid_dist_m"] = float(best["centroid_dist_m"])
         out["line_dist_m"] = float(best["line_dist_m"])

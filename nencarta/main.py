@@ -238,6 +238,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
                                                                         folder.new_StrmShp_matched,
                                                                         stream_id_field,
                                                                         ds_stream_id_field,
+                                                                        watershed_dict["StrmOrder_Field"],
                                                                         min_match_score = watershed_dict['min_match_score'],
                                                                         max_centroid_distance_m = 2000.0,
                                                                         require_overlap = True,
@@ -1467,6 +1468,7 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "forensic_forecast_hour": forensic_forecast_hour,
         "specified_bathyflow_field":input_dict.get("specified_bathyflow_field", "p_exceed_50"),
         "specified_highflow_field":input_dict.get("specified_highflow_field", "rp100_premium"),
+        "StrmOrder_Field": input_dict.get("StrmOrder_Field"),
         "StrmOrder_Lower": input_dict.get("StrmOrder_Lower"),
         "StrmOrder_Upper": input_dict.get("StrmOrder_Upper"),
         "q_baseflow_threshold": float_or_none(input_dict.get("q_baseflow_threshold")),
@@ -1604,6 +1606,7 @@ def main():
     cli_parser.add_argument("--specified_bathyflow_field", type=str, default="p_exceed_50", help="Specify the streamflow field in the streamflow reanalysis file that will be used for bathymetry estimation  (defaults to 'p_exceed_50') ")
     cli_parser.add_argument("--specified_highflow_field", type=str, default="rp100_premium", help="Specify the highflow field in the streamflow reanalysis file that will be used by ARC as the highest flow for the VDT database and curvefile creation (defaults to 'rp100_premium')")
     cli_parser.add_argument("--StrmOrder_Field", type=str, default=None, help="Stream order field in the stream shapefile (optional)")
+    cli_parser.add_argument("--StrmOrder_Lower", type=int, default=None, help="Upper bound for stream order (optional)")
     cli_parser.add_argument("--StrmOrder_Upper", type=int, default=None, help="Upper bound for stream order (optional)")
     cli_parser.add_argument("--q_baseflow_threshold", type=float, default=None, help="Drop streams whose baseflow is below this threshold (optional)")
     cli_parser.add_argument("--use_warning_flags_to_download_dem", action="store_true", help="Use warning flags to download DEM data")

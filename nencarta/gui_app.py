@@ -512,7 +512,7 @@ class FloodSimulationGUI(QMainWindow):
         self.nwm_api_key.setText(settings.value("nwm_api_key", ""))
         group_wf_layout.addWidget(self.nwm_api_key_label, i+1, 0); group_wf_layout.addWidget(self.nwm_api_key, i+1, 1); self.input_fields['nwm_api_key'] = self.nwm_api_key; i+=2
         def toggle_nwm_api_key(value: str):
-            is_nwm = (value == "NWM")
+            is_nwm = value.startswith("NWM")  # Show if any NWM option is selected
             self.nwm_api_key.setVisible(is_nwm)
             self.nwm_api_key_label.setVisible(is_nwm)
         self.streamflow_source.currentTextChanged.connect(toggle_nwm_api_key)
@@ -580,6 +580,8 @@ class FloodSimulationGUI(QMainWindow):
         self.geoglows_vpu.setCurrentText(settings.value("geoglows_vpu", "704"))
         group_adv_layout.addWidget(QLabel("GEOGLOWS VPU ID"), i+1, 0); group_adv_layout.addWidget(self.geoglows_vpu, i+1, 1); self.input_fields['geoglows_vpu'] = self.geoglows_vpu; i+=2
         
+        # NOTE: These fields use lowercase key names for consistency, but main.py expects PascalCase 'forensic_forecast_date'
+        # The _get_params() and save_settings() will use these lowercase keys
         self.forensic_forecast_date = QLineEdit()
         self.forensic_forecast_date.setPlaceholderText("YYYYMMDD (Optional)")
         self.forensic_forecast_date.setText(settings.value("forensic_forecast_date", ""))
@@ -620,15 +622,20 @@ class FloodSimulationGUI(QMainWindow):
         self.min_match_score.setText(settings.value("min_match_score", ""))
         group_adv_layout.addWidget(QLabel("Minimum Match Score"), i+1, 0); group_adv_layout.addWidget(self.min_match_score, i+1, 1); self.input_fields['min_match_score'] = self.min_match_score; i+=2
 
+        self.strmorder_field = QLineEdit()
+        self.strmorder_field.setPlaceholderText("strmOrder (Optional)")
+        self.strmorder_field.setText(settings.value("strmorder_field", ""))
+        group_adv_layout.addWidget(QLabel("Stream Order Field"), i+1, 0); group_adv_layout.addWidget(self.strmorder_field, i+1, 1); self.input_fields['strmorder_field'] = self.strmorder_field; i+=2
+
         self.strmorder_lower = QLineEdit()
         self.strmorder_lower.setPlaceholderText("Optional integer")
-        self.strmorder_lower.setText(settings.value("strmorder_lower", ""))
-        group_adv_layout.addWidget(QLabel("Stream Order Lower"), i+1, 0); group_adv_layout.addWidget(self.strmorder_lower, i+1, 1); self.input_fields['StrmOrder_Lower'] = self.strmorder_lower; i+=2
+        self.strmorder_lower.setText(str(settings.value("strmorder_lower", "")) or "")
+        group_adv_layout.addWidget(QLabel("Stream Order Lower"), i+1, 0); group_adv_layout.addWidget(self.strmorder_lower, i+1, 1); self.input_fields['strmorder_lower'] = self.strmorder_lower; i+=2
 
         self.strmorder_upper = QLineEdit()
         self.strmorder_upper.setPlaceholderText("Optional integer")
-        self.strmorder_upper.setText(settings.value("strmorder_upper", ""))
-        group_adv_layout.addWidget(QLabel("Stream Order Upper"), i+1, 0); group_adv_layout.addWidget(self.strmorder_upper, i+1, 1); self.input_fields['StrmOrder_Upper'] = self.strmorder_upper; i+=2
+        self.strmorder_upper.setText(str(settings.value("strmorder_upper", "")) or "")
+        group_adv_layout.addWidget(QLabel("Stream Order Upper"), i+1, 0); group_adv_layout.addWidget(self.strmorder_upper, i+1, 1); self.input_fields['strmorder_upper'] = self.strmorder_upper; i+=2
 
         self.q_baseflow_threshold = QLineEdit()
         self.q_baseflow_threshold.setPlaceholderText("Optional float")
@@ -755,6 +762,26 @@ class FloodSimulationGUI(QMainWindow):
         streamflow_label = params.get("streamflow_source")
         if streamflow_label:
             params["streamflow_source"] = STREAMFLOW_SOURCE_LABELS.get(streamflow_label, streamflow_label)
+        
+        # Convert strmorder_lower and strmorder_upper to integers
+        for key in ['strmorder_lower', 'strmorder_upper']:
+            if key in params and params[key]:
+                try:
+                    params[key] = int(params[key])
+                except (ValueError, TypeError):
+                    params[key] = None  # Set to None if conversion fails
+            else:
+                params[key] = None  # Set to None if empty
+        
+        # Map lowercase GUI keys to the keys expected by main.py/downstream processing
+        key_mapping = {
+            'strmorder_field': 'StrmOrder_Field',
+            'strmorder_lower': 'StrmOrder_Lower',
+            'strmorder_upper': 'StrmOrder_Upper',
+        }
+        for gui_key, backend_key in key_mapping.items():
+            if gui_key in params:
+                params[backend_key] = params.pop(gui_key)
     
         return params
 

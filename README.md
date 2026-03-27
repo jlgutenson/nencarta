@@ -160,6 +160,8 @@ These inputs are:
 
 * **`streamflow_source`** (String, optional): Setting this equal to "GEOGLOWS" will force NenCarta to use GEOGLOWS retrospective and forecast streamflow data. The deafult is GEOGLOWS. Setting this to "NWM_short_range" will force NenCarta to use the National Water Model retrospective and short-range forecast streamflow data. Setting this to "NWM_medium_range" will force NenCarta to use the National Water Model retrospective and medium-range forecast streamflow data. Setting this to "NWM_long_range" will force NenCarta to use the National Water Model retrospective and long-range forecast streamflow data. Default "GEOGLOWS".
 
+* **`StrmOrder_Field`** (String, optional): The field in the flowline GIS data that specifies the stream order of the streams in your model domain. This input is required if you plan to use StrmOrder_Lower or StrmOrder_Upper to limit which streams will be used for flood inundation mapping by NenCarta.
+
 * **`StrmOrder_Lower`** (Integer, optional): The lowest value of stream order that you plan to use in your NenCarta simulation.
 
 * **`StrmOrder_Upper`** (Integer, optional): The highest value of stream order that you plan to use in your NenCarta simulation.
