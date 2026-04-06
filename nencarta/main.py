@@ -1084,7 +1084,28 @@ def run_go_consequences(folder: FloodFolder, timer: Timer):
 
     with timer('go_consequences'):
         for depth_file in folder.get_depth_files():
-            Forecast_Flood_Depth_Raster_Name = os.path.basename(depth_file)
+            # Convert the depth raster to WGS84 coordinate system before processing
+            depth_file_wgs84 = depth_file.replace('.tif', '_WGS84.tif')
+            LOG.info(f"Converting depth raster to WGS84: {depth_file} -> {depth_file_wgs84}")
+            try:
+                warp_options = gdal.WarpOptions(
+                    format="GTiff",
+                    dstSRS="EPSG:4326",
+                    resampleAlg=gdal.GRA_Bilinear,
+                    creationOptions=["COMPRESS=DEFLATE"],
+                )
+                ds = gdal.Warp(depth_file_wgs84, depth_file, options=warp_options)
+                if ds is None:
+                    LOG.error(f"Failed to convert {depth_file} to WGS84, using original file")
+                    depth_file_wgs84 = depth_file
+                else:
+                    ds = None
+                    LOG.info(f"Successfully converted to WGS84: {depth_file_wgs84}")
+            except Exception as e:
+                LOG.error(f"Error converting to WGS84: {e}, using original file")
+                depth_file_wgs84 = depth_file
+            
+            Forecast_Flood_Depth_Raster_Name = os.path.basename(depth_file_wgs84)
             Consequences_JSON_File = Forecast_Flood_Depth_Raster_Name.replace('.tif','_consequences.json') 
             Consequences_JSON_Path = os.path.join(folder.Consequences_Folder, Consequences_JSON_File)
             Consequences_Output_GPKG_File = Consequences_JSON_File.replace('.json','.gpkg')
