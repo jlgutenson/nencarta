@@ -210,20 +210,15 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
     #The stream has to move if we are using FLDPLNpy
     move_stream_network_to_new_locations = bool(watershed_dict['move_stream_network_to_new_locations'])
     folder.setup_fldpln_files()
-    if (move_stream_network_to_new_locations is True or watershed_dict['mapper'] == "FLDPLNpy") and watershed_dict['process_stream_network'] is True:
+    if (move_stream_network_to_new_locations is True or watershed_dict['mapper'] == "FLDPLNpy") and watershed_dict['process_stream_network'] is True or os.path.exists(folder.new_StrmShp_matched) is False or os.path.exists(folder.filled_dem) is False:
         # check if the stream threshold was provided, otherwise throw an error:
         if watershed_dict['new_strm_threshold_km2'] is None:
             LOG.error("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using FLPDLNpy. Please provide new_strm_threshold_km2.")
             raise ValueError("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using FLPDLNpy. Please provide new_strm_threshold_km2.")
-        if os.path.exists(folder.flowdir) and os.path.exists(folder.flowacc) and os.path.exists(folder.filled_dem) and watershed_dict['process_stream_network'] is False:
-            LOG.info("The flow direction/accumulation rasters already exist and will not be recreated...")
-        elif watershed_dict['process_stream_network'] is True:
+        else:
             Hydroterrain_Processing.create_flow_direction_and_flow_accumulation_raster(
                 folder.DEM_File, folder.filled_dem, folder.Flow_Direction_Folder, folder.flowdir, folder.flowacc
             )
-        if os.path.exists(folder.new_StrmShp) and os.path.exists(folder.new_catchment) and watershed_dict['process_stream_network'] is False:
-            LOG.info("The flow direction/accumulation rasters already exist and will not be recreated...")
-        elif watershed_dict['process_stream_network'] is True:
             Hydroterrain_Processing.create_catchments_and_flowlines_with_flow_direction_and_accumulation(
                                                                                                             folder.flowdir,
                                                                                                             folder.flowacc,
@@ -245,6 +240,8 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
                                                                         remove_detached_upstream = True,
                                                                         connectivity_tolerance_m = 30.0,
                                                                     )
+    # logic to handle when the stream network was already moved and you just want to use it to forecast flood maps without reprocessing the stream network or downloading reanalysis data again.
+    if (move_stream_network_to_new_locations is True or watershed_dict['mapper'] == "FLDPLNpy") and watershed_dict['process_stream_network'] is False and os.path.exists(folder.new_StrmShp_matched) is True and os.path.exists(folder.filled_dem) is True:
         # Update what things are since we've decided to use FLDPLNpy or to move the stream network.
         original_dem_file = folder.DEM_File
         folder.DEM_File = folder.filled_dem
