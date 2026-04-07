@@ -3,7 +3,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.10
+  - python
   - beautifulsoup4
   - cython
   - dask
@@ -17,11 +17,10 @@ dependencies:
   - numba
   - numpy
   - pandas
-  - pillow=9.0.1
+  - pillow
   - progress
   - pyproj
   - pyqt>=5.15
-  - pygeos
   - rasterio
   - requests
   - s3fs
