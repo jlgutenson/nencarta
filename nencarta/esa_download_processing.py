@@ -4,6 +4,7 @@
 # built-in imports
 import os
 import sys
+import glob
 import time
 import urllib.error
 
@@ -60,7 +61,7 @@ def get_esa_grid():
 
 
 # --- Main (sequential) function ----------------------------------------------
-def Download_ESA_WorldLandCover(output_folder, geom, year) -> list[str]:
+def Download_ESA_WorldLandCover(output_folder, geom, year, land_use_cache_dir=None) -> list[str]:
     """
     Sequential (non-parallel) downloader for ESA WorldCover tiles intersecting `geom`.
     Adds retry/backoff, timeouts, resume, and size validation. Merges to a single GeoTIFF.
@@ -73,6 +74,17 @@ def Download_ESA_WorldLandCover(output_folder, geom, year) -> list[str]:
     tiles = grid[grid.intersects(geom)]
     if tiles.empty:
         raise ValueError("No ESA WorldCover tiles intersect the provided geometry.")
+    
+    landcover_files = []
+    seen_tiles = set()
+    if land_use_cache_dir and os.path.isdir(land_use_cache_dir):
+        land_use_files = glob.glob(os.path.join(land_use_cache_dir, '*.tif'))
+        for tile in tiles['ll_tile']:
+            for land_use_file in land_use_files:
+                if tile.lower() in land_use_file.lower():
+                    landcover_files.append(land_use_file)
+                    seen_tiles.add(tile)
+                    break
 
     version_by_year = {2020: "v100", 2021: "v200"}  # extend as needed for newer years
     if year not in version_by_year:
@@ -81,19 +93,10 @@ def Download_ESA_WorldLandCover(output_folder, geom, year) -> list[str]:
 
     landcover_files = []
     for tile in tiles['ll_tile']:
+        if tile in seen_tiles:
+            continue
         url = f"/vsis3/esa-worldcover/{version}/{year}/map/ESA_WorldCover_10m_{year}_{version}_{tile}_Map.tif"
-        out_fn = Path(output_folder) / Path(url).name
-        if out_fn.exists():
-            try:
-                gdal.Open(str(out_fn))
-                landcover_files.append(str(out_fn))
-                continue
-            except Exception:
-                pass
-            
-        gdal.GetDriverByName('GTiff').CreateCopy(str(out_fn), gdal.Open(url))
-        landcover_files.append(str(out_fn))
-
+        landcover_files.append(url)
 
     return landcover_files
 
@@ -399,7 +402,7 @@ if __name__ == "__main__":
             Create_Water_Mask(lc_file_str, waterboundary_file, 80)
         '''
     
-def download_and_process_land_cover(folder: FloodFolder) -> list[str]:
+def download_and_process_land_cover(folder: FloodFolder, land_use_cache_dir: str = None) -> list[str]:
     LandCoverFiles = []
     if not os.path.exists(folder.LAND_File):
         (lon_1, lat_1, lon_2, lat_2, _, _, _, _, _, Rast_Projection) = Get_Raster_Details(folder.DEM_File)
@@ -416,6 +419,6 @@ def download_and_process_land_cover(folder: FloodFolder) -> list[str]:
             transformer = Transformer.from_crs(raster_crs, wgs84_crs, always_xy=True)
             geom = transform(transformer.transform, geom)
 
-        LandCoverFiles = Download_ESA_WorldLandCover(folder.ESA_LC_Folder, geom, 2021)
+        LandCoverFiles = Download_ESA_WorldLandCover(folder.ESA_LC_Folder, geom, 2021, land_use_cache_dir)
 
     return LandCoverFiles
