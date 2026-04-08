@@ -210,7 +210,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
     #The stream has to move if we are using FLDPLNpy
     move_stream_network_to_new_locations = bool(watershed_dict['move_stream_network_to_new_locations'])
     folder.setup_fldpln_files()
-    if (move_stream_network_to_new_locations is True or watershed_dict['mapper'] == "FLDPLNpy") and watershed_dict['process_stream_network'] is True or os.path.exists(folder.new_StrmShp_matched) is False or os.path.exists(folder.filled_dem) is False:
+    if ((move_stream_network_to_new_locations is True or watershed_dict['mapper'] == "FLDPLNpy") and watershed_dict['process_stream_network'] is True) and (os.path.exists(folder.new_StrmShp_matched) is False or os.path.exists(folder.filled_dem) is False):
         # check if the stream threshold was provided, otherwise throw an error:
         if watershed_dict['new_strm_threshold_km2'] is None:
             LOG.error("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using FLPDLNpy. Please provide new_strm_threshold_km2.")
