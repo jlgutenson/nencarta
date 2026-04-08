@@ -258,7 +258,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
         rivids = get_rivids(folder, watershed_dict, DEM, stream_id_field)
 
     if rivids is None:
-        return
+        return False
 
     #Create the Stream Raster
     if os.path.isfile(folder.STRM_File) and watershed_dict['process_stream_network'] is False:
@@ -1122,7 +1122,9 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
 
     # This function sets-up the Input files for ARC and FloodSpreader
     # It also does some of the geospatial processing
-    Process_Geospatial_Data(folder, watershed_dict, DEM) 
+    flag = Process_Geospatial_Data(folder, watershed_dict, DEM) 
+    if flag is not None:
+        return
 
     # if the DEM_StrmShp file is empty, then we can't do anything
     if not folder.DEM_StrmShp:
