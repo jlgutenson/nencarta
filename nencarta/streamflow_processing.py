@@ -491,7 +491,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
     if StrmShp_filtered_gdf.empty:
         StrmShp_filtered_gdf = StrmShp_gdf.iloc[possible_matches_index]
     '''
-    StrmShp_filtered_gdf = StrmShp_gdf.iloc[possible_matches_index]
+    StrmShp_filtered_gdf = StrmShp_gdf.iloc[possible_matches_index].copy() # Supress the SettingWithCopyWarning since we will be modifying this GeoDataFrame in place and we don't care about the original StrmShp_gdf after this point
 
     # ensure that a 'LINKNO' and 'COMID' fields exists in StrmShp_filtered_gdf
     if 'LINKNO' not in StrmShp_filtered_gdf.columns:

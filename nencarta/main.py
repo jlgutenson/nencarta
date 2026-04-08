@@ -84,7 +84,7 @@ def process_streams_locations_in_dem(folder: FloodFolder, watershed_dict: dict, 
 
 def get_rivids(folder: FloodFolder, watershed_dict: dict, DEM: str, stream_id_field: str) -> np.ndarray | None:
 
-    StrmShp_gdf = gpd.read_file(folder.DEM_StrmShp, driver='GPKG')
+    StrmShp_gdf = gpd.read_file(folder.DEM_StrmShp)
 
     rivids, _ = HistFlows.Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf, stream_id_field, folder, watershed_dict)
 
