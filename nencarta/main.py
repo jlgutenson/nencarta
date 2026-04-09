@@ -22,8 +22,7 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 from arc import Arc
-from numba import njit
-from osgeo import gdal
+from osgeo import gdal, ogr
 from pyproj import CRS
 from shapely.geometry import box
 from curve2flood import Curve2Flood_MainFunction
@@ -146,7 +145,7 @@ def download_forecast_streamflows(watershed_dict: dict, folder: FloodFolder, riv
 
 def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str):
     #Get the Spatial Information from the DEM Raster
-    (minx, miny, maxx, maxy, dx, dy, ncols, nrows, _, dem_projection) = Get_Raster_Details(folder.DEM_File)
+    (minx, miny, maxx, maxy, dx, dy, ncols, nrows, gt, dem_projection) = Get_Raster_Details(folder.DEM_File)
     projWin_extents = [minx, maxy, maxx, miny]
     outputBounds = [minx, miny, maxx, maxy]  #https://gdal.org/api/python/osgeo.gdal.html
 
@@ -258,6 +257,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
         rivids = get_rivids(folder, watershed_dict, DEM, stream_id_field)
 
     if rivids is None:
+        LOG.warning(f"No stream IDs found in {folder.DEM_StrmShp} for {DEM}")
         return False
 
     #Create the Stream Raster
@@ -265,7 +265,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
         LOG.info(folder.STRM_File + ' Already Exists')
     else:
         LOG.info('Creating ' + folder.STRM_File)
-        Create_AR_StrmRaster(folder.DEM_StrmShp, folder.STRM_File, outputBounds, minx, miny, maxx, maxy, dx, dy, ncols, nrows, 'LINKNO')
+        Create_AR_StrmRaster(folder.DEM_StrmShp, folder.STRM_File, gt, dem_projection, ncols, nrows, 'LINKNO')
     
     if os.path.isfile(folder.STRM_File_Clean) and watershed_dict['process_stream_network'] is False:
         LOG.info(folder.STRM_File_Clean + ' Already Exists')
@@ -586,16 +586,15 @@ def Create_AR_LandRaster(LandCoverFiles, LAND_File, projWin_extents, out_project
     gdal.Warp(LAND_File, LandCoverFiles, options=options)
     return
 
-def Create_AR_StrmRaster(StrmSHP, STRM_File, outputBounds, minx, miny, maxx, maxy, dx, dy, ncols, nrows, Param):
+def Create_AR_StrmRaster(StrmSHP, STRM_File, dem_geotransform, dem_projection, ncols, nrows, Param):
     """
     Converts a vector stream dataset (GeoPackage or Shapefile) into a raster.
 
     Parameters:
     - StrmSHP (str): Path to the vector dataset (GeoPackage or Shapefile)
     - STRM_File (str): Output raster file (GeoTIFF)
-    - outputBounds (tuple): (minX, minY, maxX, maxY) defining the raster extent
-    - minx, miny, maxx, maxy: Bounding box coordinates (not explicitly needed if outputBounds is set)
-    - dx, dy: Resolution in X and Y directions
+    - dem_geotransform (list): GDAL geotransform list
+    - dem_projection (str): GDAL projection reference
     - ncols, nrows: Number of columns and rows
     - Param (str): Attribute field to use for rasterization
 
@@ -605,30 +604,37 @@ def Create_AR_StrmRaster(StrmSHP, STRM_File, outputBounds, minx, miny, maxx, max
     LOG.info(f"Processing: {StrmSHP}")
 
     # Open vector dataset (supports both .shp and .gpkg)
-    source_ds = gdal.OpenEx(StrmSHP, gdal.OF_VECTOR)
+    source_ds: gdal.Dataset = gdal.OpenEx(StrmSHP, gdal.OF_VECTOR)
     if source_ds is None:
         LOG.error(f"Error: Could not open {StrmSHP}")
         return
 
     # Get the first (only) layer
-    layer = source_ds.GetLayer(0)
+    layer: ogr.Layer = source_ds.GetLayer(0)
     if layer is None:
         LOG.error(f"Error: No layers found in {StrmSHP}")
         return
 
     layer_name = layer.GetName()  # Get the actual layer name
 
-    # Rasterization
-    gdal.Rasterize(
-        STRM_File, source_ds, format="GTiff", outputType=gdal.GDT_Int32,
-        outputBounds=outputBounds, width=ncols, height=nrows,
-        noData=-9999, attribute=Param,
+    # Create the output raster dataset; this allows the rasterization to reproject on the fly if needed
+    driver: gdal.Driver = gdal.GetDriverByName('GTiff')
+    out_ds: gdal.Dataset = driver.Create(STRM_File, ncols, nrows, 1, gdal.GDT_Int32, options=['COMPRESS=DEFLATE'])
+    out_ds.SetGeoTransform(dem_geotransform)
+    out_ds.SetProjection(dem_projection)
+    out_ds.GetRasterBand(1).SetNoDataValue(-9999)
+
+    options = gdal.RasterizeOptions(
+        attribute=Param,
         layers=[layer_name] if StrmSHP.lower().endswith(".gpkg") else None,  # Fix layers param
         creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=2"]
     )
+    gdal.Rasterize(out_ds, source_ds, options=options)
 
     # Clean up
     source_ds = None
+    out_ds.FlushCache()  # Ensure all data is written to disk
+    out_ds = None  # Properly close the dataset
     LOG.info(f"Rasterization complete: {STRM_File}")
 
     return
@@ -1114,7 +1120,7 @@ def run_go_consequences(folder: FloodFolder, timer: Timer):
 
 
 def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Timer):
-    if not (DEM.endswith(".tif") or DEM.endswith(".img")):
+    if not (DEM.endswith((".tif", ".img", '.vrt'))):
         return
         
     folder.setup_folder_for_dem(DEM, watershed_dict)
