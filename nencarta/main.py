@@ -627,7 +627,6 @@ def Create_AR_StrmRaster(StrmSHP, STRM_File, dem_geotransform, dem_projection, n
     options = gdal.RasterizeOptions(
         attribute=Param,
         layers=[layer_name] if StrmSHP.lower().endswith(".gpkg") else None,  # Fix layers param
-        creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=2"]
     )
     gdal.Rasterize(out_ds, source_ds, options=options)
 
