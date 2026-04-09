@@ -35,7 +35,7 @@ class FloodFolder:
         return folder_path
 
     def setup_folder_for_dem(self, DEM: str, watershed_dict: dict):
-        self.FileName = DEM.replace('.tif','').replace('.img','')
+        self.FileName = os.path.splitext(os.path.basename(DEM))[0]
         self.DEM_File = os.path.join(self.dem_folder, DEM)
 
         # currently the land file will be the same regardless of the streamflow source
@@ -45,7 +45,7 @@ class FloodFolder:
         streamflow_source = watershed_dict['streamflow_source']
         self.DEM_StrmShp = os.path.join(self.strm_folder, f"{streamflow_source}_{self.FileName}_StrmShp.gpkg")
         self.DEM_Reanalsyis_FlowFile = os.path.join(self.FLOW_Folder,f"{streamflow_source}_{self.FileName}_Reanalysis.csv")
-        self.COMID_Q_File = os.path.join(os.path.dirname(self.DEM_Reanalsyis_FlowFile), f"{os.path.basename(self.DEM_File[:-4])}_2yr_flow_initial.txt")
+        self.COMID_Q_File = os.path.join(os.path.dirname(self.DEM_Reanalsyis_FlowFile), f"{self.FileName}_2yr_flow_initial.txt")
 
         # isolating the NWM or GEOGLOWS text in the streamflow_source variable
         match = re.search(r"(NWM|GEOGLOWS)", streamflow_source)
@@ -96,12 +96,12 @@ class FloodFolder:
         self.LandCoverFiles = LandCoverFiles
 
     def setup_fldpln_files(self):
-        self.filled_dem = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.DEM_File).replace('.tif','_filled.tif'))
-        self.flowdir = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.DEM_File).replace(".tif","_flowdir.tif"))
-        self.flowacc = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.DEM_File).replace(".tif","_flowacc.tif"))
-        self.new_StrmShp = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.DEM_File).replace(".tif","_flowlines.gpkg"))
-        self.new_catchment = os.path.join(self.Flow_Direction_Folder, os.path.basename(self.DEM_File).replace(".tif","_catchments.gpkg"))
-        self.new_StrmShp_matched = os.path.join(self.strm_folder, os.path.basename(self.DEM_File).replace(".tif","_flowlines_matched.gpkg"))
+        self.filled_dem = os.path.join(self.Flow_Direction_Folder, f"{self.FileName}_filled.tif")
+        self.flowdir = os.path.join(self.Flow_Direction_Folder, f"{self.FileName}_flowdir.tif")
+        self.flowacc = os.path.join(self.Flow_Direction_Folder, f"{self.FileName}_flowacc.tif")
+        self.new_StrmShp = os.path.join(self.Flow_Direction_Folder, f"{self.FileName}_flowlines.gpkg")
+        self.new_catchment = os.path.join(self.Flow_Direction_Folder, f"{self.FileName}_catchments.gpkg")
+        self.new_StrmShp_matched = os.path.join(self.strm_folder, f"{self.FileName}_flowlines_matched.gpkg")
 
     def setup_flood_forecast_files(self, Forecast_Flood_Map: str, Forecast_Flood_Depth_Raster: str, ForecastFlowFile: str):
         self.Forecast_Flood_Map = Forecast_Flood_Map
