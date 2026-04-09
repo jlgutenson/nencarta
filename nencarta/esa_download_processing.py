@@ -91,7 +91,6 @@ def Download_ESA_WorldLandCover(output_folder, geom, year, land_use_cache_dir=No
         raise ValueError(f"Year {year} not supported. Available: {list(version_by_year)}")
     version = version_by_year[year]
 
-    landcover_files = []
     for tile in tiles['ll_tile']:
         if tile in seen_tiles:
             continue
