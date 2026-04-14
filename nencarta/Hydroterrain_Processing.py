@@ -190,32 +190,6 @@ def create_catchments_and_flowlines_with_flow_direction_and_accumulation(
         "stream_threshold_km2": float(stream_threshold_km2),
     }
 
-# Estimate segment bearing from first-to-last vertex.
-def _bearing_deg(line):
-    if line is None or line.is_empty:
-        return None
-    if line.geom_type == "MultiLineString":
-        line = linemerge(line)
-        if line.geom_type == "MultiLineString":
-            line = max(line.geoms, key=lambda g: g.length)
-    coords = list(line.coords)
-    if len(coords) < 2:
-        return None
-    x0, y0 = coords[0]
-    x1, y1 = coords[-1]
-    if (x1 == x0) and (y1 == y0):
-        return None
-    return math.degrees(math.atan2(y1 - y0, x1 - x0))
-
-# Convert angular difference to [0,1] similarity (1 is best).
-# Reversed line direction is treated as equivalent.
-def _angle_similarity(a1, a2):
-    if a1 is None or a2 is None:
-        return 0.5
-    d = abs(a1 - a2) % 360.0
-    d = min(d, 360.0 - d)
-    d = min(d, abs(180.0 - d))  # treat reversed direction as equivalent
-    return max(0.0, 1.0 - (d / 90.0))
 
 def match_new_streams_to_old_streams(
     new_streams_vector: str,
@@ -224,7 +198,6 @@ def match_new_streams_to_old_streams(
     old_linkno_field: str = "LINKNO",
     old_dslinkno_field: str = "DSLINKNO",
     old_stream_order_field: str | None = "StrmOrder",
-    max_centroid_distance_m: float = 300.0,
     min_match_score: float = 0.05,
     require_overlap: bool = True,
     remove_detached_upstream: bool = True,
@@ -260,7 +233,6 @@ def match_new_streams_to_old_streams(
     - `old_stream_order_field`: Optional field in `old_streams_vector` holding
       stream order values to transfer into the matched output. When `None` or
       not present, stream order is skipped.
-    - `max_centroid_distance_m`: Retained for API compatibility and diagnostics.
     - `min_match_score`: Minimum buffered-overlap score required to keep a match.
     - `require_overlap`: If `True`, candidate lines must intersect.
     - `remove_detached_upstream`: If `True`, remove detached subnetworks by
@@ -420,6 +392,7 @@ def match_new_streams_to_old_streams(
 
     # Build matched GeoDataFrame in projected CRS for optional topology filtering.
     matched_proj = gpd.GeoDataFrame(matched_rows, geometry="geometry", crs=new_streams.crs).reset_index(drop=True)
+
 
     # Optionally remove detached subnetworks by keeping only the main connected
     # component (largest summed length). Connectivity is based on intersects()

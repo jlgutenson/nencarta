@@ -6,6 +6,7 @@ class FloodFolder:
         self.watershed = configs.get('name')
         self.output_dir = configs.get('output_dir')
         self.dem_folder = configs.get('dem_dir')
+        self.mapper = configs.get('mapper', 'FloodSpreader')
 
         self.ARC_Folder = self._create_and_get_folder('ARC_InputFiles')
         self.flood_folder = self._create_and_get_folder('FloodMap')

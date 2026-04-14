@@ -128,7 +128,7 @@ These inputs are:
 
 * **`mannings_text_file`** (String, optional): The full filepath to the Manning's n text file to be used in the flood mapping process. If not provided, NenCarta will use its built-in default Manning's n values.
 
-* **`mapper`** (String, optional): Here you're specifying if you're running "FloodSpreader", "Curve2Flood", or "FLDPLNpy" when performing bathymetry estimation and flood inundation mapping. Defaults to FloodSpreader
+* **`mapper`** (String, optional): Here you're specifying if you're running "FloodSpreader", "Curve2Flood-Kernel Weighted", or "Curve2Flood-FLDPLNpy", or "Curve2Flood-Multi-Point Interpolation" when performing bathymetry estimation and flood inundation mapping. Defaults to FloodSpreader
 
 * **`min_match_score`** (Float, optional): This is the threshold value that is used to determine if a good match is made when using the `move_stream_network_to_new_locations` option. NenCarta scores the match between each new stream and old stream by creating a 50 m buffer around each old and new stream and determining what proportion of the two areas overlap. The `min_match_score` is the minimum proportion that can be considered a credible match by the system. 
 

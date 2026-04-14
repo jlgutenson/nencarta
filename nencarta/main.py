@@ -40,6 +40,30 @@ from . import esa_download_processing as ESA
 from . import streamflow_processing as HistFlows
 from . import Download_Process_ForecastData as ForecastFlows
 
+CURVE2FLOOD_MAPPERS = [
+    "Curve2Flood-Kernel Weighted",
+    "Curve2Flood-FLDPLNpy",
+    "Curve2Flood-Multi-Point Interpolation",
+]
+ALL_MAPPERS = ["FloodSpreader"] + CURVE2FLOOD_MAPPERS
+
+
+def normalize_mapper_name(mapper: str | None) -> str:
+    if mapper is None:
+        return "Curve2Flood-Kernel Weighted"
+    mapper = str(mapper).strip()
+    if mapper == "":
+        return "Curve2Flood-Kernel Weighted"
+    return mapper
+
+
+def is_curve2flood_mapper(mapper: str | None) -> bool:
+    return normalize_mapper_name(mapper) in CURVE2FLOOD_MAPPERS
+
+
+def is_curve2flood_fldpln_mapper(mapper: str | None) -> bool:
+    return normalize_mapper_name(mapper) == "Curve2Flood-FLDPLNpy"
+
 
 def _resolve_parallel_settings(data, cli_parallel=None, cli_num_workers=None):
     """
@@ -207,14 +231,14 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
 
     
     #Determine if we want to move the stream network using the move_stream_network_to_new_locations argument. 
-    #The stream has to move if we are using FLDPLNpy
+    #The stream has to move if we are using Curve2Flood-FLDPLNpy
     move_stream_network_to_new_locations = bool(watershed_dict['move_stream_network_to_new_locations'])
     folder.setup_fldpln_files()
-    if (move_stream_network_to_new_locations is True or watershed_dict['mapper'] == "FLDPLNpy") and watershed_dict['process_stream_network'] is True or os.path.exists(folder.new_StrmShp_matched) is False or os.path.exists(folder.filled_dem) is False:
+    if (move_stream_network_to_new_locations is True or is_curve2flood_fldpln_mapper(watershed_dict['mapper'])) and (watershed_dict['process_stream_network'] is True or os.path.exists(folder.new_StrmShp_matched) is False or os.path.exists(folder.filled_dem) is False):
         # check if the stream threshold was provided, otherwise throw an error:
         if watershed_dict['new_strm_threshold_km2'] is None:
-            LOG.error("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using FLPDLNpy. Please provide new_strm_threshold_km2.")
-            raise ValueError("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using FLPDLNpy. Please provide new_strm_threshold_km2.")
+            LOG.error("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using Curve2Flood-FLDPLNpy. Please provide new_strm_threshold_km2.")
+            raise ValueError("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using Curve2Flood-FLDPLNpy. Please provide new_strm_threshold_km2.")
         else:
             Hydroterrain_Processing.create_flow_direction_and_flow_accumulation_raster(
                 folder.DEM_File, folder.filled_dem, folder.Flow_Direction_Folder, folder.flowdir, folder.flowacc
@@ -235,14 +259,17 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
                                                                         ds_stream_id_field,
                                                                         watershed_dict["StrmOrder_Field"],
                                                                         min_match_score = watershed_dict['min_match_score'],
-                                                                        max_centroid_distance_m = 2000.0,
                                                                         require_overlap = True,
                                                                         remove_detached_upstream = True,
                                                                         connectivity_tolerance_m = 30.0,
                                                                     )
+        # Update what things are since we've decided to use Curve2Flood-FLDPLNpy or to move the stream network.
+        original_dem_file = folder.DEM_File
+        folder.DEM_File = folder.filled_dem
+        folder.DEM_StrmShp = folder.new_StrmShp_matched
     # logic to handle when the stream network was already moved and you just want to use it to forecast flood maps without reprocessing the stream network or downloading reanalysis data again.
-    if (move_stream_network_to_new_locations is True or watershed_dict['mapper'] == "FLDPLNpy") and watershed_dict['process_stream_network'] is False and os.path.exists(folder.new_StrmShp_matched) is True and os.path.exists(folder.filled_dem) is True:
-        # Update what things are since we've decided to use FLDPLNpy or to move the stream network.
+    if (move_stream_network_to_new_locations is True or is_curve2flood_fldpln_mapper(watershed_dict['mapper'])) and watershed_dict['process_stream_network'] is False and os.path.exists(folder.new_StrmShp_matched) is True and os.path.exists(folder.filled_dem) is True:
+        # Update what things are since we've decided to use Curve2Flood-FLDPLNpy or to move the stream network.
         original_dem_file = folder.DEM_File
         folder.DEM_File = folder.filled_dem
         folder.DEM_StrmShp = folder.new_StrmShp_matched
@@ -364,8 +391,12 @@ def _write_arc_input_section(out_file: TextIO, folder: FloodFolder, watershed_di
 
 def _write_fldpln_section(out_file: TextIO, folder: FloodFolder, watershed_dict: dict, use_bathy_flow_dir: bool = False):
     out_file.write('\n\n#FLDPLN_Specific_Inputs')
-    out_file.write(f'\nUse_FLDPLN_Model\tTrue')
     out_file.write(f'\nFlow_Direction_File\t{folder.flowdir if use_bathy_flow_dir else folder.flowdir}')
+
+
+def _write_curve2flood_mapper_line(out_file: TextIO, watershed_dict: dict):
+    mapper = normalize_mapper_name(watershed_dict['mapper'])
+    out_file.write(f'\nmapper\t{mapper}')
 
 def Create_ARC_Model_Input_File_Initial_for_cleaning_dem(folder: FloodFolder, watershed_dict: dict, COMID_Param: str):
     with open(folder.ARC_FileName_Initial, 'w') as out_file:
@@ -380,6 +411,7 @@ def Create_ARC_Model_Input_File_Initial_for_cleaning_dem(folder: FloodFolder, wa
         out_file.write('\n\n#Mapper Input Data')
         out_file.write(f'\nStrmShp_File\t{folder.DEM_StrmShp}')
         out_file.write(f'\nComid_Flow_File\t{folder.COMID_Q_File}')
+        _write_curve2flood_mapper_line(out_file, watershed_dict)
         out_file.write(f'\nFS_ADJUST_FLOW_BY_FRACTION\t1.0')
         out_file.write(f'\nBathy_Use_Banks\t{watershed_dict["bathy_use_banks"]}')
         if watershed_dict['flood_waterlc_and_strm_cells']:
@@ -388,7 +420,7 @@ def Create_ARC_Model_Input_File_Initial_for_cleaning_dem(folder: FloodFolder, wa
             out_file.write(f'\nFindBanksBasedOnLandCover\t{watershed_dict["find_banks_based_on_landcover"]}')
         # out_file.write(f'\nFloodLocalOnly')
         if watershed_dict['use_specified_depth_for_bathy_mask']:
-            if watershed_dict['mapper'] == "FLDPLNpy":
+            if is_curve2flood_fldpln_mapper(watershed_dict['mapper']):
                 _write_fldpln_section(out_file, folder, watershed_dict)
             out_file.write(f'\nOutFLD\t{folder.FloodMapFile_Initial}')
             out_file.write(f'\nOutSHP\t' + folder.FloodMapFile_Initial.replace('.tif', '.shp'))
@@ -415,6 +447,7 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
         out_file.write('\n\n#Mapper Input Data')
         out_file.write(f'\nComid_Flow_File\t{folder.COMID_Q_File}')
         out_file.write(f'\nStrmShp_File\t{folder.DEM_StrmShp}')
+        _write_curve2flood_mapper_line(out_file, watershed_dict)
         out_file.write(f'\nFS_ADJUST_FLOW_BY_FRACTION\t{bathy_args.get("FS_ADJUST_FLOW_BY_FRACTION", 1.0)}')
         # out_file.write(f'\nFloodLocalOnly')
         out_file.write(f'\nOutFLD\t{folder.FloodMapFile_Bathy}')
@@ -427,7 +460,7 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
             out_file.write('\nMake_Output_GPKG\tFalse')
 
         if watershed_dict['use_specified_depth_for_bathy_mask']:
-            if watershed_dict['mapper'] == "FLDPLNpy":
+            if is_curve2flood_fldpln_mapper(watershed_dict['mapper']):
                 _write_fldpln_section(out_file, folder, watershed_dict, True)
             if len(watershed_dict['specify_depths_for_bathy_mask']) == 1:
                 specified_depth = watershed_dict['specify_depths_for_bathy_mask'][0]
@@ -467,7 +500,8 @@ def write_first_floodmap_inputs(out_file: TextIO, folder: FloodFolder, watershed
     out_file.write('\n\n#Mapper Input Data')
     out_file.write(f'\nStrmShp_File\t{folder.DEM_StrmShp}')
     out_file.write(f'\nComid_Flow_File\t{flow_file}')
-    if watershed_dict['mapper'] == "FLDPLNpy":
+    _write_curve2flood_mapper_line(out_file, watershed_dict)
+    if is_curve2flood_fldpln_mapper(watershed_dict['mapper']):
         _write_fldpln_section(out_file, folder, watershed_dict, True)
     out_file.write(f'\nFS_ADJUST_FLOW_BY_FRACTION\t{floodmap_args.get("FS_ADJUST_FLOW_BY_FRACTION", 1.0)}')
     out_file.write(f'\nTW_MultFact\t{floodmap_args.get("TW_MultFact", 1.5)}')
@@ -511,6 +545,9 @@ def create_input_file_for_user_flowfiles(folder: FloodFolder, watershed_dict: di
             f.write(f'\nLU_Raster_SameRes\t{folder.LAND_File}')
             f.write(f'\nLAND_WaterValue\t{str(watershed_dict["land_watervalue"])}')
 
+        _write_curve2flood_mapper_line(f, watershed_dict)
+        if is_curve2flood_fldpln_mapper(watershed_dict['mapper']):
+            _write_fldpln_section(f, folder, watershed_dict, True)
         write_floodmap_outputs(f, [flood_file, floodmap_geometry_file, depth_file, wse_file, velocity_file], watershed_dict)
 
 
@@ -909,12 +946,23 @@ def create_fist_inputs(folder: FloodFolder, watershed_dict: dict, timer: Timer):
         for streamflow_column in streamflow_columns:            
             streamflow_forecast_filtered_df = streamflow_forecast_df[[id_column_name, streamflow_column]]
             if watershed_dict['floodmap_mode'] == 'forecast':
-                GeoJSON_File = os.path.join(folder.FIST_Folder, f"{folder.FileName}_{watershed_dict['forensic_forecast_date']}_{streamflow_column}.geojson") 
+                # if it is a forecast, decifer the name of the forecast based upon the type of streamflow data and the presence of a forensic forecast date, and then name the geojson accordingly
+                if watershed_dict['forensic_forecast_date'] is not None and watershed_dict['streamflow_source'].upper().startswith("GEOGLOWS"):
+                    GeoJSON_File = os.path.join(folder.FIST_Folder, f"{folder.FileName}_{watershed_dict['forensic_forecast_date']}_{streamflow_column}.geojson") 
+                elif watershed_dict['forensic_forecast_date'] is None and watershed_dict['streamflow_source'].upper().startswith("GEOGLOWS"):
+                    GeoJSON_File = os.path.join(folder.FIST_Folder, f"{folder.FileName}_{watershed_dict['forecastdate']}_{streamflow_column}.geojson") 
+                elif watershed_dict['forensic_forecast_date'] is not None and watershed_dict['streamflow_source'].upper().startswith("NWM"):
+                    GeoJSON_File = os.path.join(folder.FIST_Folder, f"{folder.FileName}_{watershed_dict['forensic_forecast_date']}_{watershed_dict['forensic_forecast_hour']}_{streamflow_column}.geojson")
+                elif watershed_dict['forensic_forecast_date'] is None and watershed_dict['streamflow_source'].upper().startswith("NWM"):
+                    GeoJSON_File = os.path.join(folder.FIST_Folder, f"{folder.FileName}_{watershed_dict['forecastdate']}_{watershed_dict['forecasthour']}_{streamflow_column}.geojson")
+
             elif watershed_dict['floodmap_mode'] == 'user':
                 GeoJSON_File = os.path.join(folder.FIST_Folder, f"{folder.FileName}_{os.path.basename(flow_file).rsplit('.', 1)[0]}_{streamflow_column}.geojson")
 
+            # Always regenerate the FIST GeoJSON so reruns pick up CRS and
+            # geometry fixes instead of silently reusing a stale output file.
             if os.path.exists(GeoJSON_File):
-                continue
+                os.remove(GeoJSON_File)
 
             LOG.info('Creating FIST Input: ' + GeoJSON_File)
             with timer('geojson_fist'):
@@ -978,7 +1026,7 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
             floodspreader_path = os.path.join(script_dir, "floodspreader.py")
             call_mapper = f'python "{floodspreader_path}" {folder.ARC_FileName_Initial}'
             subprocess.call(call_mapper, shell=True)
-        elif (watershed_dict['mapper'] in ["Curve2Flood", "FLDPLNpy"]) and watershed_dict['use_specified_depth_for_bathy_mask']:
+        elif is_curve2flood_mapper(watershed_dict['mapper']) and watershed_dict['use_specified_depth_for_bathy_mask']:
             LOG.info(f"Executing Curve2Flood using {folder.ARC_FileName_Initial}")
             Curve2Flood_MainFunction(folder.ARC_FileName_Initial, quiet=watershed_dict['quiet'])
     
@@ -1007,14 +1055,12 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
 
 def create_bathymetry(folder: FloodFolder, watershed_dict: dict, timer: Timer):
     # Create a Bathymetry Raster Dataset
-    if not os.path.exists(folder.FS_BathyFile) or watershed_dict['process_stream_network'] is True:
+    if not os.path.exists(folder.FS_BathyFile) or not os.path.exists(folder.ARC_BathyFile) or watershed_dict['process_stream_network'] is True:
         LOG.info('Cannot find bathy file, so creating ' + folder.FS_BathyFile)
-        if not os.path.exists(folder.ARC_BathyFile):
-            # start time for the simulation
-            with timer('arc_bathy'):
-                arc = Arc(folder.ARC_FileName_Bathy, quiet=watershed_dict['quiet'])
-                arc.run()
-        else:
+        # start time for the simulation
+        with timer('arc_bathy'):
+            arc = Arc(folder.ARC_FileName_Bathy, quiet=watershed_dict['quiet'])
+            arc.run()
             LOG.info(f"{folder.ARC_BathyFile} exists and we aren't making it again...")   
 
         with timer('flood_bathy'):
@@ -1025,7 +1071,7 @@ def create_bathymetry(folder: FloodFolder, watershed_dict: dict, timer: Timer):
                 # Build the subprocess call with the full path
                 call_mapper = f'python "{floodspreader_path}" {folder.ARC_FileName_Bathy}'
                 subprocess.call(call_mapper, shell=True)
-            elif (watershed_dict['mapper'] in ["Curve2Flood", "FLDPLNpy"]):
+            elif is_curve2flood_mapper(watershed_dict['mapper']):
                 LOG.info(f"Executing Curve2Flood using {folder.ARC_FileName_Bathy}")
                 Curve2Flood_MainFunction(folder.ARC_FileName_Bathy, quiet=watershed_dict['quiet'])
     else:
@@ -1040,7 +1086,7 @@ def run_flood_mapper(watershed_dict: dict, folder: FloodFolder, timer: Timer, in
             # Build the subprocess call with the full path
             call_mapper = f'python "{floodspreader_path}" {input_file}'
             subprocess.call(call_mapper, shell=True)
-        elif (watershed_dict['mapper'] == "Curve2Flood" or watershed_dict['mapper'] == "FLDPLNpy"):
+        elif is_curve2flood_mapper(watershed_dict['mapper']):
             LOG.info(f"Executing Curve2Flood using {input_file}")
             Curve2Flood_MainFunction(input_file, quiet=watershed_dict['quiet'])
 
@@ -1269,12 +1315,16 @@ def process_dem(watershed_dict: dict, timer: Timer):
     folder = FloodFolder(watershed_dict)
 
     # Validate data
-    if watershed_dict.get('mapper') not in ["FloodSpreader", "Curve2Flood", "FLDPLNpy"]:
-        raise ValueError("Invalid mapper specified. Choose 'FloodSpreader', 'Curve2Flood', or 'FLDPLNpy'.")
+    if watershed_dict.get('mapper') not in ALL_MAPPERS:
+        raise ValueError(
+            "Invalid mapper specified. Choose 'FloodSpreader', "
+            "'Curve2Flood-Kernel Weighted', 'Curve2Flood-FLDPLNpy', or "
+            "'Curve2Flood-Multi-Point Interpolation'."
+        )
     
-    if watershed_dict.get('mapper') == 'FLDPLNpy':
+    if is_curve2flood_fldpln_mapper(watershed_dict.get('mapper')):
         if watershed_dict.get('move_stream_network_to_new_locations') is False:
-            raise ValueError("The stream network needs to be moved to use the FLDPLNpy mapper. " \
+            raise ValueError("The stream network needs to be moved to use the Curve2Flood-FLDPLNpy mapper. " \
             "Please set move_stream_network_to_new_locations to true in order to proceed...")
     
     if not watershed_dict.get('mannings_text_file'):
@@ -1282,9 +1332,14 @@ def process_dem(watershed_dict: dict, timer: Timer):
 
     # If you are using the warning flags to download the DEM data, do it now
     if watershed_dict['use_warning_flags_to_download_dem']:
-        # This outputs a list of DEMs were GEOGLOWS has forecasted flooding (2-year exceedance or above)
-        DEM_List = ForecastFlows.Download_USGS_DEM_Data_Using_WarningFlag_Data(
-            watershed_dict['geoglows_vpu'], folder.dem_folder, watershed_dict['forensic_forecast_date'])
+        if watershed_dict['forensic_forecast_date'] is not None:
+            # This outputs a list of DEMs were GEOGLOWS has forecasted flooding (2-year exceedance or above)
+            DEM_List = ForecastFlows.Download_USGS_DEM_Data_Using_WarningFlag_Data(
+                watershed_dict['geoglows_vpu'], folder.dem_folder, watershed_dict['forensic_forecast_date'])
+        else:
+            # This outputs a list of DEMs were GEOGLOWS has forecasted flooding (2-year exceedance or above)
+            DEM_List = ForecastFlows.Download_USGS_DEM_Data_Using_WarningFlag_Data(
+            watershed_dict['geoglows_vpu'], folder.dem_folder, watershed_dict['forecastdate'])
     else:
         #This is the list of all the DEM files we will go through
         filter = watershed_dict.get('dem_filter', '*')
@@ -1388,12 +1443,7 @@ def validate_forecast_date(forensic_forecast_date: str, streamflow_source: str):
                 forensic_forecast_date_dt = datetime.strptime(forensic_forecast_date, '%Y-%m-%d %H:%M:%S %Z')
             except ValueError:
                 raise ValueError(f"Invalid forensic_forecast_date format: {forensic_forecast_date}")
-        
-        # sanity check (only if you want to enforce July 1, 2024 rule)
-        LOG.info(f"The forensic forecast date provided is {forensic_forecast_date_dt}")
-        if forensic_forecast_date_dt < datetime(2024, 7, 1) and streamflow_source.upper().startswith("GEOGLOWS"):
-            LOG.error(f"Warning: Forensic forecast date {forensic_forecast_date} is earlier than July 1, 2024. Exiting...")
-            raise ValueError(f"Forensic forecast date {forensic_forecast_date} is earlier than July 1, 2024. Please provide a date on or after July 1, 2024.")
+            
     else:
         forensic_forecast_date = None
         LOG.info("Forensic forecast date not provided; defaulting to None.")
@@ -1473,7 +1523,7 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "flood_waterlc_and_strm_cells": input_dict.get("flood_waterlc_and_strm_cells", False),
         "land_watervalue": input_dict.get("land_watervalue", 80),
         "clean_dem": clean_dem,
-        "mapper": input_dict.get("mapper", "FloodSpreader"),
+        "mapper": normalize_mapper_name(input_dict.get("mapper", "FloodSpreader")),
         "process_stream_network": input_dict.get("process_stream_network", False),
         "use_specified_depth_for_bathy_mask": use_specified_depth_for_bathy_mask,
         "age_of_forecast_days": input_dict.get("age_of_forecast_days", 7),
@@ -1613,7 +1663,7 @@ def main():
                         help="Land water value in the land cover raster (Required if --flood_waterlc_and_strm_cells is True)")
     cli_parser.add_argument("--clean_dem", action="store_true", help="Clean DEM data before processing")
     cli_parser.add_argument("--process_stream_network", action="store_true", help="Clean DEM data before processing")
-    cli_parser.add_argument("--mapper", type=str, default="Curve2Flood", choices=["FloodSpreader", "Curve2Flood", "FLDPLNpy"], help="Mapping method")
+    cli_parser.add_argument("--mapper", type=str, default="Curve2Flood-Kernel Weighted", choices=ALL_MAPPERS, help="Mapping method")
     cli_parser.add_argument("--use_specified_depth_for_bathy_mask", action="store_true", help="Specify a depth for FloodSprederPy to use for bathymetry masking")
     cli_parser.add_argument("--age_of_forecast_days", type=int, default=7, help="Age of forecast in days")
     cli_parser.add_argument("--find_banks_based_on_landcover", action="store_true", help="Use landcover data for finding banks when estimating bathymetry")
@@ -1637,7 +1687,7 @@ def main():
     cli_parser.add_argument("--remove_old_forecast_files", action="store_true", help="Remove old forecast files before processing")
     cli_parser.add_argument("--make_fist_inputs", action="store_true", help="Make FIST inputs after processing")
     cli_parser.add_argument("--move_stream_network_to_new_locations", action="store_true", help="Move stream network to new locations")
-    cli_parser.add_argument("--new_strm_threshold_km2", type=float, default=None, help="The stream threshold for creating a new stream network for the DEM that you will be using. Use in conjunction with move_stream_network_to_new_locations and FLDPLNpy")
+    cli_parser.add_argument("--new_strm_threshold_km2", type=float, default=None, help="The stream threshold for creating a new stream network for the DEM that you will be using. Use in conjunction with move_stream_network_to_new_locations and Curve2Flood-FLDPLNpy")
     cli_parser.add_argument("--min_match_score", type=float, default=None, help="The score needed to conflate the new DEM based network with the one provided by the as the `flowline` input")
     gui_parser = subparsers.add_parser("gui", help="Summon the GUI application")
 
