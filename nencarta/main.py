@@ -458,10 +458,10 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
         out_file.write(f'\nTopWidthPlausibleLimit\t{bathy_args.get("TopWidthPlausibleLimit", 2000)}')
         if not bathy_args.get('Make_Output_GPKG', True):
             out_file.write('\nMake_Output_GPKG\tFalse')
+        if is_curve2flood_fldpln_mapper(watershed_dict['mapper']):
+            _write_fldpln_section(out_file, folder, watershed_dict, True)
 
         if watershed_dict['use_specified_depth_for_bathy_mask']:
-            if is_curve2flood_fldpln_mapper(watershed_dict['mapper']):
-                _write_fldpln_section(out_file, folder, watershed_dict, True)
             if len(watershed_dict['specify_depths_for_bathy_mask']) == 1:
                 specified_depth = watershed_dict['specify_depths_for_bathy_mask'][0]
             if len(watershed_dict['specify_depths_for_bathy_mask']) == 2:
