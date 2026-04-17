@@ -9,6 +9,7 @@ from whitebox import WhiteboxTools
 import geopandas as gpd
 from shapely.ops import unary_union, linemerge
 import numpy as np
+import pandas as pd
 
 from . import LOG
 
@@ -55,7 +56,8 @@ def create_catchments_and_flowlines_with_flow_direction_and_accumulation(
     out_catchments_gpkg: str | None = None,
 ):
     """
-    Build threshold-based streams and catchments directly from flowdir/FAC rasters.
+    Build threshold-based streams and catchments directly from flowdir/FAC rasters,
+    and assess topology to determine upstream and downstream connectivity.
     """
     os.makedirs(out_dir, exist_ok=True)
 
@@ -181,6 +183,55 @@ def create_catchments_and_flowlines_with_flow_direction_and_accumulation(
     stream_parts["catchment_id"] = stream_parts["catchment_id"].astype(np.int64)
     stream_parts["stream_id"] = stream_parts["catchment_id"]
     stream_parts["id"] = stream_parts["catchment_id"]
+
+    # ====================================================================
+    # TOPOLOGY ASSESSMENT: UPSTREAM & DOWNSTREAM CONNECTIVITY
+    # ====================================================================
+    
+    # Helper function to extract rounded start (upstream) and end (downstream) points
+    # Rounding resolves floating-point mismatch when matching geometric vertices
+    def get_endpoints(geom, decimals=3):
+        if geom.geom_type == 'LineString':
+            start, end = geom.coords[0], geom.coords[-1]
+        elif geom.geom_type == 'MultiLineString':
+            # D8 algorithm ensures coordinate order follows flow direction
+            start = geom.geoms[0].coords[0]
+            end = geom.geoms[-1].coords[-1]
+        else:
+            return None, None
+        return (round(start[0], decimals), round(start[1], decimals)), \
+               (round(end[0], decimals), round(end[1], decimals))
+
+    # 1. Map all upstream inlet coordinates to their respective stream_id
+    start_nodes = {}
+    for _, row in stream_parts.iterrows():
+        start_pt, _ = get_endpoints(row.geometry)
+        if start_pt:
+            start_nodes[start_pt] = row["stream_id"]
+
+    # 2. Determine downstream_id by looking up where the current stream's outlet lands
+    def find_downstream(geom):
+        _, end_pt = get_endpoints(geom)
+        if end_pt:
+            # Return matching stream_id, or -1 if no downstream connection (outlet)
+            return start_nodes.get(end_pt, -1) 
+        return -1
+
+    stream_parts["downstream_id"] = stream_parts.geometry.apply(find_downstream).astype(np.int64)
+
+    # 3. Assemble upstream connectivity 
+    upstream_map = {}
+    for _, row in stream_parts.iterrows():
+        ds_id = row["downstream_id"]
+        if ds_id != -1:
+            upstream_map.setdefault(ds_id, []).append(str(row["stream_id"]))
+
+    # Join multiple upstream ids with a comma for confluences
+    stream_parts["upstream_ids"] = stream_parts["stream_id"].apply(
+        lambda sid: ",".join(upstream_map.get(sid, []))
+    )
+    # ====================================================================
+
     _write_single_layer_gpkg(stream_parts, out_flowlines_gpkg, flowlines_layer_name)
 
     return {
@@ -301,7 +352,9 @@ def match_new_streams_to_old_streams(
     old_streams["_buffer_geom"] = old_streams.geometry.buffer(buffer_distance_m)
     old_buffer_sindex = gpd.GeoSeries(old_streams["_buffer_geom"], crs=old_streams.crs).sindex
 
-    # Precompute new stream centroids for diagnostics.
+    # Precompute new stream centroids for diagnostics and keep a stable source-row id
+    # so matched siblings can be reattached after any optional topology filtering.
+    new_streams["_src_oid"] = np.arange(len(new_streams), dtype=np.int64)
     new_streams["_oidx"] = np.arange(len(new_streams), dtype=np.int64)
     new_streams["_centroid"] = new_streams.geometry.centroid
 
@@ -455,6 +508,46 @@ def match_new_streams_to_old_streams(
 
     # Return to original new-stream CRS and write a single-layer GeoPackage.
     matched_out = matched_proj.to_crs(new_streams.crs) if matched_proj.crs != new_streams.crs else matched_proj
+
+    # Once direct matches are finalized, include any additional new-stream
+    # features sharing a matched stream_id and copy the same transferred old-
+    # stream attributes and diagnostics onto those sibling features.
+    if "stream_id" in matched_out.columns and "stream_id" in new_streams.columns and "_src_oid" in matched_out.columns:
+        matched_stream_ids = matched_out["stream_id"].dropna().unique().tolist()
+        if matched_stream_ids:
+            existing_src_oids = set(pd.to_numeric(matched_out["_src_oid"], errors="coerce").dropna().astype(np.int64).tolist())
+            sibling_candidates = new_streams[new_streams["stream_id"].isin(matched_stream_ids)].copy()
+            sibling_candidates = sibling_candidates[
+                ~pd.to_numeric(sibling_candidates["_src_oid"], errors="coerce").fillna(-1).astype(np.int64).isin(existing_src_oids)
+            ].copy()
+
+            if not sibling_candidates.empty:
+                transfer_cols = [
+                    col
+                    for col in [
+                        "LINKNO",
+                        "DSLINKNO",
+                        old_stream_order_col,
+                        "match_score",
+                        "centroid_dist_m",
+                        "line_dist_m",
+                        "overlap_area_m2",
+                        "overlap_ratio",
+                        "overlap_hit",
+                    ]
+                    if col is not None and col in matched_out.columns
+                ]
+                template_cols = ["stream_id"] + transfer_cols
+                stream_templates = matched_out[template_cols].drop_duplicates(subset=["stream_id"], keep="first")
+                sibling_out = sibling_candidates.merge(stream_templates, on="stream_id", how="left")
+                sibling_out = sibling_out[matched_out.columns]
+                matched_out = gpd.GeoDataFrame(
+                    pd.concat([matched_out, sibling_out], ignore_index=True),
+                    geometry="geometry",
+                    crs=matched_out.crs,
+                )
+
+    matched_out = matched_out.drop(columns=["_oidx", "_centroid", "_src_oid"], errors="ignore")
 
     # remove the old file before making the new one
     if os.path.exists(out_streams_vector):

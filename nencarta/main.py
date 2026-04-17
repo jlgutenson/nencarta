@@ -259,9 +259,10 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
                                                                         ds_stream_id_field,
                                                                         watershed_dict["StrmOrder_Field"],
                                                                         min_match_score = watershed_dict['min_match_score'],
-                                                                        require_overlap = True,
+                                                                        require_overlap = False,
                                                                         remove_detached_upstream = True,
                                                                         connectivity_tolerance_m = 30.0,
+                                                                        buffer_distance_m =1000.0
                                                                     )
         # Update what things are since we've decided to use Curve2Flood-FLDPLNpy or to move the stream network.
         original_dem_file = folder.DEM_File
@@ -926,7 +927,6 @@ def Create_Go_Consequence_GeoJSON(Consequences_JSON_Path, Forecast_Flood_Depth_R
 
 def create_fist_inputs(folder: FloodFolder, watershed_dict: dict, timer: Timer):
     OutProjection = "EPSG:4269"
-    stream_id_field, ds_stream_id_field = get_streamids_from_source(watershed_dict['streamflow_source'])
 
     flow_files = folder.get_flow_files()
     for flow_file in flow_files:
@@ -963,6 +963,13 @@ def create_fist_inputs(folder: FloodFolder, watershed_dict: dict, timer: Timer):
             # geometry fixes instead of silently reusing a stale output file.
             if os.path.exists(GeoJSON_File):
                 os.remove(GeoJSON_File)
+            
+            # if we have moved the stream network. Use the new networks stream IDs to build the FIST GeoJSON
+            if watershed_dict['move_stream_network_to_new_locations'] is True:
+                stream_id_field = 'stream_id'
+                ds_stream_id_field = 'downstream_id'
+            else:
+                stream_id_field, ds_stream_id_field = get_streamids_from_source(watershed_dict['streamflow_source'])
 
             LOG.info('Creating FIST Input: ' + GeoJSON_File)
             with timer('geojson_fist'):
