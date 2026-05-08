@@ -32,7 +32,7 @@ from arc.Create_GeoJSON import Run_Main_VDT_to_GEOJSON_Program_Stream_Vector
 # local imports
 from . import LOG
 from . import gui_app
-from .timer import Timer
+from .processing_tracker import Timer
 from . import DEM_Cleaner
 from .flood_folder import FloodFolder
 from . import Hydroterrain_Processing
@@ -1294,16 +1294,22 @@ def remove_landcover_tiles(folder: FloodFolder):
         LOG.info(f"remove_landcover_tiles: Folder {folder.ESA_LC_Folder} does not exist.")
 
 def simulation_times_to_strings(watershed_name: str, timer: Timer) -> list[str]:
+    def format_process_result(process_name: str, label: str) -> str:
+        return (
+            f"{process_name}: {timer.get_time_string(label)} | "
+            f"Peak Memory: {timer.get_peak_memory_string(label)}"
+        )
+
     times = [
-        f"Here are the simulation times for each of the processes for the watershed {watershed_name}:\n",
-        f"ARC Initial Flood Simulation Time: {timer.get_time_string('arc_initial')}",
-        f"Initial Flood Simulation Time: {timer.get_time_string('initial_flood_for_cleaner')}",
-        f"DEM Cleaner Simulation Time: {timer.get_time_string('dem_cleaner')}",
-        f"ARC Bathymetry Simulation Time: {timer.get_time_string('arc_bathy')}",
-        f"Flooder Bathymetry Simulation Time: {timer.get_time_string('flood_bathy')}",
-        f"Flood Map Simulation Time: {timer.get_time_string('flood')}",
-        f"GeoJSON Simulation Time: {timer.get_time_string('geojson_fist')}",
-        f"Go-Consequences Simulation Time: {timer.get_time_string('go_consequences')}"
+        f"Here are the simulation times and peak memory usage for each process in the watershed {watershed_name}:\n",
+        format_process_result("ARC Initial Flood Simulation Time", 'arc_initial'),
+        format_process_result("Initial Flood Simulation Time", 'initial_flood_for_cleaner'),
+        format_process_result("DEM Cleaner Simulation Time", 'dem_cleaner'),
+        format_process_result("ARC Bathymetry Simulation Time", 'arc_bathy'),
+        format_process_result("Flooder Bathymetry Simulation Time", 'flood_bathy'),
+        format_process_result("Flood Map Simulation Time", 'flood'),
+        format_process_result("GeoJSON Simulation Time", 'geojson_fist'),
+        format_process_result("Go-Consequences Simulation Time", 'go_consequences')
     ]
     return times
 

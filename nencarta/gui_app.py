@@ -19,7 +19,7 @@ from PyQt5.QtGui import QFont, QColor, QPalette, QIcon
 
 # local imports
 from . import main as flood_main
-from .timer import Timer
+from .processing_tracker import Timer
 from .logger import LOG
 
 FLOW_FIELD_OPTIONS = (
