@@ -90,6 +90,8 @@ These inputs are:
 
 * **`dem_filter`** (String, optional): A glob string with which files in the `dem_dir` must match to be included in the run. By default, "*", or all files.
 
+* **`disable_bathymetry`** (Bool, optional): Setting this equal to true will disable the estimation of bathymetry within the hydraulic calculations and the creation of a composite topobathymetric surface. 
+
 * **`estimate_consequences`** (Bool, optional): Setting this equal to true will utilize Go-Consequences and the National Structure Inventory (NSI) to perform consequence assessment for the area within each flood inundation map. This functionality is currently only available for the coterminous United States. Default False.
 
 * **`find_banks_based_on_landcover`** (Bool, optional): Setting this value to True will direct NenCarta to first try finding the banks using the land cover. If the stream cell is in a water pixel, NenCarta will direct ARC to search for the end of the water surrounding the stream cell and this will location will be designated as the banks. Setting this value to False will direct NenCarta and ARC to find the banks by assuming the channel is flat in the DEM and allowing ARC to find the banks when the flat water surface ends in the cross-section. Default True.

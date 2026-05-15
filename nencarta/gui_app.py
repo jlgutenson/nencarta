@@ -530,6 +530,10 @@ class FloodSimulationGUI(QMainWindow):
         
         i = 0
         # Checkboxes
+        self.disable_bathymetry = QCheckBox("Disable Bathymetry")
+        self.disable_bathymetry.setChecked(settings.value("disable_bathymetry", False, type=bool))
+        group_adv_layout.addWidget(self.disable_bathymetry, i, 0, 1, 2); self.input_fields['disable_bathymetry'] = self.disable_bathymetry; i+=1
+
         self.bathy_use_banks = QCheckBox("Bathy Use Banks")
         self.bathy_use_banks.setChecked(settings.value("bathy_use_banks", False, type=bool))
         group_adv_layout.addWidget(self.bathy_use_banks, i, 0, 1, 2); self.input_fields['bathy_use_banks'] = self.bathy_use_banks; i+=1

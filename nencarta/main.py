@@ -65,6 +65,25 @@ def is_curve2flood_fldpln_mapper(mapper: str | None) -> bool:
     return normalize_mapper_name(mapper) == "Curve2Flood-FLDPLNpy"
 
 
+def is_bathymetry_disabled(watershed_dict: dict | None) -> bool:
+    return bool(watershed_dict and watershed_dict.get("disable_bathymetry", False))
+
+
+def get_floodmap_dem_file(folder: FloodFolder, watershed_dict: dict) -> str:
+    if is_bathymetry_disabled(watershed_dict):
+        return folder.DEM_File_Clean if watershed_dict.get("clean_dem") else folder.DEM_File
+    return folder.FS_BathyFile
+
+
+def has_required_arc_outputs(folder: FloodFolder, watershed_dict: dict) -> bool:
+    required_files = [folder.VDT_File_Bathy, folder.VDT_Test_File_Bathy]
+    if watershed_dict.get("make_curvefile", True):
+        required_files.append(folder.Curve_File_Bathy)
+    if watershed_dict.get("make_ap_database", True):
+        required_files.append(folder.AP_File)
+    return all(os.path.exists(path) for path in required_files)
+
+
 def _resolve_parallel_settings(data, cli_parallel=None, cli_num_workers=None):
     """
     Resolve (parallel: bool, num_workers: int) from JSON content and optional
@@ -369,7 +388,14 @@ def Create_FlowFile(MainFlowFile, FlowFileName, OutputID, Qparam):
     outfile.close()
     return
 
-def _write_arc_input_section(out_file: TextIO, folder: FloodFolder, watershed_dict: dict, COMID_Param: str, maybe_use_clean_dem: bool):
+def _write_arc_input_section(
+    out_file: TextIO,
+    folder: FloodFolder,
+    watershed_dict: dict,
+    COMID_Param: str,
+    maybe_use_clean_dem: bool,
+    include_flow_file_bf: bool = True
+):
     bathy_args: dict = watershed_dict['bathy_args']
     out_file.write('#ARC_Inputs')
     out_file.write(f'\nDEM_File\t{folder.DEM_File_Clean if maybe_use_clean_dem else folder.DEM_File}') # use_clean_dem will auto pick the cleaned DEM if it was created, else we force using the original DEM
@@ -378,7 +404,8 @@ def _write_arc_input_section(out_file: TextIO, folder: FloodFolder, watershed_di
     out_file.write(f'\nLU_Manning_n\t{folder.mannings_n_text_file}')
     out_file.write(f'\nFlow_File\t{folder.DEM_Reanalsyis_FlowFile}')
     out_file.write(f'\nFlow_File_ID\t{COMID_Param}')
-    out_file.write(f"\nFlow_File_BF\t{watershed_dict['specified_bathyflow_field']}")
+    if include_flow_file_bf:
+        out_file.write(f"\nFlow_File_BF\t{watershed_dict['specified_bathyflow_field']}")
     out_file.write(f'\nFlow_File_QMax\t{watershed_dict["specified_highflow_field"]}')
     out_file.write(f'\nSpatial_Units\tdeg')
     out_file.write(f'\nX_Section_Dist\t{bathy_args["X_Section_Dist"]}')
@@ -432,7 +459,15 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
     LOG.info('Creating ARC Input File: ' + folder.ARC_FileName_Bathy)
 
     with  open(folder.ARC_FileName_Bathy,'w') as out_file:
-        _write_arc_input_section(out_file, folder, watershed_dict, COMID_Param, True)
+        disable_bathymetry = is_bathymetry_disabled(watershed_dict)
+        _write_arc_input_section(
+            out_file,
+            folder,
+            watershed_dict,
+            COMID_Param,
+            True,
+            include_flow_file_bf=not disable_bathymetry
+        )
         bathy_args: dict = watershed_dict['bathy_args']
         
         out_file.write('\n\n#VDT_Output_File_and_CurveFile')
@@ -445,6 +480,9 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
             out_file.write(f'\nPrint_AP_Database\t{folder.AP_File}')
 
         out_file.write(f'\nReach_Average_Curve_File\t{watershed_dict["create_reach_average_curve_file"]}')
+        if disable_bathymetry:
+            return
+
         out_file.write('\n\n#Mapper Input Data')
         out_file.write(f'\nComid_Flow_File\t{folder.COMID_Q_File}')
         out_file.write(f'\nStrmShp_File\t{folder.DEM_StrmShp}')
@@ -489,7 +527,7 @@ def Create_ARC_Model_Input_File_Bathy(folder: FloodFolder, watershed_dict: dict,
 def write_first_floodmap_inputs(out_file: TextIO, folder: FloodFolder, watershed_dict: dict, flow_file: str):
     floodmap_args: dict = watershed_dict['floodmap_args']
     out_file.write('#ARC_Inputs')
-    out_file.write(f'\nDEM_File\t{folder.FS_BathyFile}')
+    out_file.write(f'\nDEM_File\t{get_floodmap_dem_file(folder, watershed_dict)}')
     out_file.write(f'\nStream_File\t{folder.STRM_File_Clean}')
     out_file.write(f'\nLU_Manning_n\t{folder.mannings_n_text_file}')
     
@@ -1061,6 +1099,17 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
                                         search_dist_perp_cells)
 
 def create_bathymetry(folder: FloodFolder, watershed_dict: dict, timer: Timer):
+    if is_bathymetry_disabled(watershed_dict):
+        if has_required_arc_outputs(folder, watershed_dict) and watershed_dict['process_stream_network'] is False:
+            LOG.info(f"{folder.VDT_File_Bathy} exists and we aren't making it again...")
+            return
+
+        LOG.info('Bathymetry is disabled, creating ARC hydraulic inputs without bathymetry outputs: ' + folder.VDT_File_Bathy)
+        with timer('arc_bathy'):
+            arc = Arc(folder.ARC_FileName_Bathy, quiet=watershed_dict['quiet'])
+            arc.run()
+        return
+
     # Create a Bathymetry Raster Dataset
     if not os.path.exists(folder.FS_BathyFile) or not os.path.exists(folder.ARC_BathyFile) or watershed_dict['process_stream_network'] is True:
         LOG.info('Cannot find bathy file, so creating ' + folder.FS_BathyFile)
@@ -1193,11 +1242,12 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
 
     remove_old_forecast_files(folder, watershed_dict)
 
-    # # creat the initial flood map with the stream raster and land cover data
-    if not watershed_dict['use_specified_depth_for_bathy_mask'] or watershed_dict['clean_dem']:
+    # Create any prep rasters required before cleaning the DEM.
+    if watershed_dict['clean_dem'] or (not is_bathymetry_disabled(watershed_dict) and not watershed_dict['use_specified_depth_for_bathy_mask']):
         Flood_WaterLC_and_STRM_Cells_in_Flood_Map_OutputTIFF(folder, watershed_dict['land_watervalue'])
-    
         run_dem_cleaner(folder, watershed_dict, timer, DEM)
+
+    if is_bathymetry_disabled(watershed_dict) or not watershed_dict['use_specified_depth_for_bathy_mask'] or watershed_dict['clean_dem']:
         create_bathymetry(folder, watershed_dict, timer)
 
     if watershed_dict['floodmap_mode'] == 'forecast':
@@ -1532,6 +1582,7 @@ def process_watershed(input_dict: dict, timer: Timer = None):
         "flowline": os.path.normpath(input_dict["flowline"]),
         "dem_dir": os.path.normpath(input_dict["dem_dir"]),
         "output_dir": os.path.normpath(input_dict["output_dir"]),
+        "disable_bathymetry": input_dict.get("disable_bathymetry", False),
         "bathy_use_banks": input_dict.get("bathy_use_banks", False),
         "flood_waterlc_and_strm_cells": input_dict.get("flood_waterlc_and_strm_cells", False),
         "land_watervalue": input_dict.get("land_watervalue", 80),
@@ -1669,6 +1720,7 @@ def main():
     cli_parser.add_argument("flowline", type=str, help="Path to the flowline shapefile")
     cli_parser.add_argument("dem_dir", type=str, help="Directory containing DEM files")
     cli_parser.add_argument("output_dir", type=str, help="Directory where results will be saved")
+    cli_parser.add_argument("--disable_bathymetry", action="store_true", help="Disable ARC, Curve2Flood, and FloodSpreader bathymetry estimation inputs")
     cli_parser.add_argument("--bathy_use_banks", action="store_true", help="Use bathy banks for processing")
     cli_parser.add_argument("--flood_waterlc_and_strm_cells", action="store_true",
                         help="In the flood inundation maps it shows water related land use and stream raster cells as flooded")
