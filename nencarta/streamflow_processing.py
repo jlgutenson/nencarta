@@ -11,7 +11,7 @@ import dask.dataframe as dd
 from dask.diagnostics import ProgressBar
 import geopandas as gpd
 import numpy as np
-from osgeo import gdal
+from osgeo import gdal, ogr
 import pandas as pd
 import requests
 import io
@@ -25,6 +25,16 @@ from .logger import LOG
 _RP_DS: xr.Dataset = None
 _FDC_DS: xr.Dataset = None
 _DAILY_DS: xr.Dataset = None
+_FLOWLINES_LAYER_NAME = "flowlines"
+
+
+def _write_single_layer_gpkg(gdf: gpd.GeoDataFrame, gpkg_path: str, layer_name: str = _FLOWLINES_LAYER_NAME):
+    # Recreate the GeoPackage so follow-on writes replace the stream layer
+    # instead of appending a second default-named layer.
+    drv = ogr.GetDriverByName("GPKG")
+    if os.path.exists(gpkg_path):
+        drv.DeleteDataSource(gpkg_path)
+    gdf.to_file(gpkg_path, layer=layer_name, driver="GPKG")
 
 def get_rp_ds():
     """ This is faster for multiprocessing contexts since the dataset is only loaded once per process."""
@@ -504,7 +514,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
         LOG.warning(f"Skipping processing for {folder.DEM_File} because StrmShp_filtered_gdf is empty.")
         return (None, None)
 
-    StrmShp_filtered_gdf.to_file(folder.DEM_StrmShp, driver="GPKG")
+    _write_single_layer_gpkg(StrmShp_filtered_gdf, folder.DEM_StrmShp)
     StrmShp_filtered_gdf[rivid_field] = StrmShp_filtered_gdf[rivid_field].astype(int)
 
     # create a list of river IDs to throw to AWS
@@ -674,7 +684,7 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
             # remove the old folder.DEM_StrmShp and make a new one
             if os.path.exists(folder.DEM_StrmShp):
                 os.remove(folder.DEM_StrmShp)
-            StrmShp_filtered_gdf.to_file(folder.DEM_StrmShp, driver="GPKG")
+            _write_single_layer_gpkg(StrmShp_filtered_gdf, folder.DEM_StrmShp)
             LOG.info(
                 f"Applied q_baseflow_threshold={q_baseflow_threshold} on '{baseflow_field}'. "
                 f"Removed {removed_count} streams; kept {len(rivids_int)}."
