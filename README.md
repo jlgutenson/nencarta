@@ -18,12 +18,13 @@ conda env create -f environment.yaml
 
 3. Activate the conda environment:
 ```bash
-conda activate nencarta_py310
+conda activate nencarta_py312
 ```
 
-4. Install the Automated Rating Curve (ARC) by cloning the repository and installing using the instructions provided [in ARC's README](https://github.com/MikeFHS/automated-rating-curve).
+4. Use the nencarta_py312 to install the Automated Rating Curve (ARC) toolkit by cloning the repository and installing using the instructions provided [in ARC's README](https://github.com/MikeFHS/automated-rating-curve). You can ignore the instruction in ARC's README that discuss creating another conda environment. 
 
-5. Install the Curve2Flood by cloning the repository and installing using the instructions provided in [Curve2Flood's README](https://github.com/MikeFHS/curve2flood).
+5. Use the nencarta_py312 to install Curve2Flood by cloning the repository and installing using the instructions provided in [Curve2Flood's README](https://github.com/MikeFHS/curve2flood). You can ignore the instruction in Curve2Flood's README that discuss creating another conda environment. 
+
 
 6. Inside the NenCarta repository run:
 ```bash
@@ -41,6 +42,15 @@ docker build --progress=plain --file Dockerfile.prod -t go-consequences:latest .
 # How to Run NenCarta
 
 There are three ways to run NenCarta, either by providing a JSON input's filepath, command line arguments, or through a built-in graphical user interface (GUI).
+
+## Graphical User Interface (GUI)
+A built-in GUI can be accessed that will build the JSON file and simulate a serial simulation in NenCarta.
+
+The GUI can be accessed using the command below.
+
+```bash
+flood-mapping gui
+```
 
 ## JSON File Arguments
 The JSON should look like what's provided below. Multiple watersheds can be provided in this JSON format
@@ -202,11 +212,4 @@ The argument `--specify_depths_for_bathy_mask` requires two float arguments if `
 
 The cli option will only operate in serial.
 
-## Graphical User Interface (GUI)
-A built-in GUI can be accessed that will build the JSON file and simulate a serial simulation in NenCarta.
 
-The GUI can be accessed using the command below.
-
-```bash
-flood-mapping gui
-```

@@ -11,9 +11,8 @@ netCDF4
 numba
 numpy
 pandas
-pillow==9.0.1
+pillow
 progress
-pygeos
 pyproj
 PyQt5>=5.15
 rasterio
