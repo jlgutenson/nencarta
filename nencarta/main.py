@@ -25,6 +25,7 @@ from arc import Arc
 from numba import njit
 from osgeo import gdal
 from pyproj import CRS
+from shapely import force_2d
 from shapely.geometry import box
 from curve2flood import Curve2Flood_MainFunction
 from arc.Create_GeoJSON import Run_Main_VDT_to_GEOJSON_Program_Stream_Vector
@@ -1312,7 +1313,14 @@ def process_river_geometry(folder: FloodFolder, watershed_dict: dict, DEM: str):
         StrmShp_gdf = StrmShp_gdf.to_crs(dem_crs)
 
     # removing any lingering NoneType geometries
-    StrmShp_gdf = StrmShp_gdf[~StrmShp_gdf.geometry.isna()]
+    StrmShp_gdf = StrmShp_gdf[~StrmShp_gdf.geometry.isna()].copy()
+
+    # pyogrio cannot write measured (M) geometries back to GeoPackage.
+    # The stream-processing pipeline only needs planar linework, so strip
+    # any Z/M dimensions before downstream writes.
+    if any(getattr(geom, "has_z", False) or getattr(geom, "has_m", False) for geom in StrmShp_gdf.geometry):
+        LOG.info("Dropping Z/M dimensions from stream geometries before writing GeoPackage output.")
+        StrmShp_gdf.geometry = StrmShp_gdf.geometry.map(force_2d)
 
     return StrmShp_gdf
 
