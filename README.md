@@ -5,6 +5,19 @@ Here is an overview of how NenCarta produces flood inundation maps and performs 
 
 [![NenCarta Overview](https://github.com/jlgutenson/nencarta/blob/main/workflow.png)](https://github.com/jlgutenson/nencarta/blob/main/workflow.png)
 
+# Documentation
+
+This repository now includes a Sphinx documentation project configured for Read the Docs.
+
+To build the documentation locally from the repository root:
+
+```bash
+pip install -r docs/requirements.txt
+sphinx-build -b html docs docs/_build/html
+```
+
+Read the Docs will use the repository root `.readthedocs.yaml` file and the `docs/` directory when the project is connected.
+
 # Setting up NenCarta
 
 Below are instructions for setting up NenCarta using Miniconda and Docker.
@@ -211,5 +224,4 @@ The arguments `--bathy_use_banks`, `--clean_dem`, `--process_stream_network`, `-
 The argument `--specify_depths_for_bathy_mask` requires two float arguments if `clean_dem` is True and one float argument if `clean_dem` is False.
 
 The cli option will only operate in serial.
-
 
