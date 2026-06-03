@@ -7,16 +7,7 @@ Here is an overview of how NenCarta produces flood inundation maps and performs 
 
 # Documentation
 
-This repository now includes a Sphinx documentation project configured for Read the Docs.
-
-To build the documentation locally from the repository root:
-
-```bash
-pip install -r docs/requirements.txt
-sphinx-build -b html docs docs/_build/html
-```
-
-Read the Docs will use the repository root `.readthedocs.yaml` file and the `docs/` directory when the project is connected.
+Structured documentation and examples can be found at our [Read the Docs page](https://nencarta.readthedocs.io/en/latest/usage.html). 
 
 # Setting up NenCarta
 
