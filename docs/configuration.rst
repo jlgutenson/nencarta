@@ -1,68 +1,10 @@
 Configuration Reference
 =======================
 
-Required watershed keys
------------------------
-
-Each watershed definition requires these fields:
-
-* ``name``
-* ``flowline``
-* ``dem_dir``
-* ``output_dir``
-
-Common processing options
--------------------------
-
-These options control the main flood-mapping workflow:
-
-* ``process_stream_network``: Build stream-network inputs for each DEM tile.
-* ``mapper``: Choose ``FloodSpreader`` or one of the Curve2Flood modes.
-* ``clean_dem``: Enable DEM cleaning before the core workflow.
-* ``disable_bathymetry``: Skip ARC and bathymetry-based topobathymetric processing.
-* ``move_stream_network_to_new_locations``: Recreate and match a DEM-derived stream network.
-* ``new_strm_threshold_km2``: Required when moving the stream network or using ``Curve2Flood-FLDPLNpy``.
-
-Forecast and flow options
--------------------------
-
-These options select the streamflow source and forecast behavior:
-
-* ``streamflow_source``: Forecast provider and product selection.
-* ``forensic_forecast_date``: Use a prior forecast by date in ``YYYYMMDD`` format.
-* ``forensic_forecast_hour``: Required for archived NWM forecasts.
-* ``age_of_forecast_days``: Remove outdated forecast outputs based on age.
-* ``remove_old_forecast_files``: Enable cleanup of stale forecast products.
-* ``user_flow_files``: Provide user-supplied flow files when ``floodmap_mode`` is ``user``.
-
-Bathymetry and flood-map options
---------------------------------
-
-These options control bathymetry estimation and flood-map generation:
-
-* ``bathy_use_banks``
-* ``use_specified_depth_for_bathy_mask``
-* ``specify_depths_for_bathy_mask``
-* ``find_banks_based_on_landcover``
-* ``create_reach_average_curve_file``
-* ``make_curvefile``
-* ``make_ap_database``
-* ``make_depth_maps``
-* ``make_velocity_maps``
-* ``make_wse_maps``
-* ``floodmap_identifier``
-* ``floodmap_args``
-* ``bathy_args``
-
-Consequence estimation
-----------------------
-
-Set ``estimate_consequences`` to ``true`` to invoke the Go-Consequences workflow after flood-map generation.
-
 JSON Inputs
 --------------
 
-Below is a description of the JSON inputs that NenCarta accepts when you run the
+Below is a description of all the JSON inputs that NenCarta accepts when you run the
 ``json`` subcommand. Each watershed definition is a JSON object with the required
 keys and optional processing parameters described above. You can include multiple
 watershed objects in the ``watersheds`` array to run them in batch mode.
@@ -95,9 +37,7 @@ watershed objects in the ``watersheds`` array to run them in batch mode.
   top-width estimates for each stream cell. Default False.
 
 * ``dem_dir`` (String): A full filepath to the directory containing one or more DEMs
-  that you will be using as input in NenCarta. Currently, NenCarta, ARC, and
-  Curve2Flood require that the DEM be in a geographic coordinate system like the North
-  American Datum of 1983 (NAD83) or World Geodetic System 1984 (WGS84).
+  that you will be using as input in NenCarta.
 
 * ``dem_filter`` (String, optional): A glob string with which files in the
   ``dem_dir`` must match to be included in the run. By default, "*", or all files.
@@ -316,18 +256,95 @@ watershed objects in the ``watersheds`` array to run them in batch mode.
 * ``vdt_file_extension`` (String, optional): The file extension of the VDT files to
   be created. Default "txt".
 
+Required watershed keys
+-----------------------
+
+Each watershed definition requires these arguments in the JSON file. They are defined in 
+`this section <https://nencarta.readthedocs.io/en/latest/configuration.html#json-inputs>`_.
+
+* ``name``
+* ``flowline``
+* ``dem_dir``
+* ``output_dir``
+
+Common processing options
+-------------------------
+
+These options control the main flood-mapping workflow. They are defined in 
+`this section <https://nencarta.readthedocs.io/en/latest/configuration.html#json-inputs>`_.
+
+* ``process_stream_network``
+* ``clean_dem``
+* ``move_stream_network_to_new_locations``
+* ``new_strm_threshold_km2``
+* ``use_warning_flags_to_download_dem``
+
+Forecast and flow options
+-------------------------
+
+These options select the streamflow source and forecast behavior. They are defined in 
+`this section <https://nencarta.readthedocs.io/en/latest/configuration.html#json-inputs>`_.
+
+* ``streamflow_source``: Forecast provider and product selection.
+* ``forensic_forecast_date``: Use a prior forecast by date in ``YYYYMMDD`` format.
+* ``forensic_forecast_hour``: Required for archived NWM forecasts.
+* ``age_of_forecast_days``: Remove outdated forecast outputs based on age.
+* ``remove_old_forecast_files``: Enable cleanup of stale forecast products.
+* ``user_flow_files``: Provide user-supplied flow files when ``floodmap_mode`` is ``user``.
+
+ARC options
+-----------
+These options control the ARC workflow that estimates bathymetry and creates curve files. They are defined in 
+`this section <https://nencarta.readthedocs.io/en/latest/configuration.html#json-inputs>`_.
+
+* ``create_reach_average_curve_file``
+* ``make_curvefile``
+* ``make_ap_database``
+* ``bathy_args``
+* ``vdt_file_extension``
+
+Bathymetry options
+------------------
+
+These options control bathymetry estimation and flood-map generation. They are defined in 
+`this section <https://nencarta.readthedocs.io/en/latest/configuration.html#json-inputs>`_.
+
+* ``disable_bathymetry``
+* ``bathy_use_banks``
+* ``use_specified_depth_for_bathy_mask``
+* ``specify_depths_for_bathy_mask``
+* ``find_banks_based_on_landcover``
 
 
-NenCarta and FIST Connection
-----------------------------
+Flood-map options
+-----------------
+These options control the flood-map generation process. They are defined in 
+`this section <https://nencarta.readthedocs.io/en/latest/configuration.html#json-inputs>`_.
 
-NenCarta can create inputs for the Flood Inundation Surface Topology (FIST) model. Set
+* ``mapper``
+* ``make_depth_maps``
+* ``make_velocity_maps``
+* ``make_wse_maps``
+* ``floodmap_identifier``
+* ``floodmap_args``
+
+Consequence estimation
+----------------------
+
+Set ``estimate_consequences`` to ``true`` to invoke the Go-Consequences workflow after flood-map generation.
+See `this section <https://nencarta.readthedocs.io/en/latest/configuration.html#json-inputs>`_ for more information on 
+what ``estimate_consequences`` does.
+
+Creating FIST inputs
+----------------------
+
+NenCarta can create inputs for the Flood Inundation Surface Topology (FIST) model as a forecast. To do this, set
 ``make_fist_inputs`` to ``true`` to generate FIST-ready inputs as part of the workflow.
-NenCarta writes those files to the ``FIST`` subdirectory under the watershed output
-directory.
+NenCarta writes those files to the ``FIST`` subdirectory in the
+``output_dir``/ ``name`` directory.
 
 NenCarta relies on ARC to generate the FIST inputs. For the underlying ARC workflow, see
-the `ARC FIST documentation <https://github.com/MikeFHS/automated-rating-curve/wiki/Creating-Inputs-for-the-Flood-Inudation-Surface-Topology-(FIST)-Flood-Inundation-Mapping-Software>`_.
+the `ARC-to-FIST documentation <https://github.com/MikeFHS/automated-rating-curve/wiki/Creating-Inputs-for-the-Flood-Inudation-Surface-Topology-(FIST)-Flood-Inundation-Mapping-Software>`_.
 
 The generated FIST inputs are created for each forecast scenario, including minimum,
 median, and maximum streamflow forecasts. They include stream-cell locations, water
