@@ -201,19 +201,18 @@ watershed objects in the ``watersheds`` array to run them in batch mode.
 * ``min_match_score`` (Float, optional): This is the threshold value that is used to
   determine if a good match is made when using the
   ``move_stream_network_to_new_locations`` option. NenCarta scores the match between
-  each new stream and old stream by creating a 50 m buffer around each old and new
-  stream and determining what proportion of the two areas overlap. The
-  ``min_match_score`` is the minimum proportion that can be considered a credible
-  match by the system.
+  each terrain-derived stream segment and nearby segments from the original stream
+  network using buffered corridor overlap. The best candidate is retained for each
+  new segment and any match with a score below ``min_match_score`` is discarded.
 
 .. _json-move_stream_network_to_new_locations:
 
 * ``move_stream_network_to_new_locations`` (Bool, optional): If True, this option
-  will allow NenCarta to use Whitebox to create a new stream network and attempt to
-  conflate the existing network with the new terrain derived network. Default is
-  False. This is required if using FLDPLNpy as the ``mapper`` option. This option
-  should not be used if your DEM does not contain the entire contribution upstream
-  area of your area of interest.
+  directs NenCarta to build a terrain-derived stream network from the DEM, delineate
+  threshold-based catchments, and then transfer stream IDs from the original
+  flowline dataset onto the new network. Default is False. This is required if using
+  FLDPLNpy as the ``mapper`` option. This option should not be used if your DEM does
+  not contain the entire contribution upstream area of your area of interest.
 
 .. _json-name:
 
@@ -222,9 +221,10 @@ watershed objects in the ``watersheds`` array to run them in batch mode.
 .. _json-new_strm_threshold_km2:
 
 * ``new_strm_threshold_km2`` (Float, optional): This value represents the
-  contributing area used to create a new stream network with the DEM when enabling the
-  ``move_stream_network_to_new_locations`` option as True. The value is in square km
-  and is required when ``move_stream_network_to_new_locations`` is True.
+  terrain threshold used when NenCarta extracts a new stream mask, vector flowlines,
+  and catchments from the DEM-derived flow direction and accumulation rasters. The
+  value is in square km and is required when
+  ``move_stream_network_to_new_locations`` is True.
 
 .. _json-nwm_api_key:
 
@@ -382,8 +382,6 @@ These options control the main flood-mapping workflow. They are defined in
 
 * :ref:`process_stream_network <json-process_stream_network>`
 * :ref:`clean_dem <json-clean_dem>`
-* :ref:`move_stream_network_to_new_locations <json-move_stream_network_to_new_locations>`
-* :ref:`new_strm_threshold_km2 <json-new_strm_threshold_km2>`
 * :ref:`use_warning_flags_to_download_dem <json-use_warning_flags_to_download_dem>`
 
 Forecast and flow options
@@ -537,10 +535,6 @@ If :ref:`estimate_consequences <json-estimate_consequences>` is ``true`` and
 that a depth
 raster exists for the consequences workflow.
 
-
-
-
-
 FIST options
 ------------
 
@@ -575,7 +569,82 @@ The FIST subdirectory contains the following file types:
 
 * ``*_Seed.shp``: A shapefile containing the SEED locations that designate the furthest
   upstream points for headwater streams.
-  
+
+Stream network movement options
+-------------------------------
+
+* :ref:`move_stream_network_to_new_locations <json-move_stream_network_to_new_locations>`
+* :ref:`new_strm_threshold_km2 <json-new_strm_threshold_km2>`
+* :ref:`min_match_score <json-min_match_score>`
+
+When ``move_stream_network_to_new_locations`` is enabled, or when
+``mapper`` is set to ``Curve2Flood-FLDPLNpy``, NenCarta switches to the stream
+movement workflow implemented in ``nencarta/nencarta/main.py``. That workflow
+first calls ``create_flow_direction_and_flow_accumulation_raster`` in
+``Hydroterrain_Processing.py`` to fill depressions in the DEM and create a
+filled DEM, D8 flow-direction raster, and D8 flow-accumulation raster. 
+All hydroterrain processing is conducted using 
+`WhiteboxTools <https://github.com/jblindsay/whitebox-tools>`_.
+
+NenCarta then calls
+``create_catchments_and_flowlines_with_flow_direction_and_accumulation`` to
+extract a thresholded stream raster from the accumulation grid, convert that
+raster to vector flowlines, and delineate threshold-based catchments. The
+resulting flowlines are intersected with the catchments so the terrain-derived
+network carries catchment and topology fields such as ``catchment_id``,
+``stream_id``, ``downstream_id``, and ``upstream_ids``.
+
+The final step is ``match_new_streams_to_old_streams``. That method compares the
+terrain-derived flowlines to the originally processed stream network, ranks
+candidate matches by buffered overlap, transfers the original stream IDs
+(``LINKNO``/``DSLINKNO`` for GEOGLOWS or ``COMID``/``TOCOMID`` for NWM), copies
+stream order when available, and removes low-scoring or detached subnetworks.
+The matched network becomes the stream layer used by the rest of the NenCarta
+workflow, and the filled DEM replaces the original DEM for downstream steps.
+
+If ``process_stream_network`` is ``false`` and the moved stream network products
+already exist, NenCarta reuses the existing matched flowlines and filled DEM
+instead of rebuilding them.
+
+
+Stream network movement outputs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This workflow writes its outputs beneath the watershed's ``FlowDirection`` and
+``STRM`` subdirectories:
+
+* ``FlowDirection/{DEM}_filled.tif``: depression-filled DEM created before
+  stream extraction. When stream movement is active, this becomes the DEM used
+  by downstream processing.
+
+* ``FlowDirection/{DEM}_flowdir.tif``: D8 flow-direction raster derived from the
+  filled DEM.
+
+* ``FlowDirection/{DEM}_flowacc.tif``: D8 flow-accumulation raster derived from
+  the filled DEM.
+
+* ``FlowDirection/{DEM}_flowlines.gpkg``: terrain-derived flowline network
+  created from the thresholded stream raster. Its ``flowlines`` layer includes
+  topology fields such as ``catchment_id``, ``stream_id``, ``id``,
+  ``downstream_id``, and ``upstream_ids``.
+
+* ``FlowDirection/{DEM}_catchments.gpkg``: catchment polygons generated from the
+  thresholded stream mask. The ``catchments`` layer stores ``catchment_id`` for
+  each delineated polygon.
+
+* ``STRM/{DEM}_flowlines_matched.gpkg``: matched flowline network created by
+  transferring IDs from the original stream dataset onto the terrain-derived
+  flowlines. This file is the stream network used for later NenCarta steps.
+  Along with the transferred source-network IDs and optional stream order, it
+  also stores match diagnostics including ``match_score``, ``centroid_dist_m``,
+  ``line_dist_m``, ``overlap_area_m2``, ``overlap_ratio``, and
+  ``overlap_hit``.
+
+During stream extraction NenCarta also creates intermediate threshold rasters
+and shapefiles inside ``FlowDirection`` (for example the thresholded stream
+mask and subbasin raster). Those files support the build process, while the
+GeoPackages above are the persistent vector outputs.
+
 
 GUI options
 -----------
