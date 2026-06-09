@@ -174,7 +174,7 @@ def Calculate_TW_D_ForEachCOMID_ARC(CurveParamFileName, COMID_Unique_Flow, COMID
     
     num_lines = len(lines)
     for n in range(1,num_lines):
-        (COMID, R, C, Base_E, DEM_E, QMax, Slope, Da, Db, Ta, Tb, Va, Vb) = lines[n].strip().split(',')
+        (COMID, R, C, Base_E, DEM_E, QMax, Slope, XS_Angle, Da, Db, Ta, Tb, Va, Vb) = lines[n].strip().split(',')
         if int(COMID)>=MinCOMID and int(COMID)<=MaxCOMID:
             i = COMID_to_ID[int(COMID)-MinCOMID]
             if float(Da)>0.0 and float(Db)>0.0 and float(Ta)>0.0 and float(Tb)>0.0:
