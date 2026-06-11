@@ -532,20 +532,24 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
         # Convert Xarray to Dask DataFrame and pivot
         rp_df = rp_ds.to_dataframe().reset_index()
 
-        # find the maximum between the gumbel and logpearson3 return periods and label this new column 'return_period_flow'
-        rp_df['return_period_flow'] = rp_df[['gumbel', 'logpearson3']].mean(axis=1).round(3)
+        print(rp_df.head())
+
+        # if the columns 'gumbel', 'gumbel_hourly', and 'gumbel_daily' are not in rp_df, log a warning and return None
+        if not all(col in rp_df.columns for col in ['gumbel', 'gumbel_hourly', 'gumbel_daily']):
+            LOG.warning(f"Skipping processing for {folder.DEM_File} because one or more of the required columns ('gumbel', 'gumbel_hourly', 'gumbel_daily') are missing from GEOGLOWS return period dataset.")
+            rivids_int = None
+            StrmShp_filtered_gdf = None
+            return (rivids_int, StrmShp_filtered_gdf)
+
+        # find the maximum between the gumbel, gumbel_hourly, and gumbel_daily return periods and label this new column 'return_period_flow'
+        rp_df['return_period_flow'] = rp_df[['gumbel', 'gumbel_hourly', 'gumbel_daily']].max(axis=1).round(3)
+
+        # drop any rows where 'return_period_flow' is NaN, infinite, or zero
+        rp_df = rp_df.dropna(subset=['return_period_flow'])
+        rp_df = rp_df[~rp_df['return_period_flow'].isin([float('inf'), 0])]
 
         # keep just the column 'return_period_flow'
         rp_df = rp_df[['river_id', 'return_period', 'return_period_flow']]
-        
-        # Check if rp_df is empty
-        if rp_df.empty:
-            LOG.warning(f"Skipping processing for {folder.DEM_File} because rp_df is empty.")
-            CSV_File_Name = None
-            OutShp_File_Name = None
-            rivids_int = None
-            StrmShp_filtered_gdf = None
-            return (CSV_File_Name, OutShp_File_Name, rivids_int, StrmShp_filtered_gdf)
 
         # Convert 'return_period' to category dtype
         rp_df['return_period'] = rp_df['return_period'].astype('category')
@@ -641,6 +645,13 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
 
         # Fetch return periods (rp2, rp100, etc.)
         final_df = get_nwm_rp(rivids_int, watershed_dict["nwm_api_key"])
+
+        # if final_df is empty, log a warning and return None
+        if final_df.empty:
+            LOG.warning(f"Skipping processing for {folder.DEM_File} because final_df is empty after fetching NWM return periods.")
+            rivids_int = None
+            StrmShp_filtered_gdf = None
+            return (rivids_int, StrmShp_filtered_gdf)
 
         # Add derived flows directly to rp_df without dropping anything
         final_df["rp100_premium"] = (final_df["rp100"] * 10).round(3)
