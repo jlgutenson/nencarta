@@ -532,8 +532,6 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
         # Convert Xarray to Dask DataFrame and pivot
         rp_df = rp_ds.to_dataframe().reset_index()
 
-        print(rp_df.head())
-
         # if the columns 'gumbel', 'gumbel_hourly', and 'gumbel_daily' are not in rp_df, log a warning and return None
         if not all(col in rp_df.columns for col in ['gumbel', 'gumbel_hourly', 'gumbel_daily']):
             LOG.warning(f"Skipping processing for {folder.DEM_File} because one or more of the required columns ('gumbel', 'gumbel_hourly', 'gumbel_daily') are missing from GEOGLOWS return period dataset.")
