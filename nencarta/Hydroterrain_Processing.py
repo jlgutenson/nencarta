@@ -7,6 +7,7 @@ import logging
 from osgeo import gdal, osr, ogr
 from whitebox import WhiteboxTools
 import geopandas as gpd
+from shapely.geometry import Point
 from shapely.ops import unary_union, linemerge
 import numpy as np
 import pandas as pd
@@ -47,6 +48,160 @@ def _write_single_layer_gpkg(gdf: gpd.GeoDataFrame, gpkg_path: str, layer_name: 
         drv.DeleteDataSource(gpkg_path)
     gdf.to_file(gpkg_path, layer=layer_name, driver="GPKG")
 
+
+def _add_area_sq_km_field(
+    gdf: gpd.GeoDataFrame,
+    field_name: str = "area_sq_km",
+) -> gpd.GeoDataFrame:
+    if gdf.crs is None:
+        raise ValueError("Catchments must have a CRS to compute area in square kilometers.")
+
+    area_source = gdf
+    linear_unit_name = ""
+    if getattr(gdf.crs, "axis_info", None):
+        linear_unit_name = (gdf.crs.axis_info[0].unit_name or "").lower()
+
+    if gdf.crs.is_geographic or linear_unit_name not in {"metre", "meter", "m"}:
+        projected_crs = gdf.estimate_utm_crs()
+        if projected_crs is None:
+            raise ValueError("Could not determine a projected CRS for catchment area calculation.")
+        area_source = gdf.to_crs(projected_crs)
+
+    gdf = gdf.copy()
+    gdf[field_name] = area_source.geometry.area.astype(float) / 1_000_000.0
+    return gdf
+
+
+def _normalize_stream_line(geom):
+    # Reduce multiline artifacts to a single representative line so endpoint
+    # tests and downstream-point sampling remain stable.
+    if geom is None or geom.is_empty:
+        return None
+    if geom.geom_type == "LineString":
+        return geom
+    if geom.geom_type == "MultiLineString":
+        merged = linemerge(geom)
+        if merged.geom_type == "LineString":
+            return merged
+        if merged.geom_type == "MultiLineString":
+            parts = [part for part in merged.geoms if part is not None and not part.is_empty]
+            if not parts:
+                return None
+            return max(parts, key=lambda g: g.length)
+    return None
+
+
+def _sample_point_near_downstream_end(geom, sample_back_distance: float):
+    # Sample slightly upstream of the outlet so the point falls inside the
+    # downstream catchment instead of exactly on a catchment boundary.
+    line = _normalize_stream_line(geom)
+    if line is None:
+        return None
+    if line.length <= 0:
+        end = line.coords[-1]
+        return Point(float(end[0]), float(end[1]))
+    back_distance = min(max(float(sample_back_distance), 0.0), float(line.length))
+    return line.interpolate(max(float(line.length) - back_distance, 0.0))
+
+
+def _get_endpoints(geom, decimals=3):
+    line = _normalize_stream_line(geom)
+    if line is None:
+        return None, None
+    start = line.coords[0]
+    end = line.coords[-1]
+    return (round(start[0], decimals), round(start[1], decimals)), (
+        round(end[0], decimals),
+        round(end[1], decimals),
+    )
+
+
+def _build_vector_stream_topology(stream_parts: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    # Infer vector topology from intact reach endpoints. This assumes lines are
+    # already segmented only at real junctions, not at catchment boundaries.
+    start_nodes = {}
+    for _, row in stream_parts.iterrows():
+        start_pt, _ = _get_endpoints(row.geometry)
+        if start_pt:
+            start_nodes[start_pt] = row["stream_id"]
+
+    def find_downstream(geom):
+        _, end_pt = _get_endpoints(geom)
+        if end_pt:
+            return start_nodes.get(end_pt, -1)
+        return -1
+
+    stream_parts = stream_parts.copy()
+    stream_parts["downstream_id"] = stream_parts.geometry.apply(find_downstream).astype(np.int64)
+
+    upstream_map = {}
+    for _, row in stream_parts.iterrows():
+        downstream_id = row["downstream_id"]
+        if downstream_id != -1:
+            upstream_map.setdefault(downstream_id, []).append(str(row["stream_id"]))
+
+    stream_parts["upstream_ids"] = stream_parts["stream_id"].apply(
+        lambda sid: ",".join(upstream_map.get(sid, []))
+    )
+    return stream_parts
+
+
+def _assign_streams_to_catchments_by_downstream_point(
+    streams_gdf: gpd.GeoDataFrame,
+    catchments_gdf: gpd.GeoDataFrame,
+    sample_back_distance: float,
+) -> gpd.GeoDataFrame:
+    """
+    Assign each intact stream line to the catchment containing a point sampled
+    just upstream of its downstream endpoint.
+
+    This avoids clipping stream geometry at catchment boundaries while still
+    carrying a single catchment identifier onto each reach.
+    """
+    sample_rows = []
+    for idx, geom in streams_gdf.geometry.items():
+        sample_point = _sample_point_near_downstream_end(geom, sample_back_distance)
+        if sample_point is None or sample_point.is_empty:
+            continue
+        sample_rows.append({"_stream_index": idx, "geometry": sample_point})
+
+    if not sample_rows:
+        raise ValueError("No valid downstream sample points could be created for stream assignment.")
+
+    sample_points_gdf = gpd.GeoDataFrame(sample_rows, geometry="geometry", crs=streams_gdf.crs)
+    assigned = gpd.sjoin(
+        sample_points_gdf,
+        catchments_gdf[["catchment_id", "geometry"]],
+        how="left",
+        predicate="within",
+    )[["_stream_index", "catchment_id"]]
+    assigned = assigned.drop_duplicates(subset=["_stream_index"], keep="first")
+
+    matched_streams = set(assigned.loc[assigned["catchment_id"].notna(), "_stream_index"].tolist())
+    unmatched_mask = ~sample_points_gdf["_stream_index"].isin(matched_streams)
+    if unmatched_mask.any():
+        nearest = gpd.sjoin_nearest(
+            sample_points_gdf.loc[unmatched_mask],
+            catchments_gdf[["catchment_id", "geometry"]],
+            how="left",
+            distance_col="_catchment_dist",
+        )[["_stream_index", "catchment_id"]]
+        nearest = nearest.drop_duplicates(subset=["_stream_index"], keep="first")
+        assigned = pd.concat([assigned, nearest], ignore_index=True)
+        assigned = assigned.drop_duplicates(subset=["_stream_index"], keep="first")
+
+    catchment_map = assigned.set_index("_stream_index")["catchment_id"].to_dict()
+    stream_parts = streams_gdf.copy()
+    stream_parts["catchment_id"] = stream_parts.index.map(catchment_map)
+    stream_parts = stream_parts[stream_parts["catchment_id"].notna()].copy()
+    if len(stream_parts) != len(streams_gdf):
+        missing = len(streams_gdf) - len(stream_parts)
+        raise ValueError(f"Could not assign catchment IDs to {missing} stream features.")
+
+    stream_parts["catchment_id"] = pd.to_numeric(stream_parts["catchment_id"], errors="raise").astype(np.int64)
+    stream_parts = stream_parts.reset_index(drop=True)
+    return stream_parts
+
 def create_catchments_and_flowlines_with_flow_direction_and_accumulation(
     flowdir_raster: str,
     flowacc_raster: str,
@@ -54,12 +209,31 @@ def create_catchments_and_flowlines_with_flow_direction_and_accumulation(
     stream_threshold_km2: float = 5.0,
     out_flowlines_gpkg: str | None = None,
     out_catchments_gpkg: str | None = None,
+    catchment_assignment_mode: str = "downstream_point",
 ):
     """
     Build threshold-based streams and catchments directly from flowdir/FAC rasters,
     and assess topology to determine upstream and downstream connectivity.
+
+    Parameters
+    ----------
+    catchment_assignment_mode:
+        ``"downstream_point"`` keeps each vectorized stream line intact and
+        assigns its ``catchment_id`` from a point sampled just upstream of the
+        line's downstream endpoint. This avoids the small stream slivers that
+        can appear when stream lines are clipped at catchment boundaries.
+
+        ``"intersection"`` preserves the legacy behavior that intersects
+        vectorized stream lines with catchment polygons before topology is
+        derived from endpoints.
     """
     os.makedirs(out_dir, exist_ok=True)
+    valid_assignment_modes = {"downstream_point", "intersection"}
+    if catchment_assignment_mode not in valid_assignment_modes:
+        raise ValueError(
+            f"Unsupported catchment_assignment_mode '{catchment_assignment_mode}'. "
+            f"Expected one of: {sorted(valid_assignment_modes)}"
+        )
 
     if out_flowlines_gpkg is None:
         out_flowlines_gpkg = os.path.join(out_dir, "flowline_network_thresholded.gpkg")
@@ -99,6 +273,7 @@ def create_catchments_and_flowlines_with_flow_direction_and_accumulation(
     if cell_area <= 0:
         raise ValueError("Invalid flow accumulation raster pixel area.")
     threshold_cells = max(1, int(round((stream_threshold_km2) * 1000000)))
+    sample_back_distance = max(abs(float(fa_gt[1])), abs(float(fa_gt[5])), math.sqrt(cell_area) * 0.5)
 
     # Extract and vectorize thresholded stream network from FAC + D8 pointer.
     wbt.extract_streams(flow_accum=flowacc_raster, output=stream_mask, threshold=threshold_cells)
@@ -155,8 +330,8 @@ def create_catchments_and_flowlines_with_flow_direction_and_accumulation(
     out_ds = None
     sub_ds = None
 
-    # Ensure streams and catchments have matching IDs by intersecting streams
-    # with delineated catchments and carrying catchment_id onto each stream part.
+    # Carry catchment IDs onto stream reaches without forcing geometry to be
+    # split at every catchment boundary unless the legacy mode is requested.
     catchments_gdf = gpd.read_file(out_catchments_gpkg, layer=catchments_layer_name)
     if catchments_gdf.empty:
         raise ValueError("No catchments were generated from the thresholded stream mask.")
@@ -166,14 +341,22 @@ def create_catchments_and_flowlines_with_flow_direction_and_accumulation(
         streams_gdf = streams_gdf.to_crs(catchments_gdf.crs)
 
     catchments_gdf = catchments_gdf[["catchment_id", "geometry"]].dissolve(by="catchment_id", as_index=False)
+    catchments_gdf = _add_area_sq_km_field(catchments_gdf)
     _write_single_layer_gpkg(catchments_gdf, out_catchments_gpkg, catchments_layer_name)
 
-    stream_parts = gpd.overlay(
-        streams_gdf[["geometry"]],
-        catchments_gdf[["catchment_id", "geometry"]],
-        how="intersection",
-        keep_geom_type=True,
-    )
+    if catchment_assignment_mode == "downstream_point":
+        stream_parts = _assign_streams_to_catchments_by_downstream_point(
+            streams_gdf[["geometry"]].copy(),
+            catchments_gdf,
+            sample_back_distance=sample_back_distance,
+        )
+    else:
+        stream_parts = gpd.overlay(
+            streams_gdf[["geometry"]],
+            catchments_gdf[["catchment_id", "geometry"]],
+            how="intersection",
+            keep_geom_type=True,
+        )
     stream_parts = stream_parts[~stream_parts.geometry.is_empty]
     stream_parts = stream_parts[stream_parts.geometry.notnull()]
     stream_parts = stream_parts[stream_parts.geometry.geom_type.isin(["LineString", "MultiLineString"])]
@@ -181,56 +364,9 @@ def create_catchments_and_flowlines_with_flow_direction_and_accumulation(
         raise ValueError("No stream segments overlap generated catchments.")
 
     stream_parts["catchment_id"] = stream_parts["catchment_id"].astype(np.int64)
-    stream_parts["stream_id"] = stream_parts["catchment_id"]
-    stream_parts["id"] = stream_parts["catchment_id"]
-
-    # ====================================================================
-    # TOPOLOGY ASSESSMENT: UPSTREAM & DOWNSTREAM CONNECTIVITY
-    # ====================================================================
-    
-    # Helper function to extract rounded start (upstream) and end (downstream) points
-    # Rounding resolves floating-point mismatch when matching geometric vertices
-    def get_endpoints(geom, decimals=3):
-        if geom.geom_type == 'LineString':
-            start, end = geom.coords[0], geom.coords[-1]
-        elif geom.geom_type == 'MultiLineString':
-            # D8 algorithm ensures coordinate order follows flow direction
-            start = geom.geoms[0].coords[0]
-            end = geom.geoms[-1].coords[-1]
-        else:
-            return None, None
-        return (round(start[0], decimals), round(start[1], decimals)), \
-               (round(end[0], decimals), round(end[1], decimals))
-
-    # 1. Map all upstream inlet coordinates to their respective stream_id
-    start_nodes = {}
-    for _, row in stream_parts.iterrows():
-        start_pt, _ = get_endpoints(row.geometry)
-        if start_pt:
-            start_nodes[start_pt] = row["stream_id"]
-
-    # 2. Determine downstream_id by looking up where the current stream's outlet lands
-    def find_downstream(geom):
-        _, end_pt = get_endpoints(geom)
-        if end_pt:
-            # Return matching stream_id, or -1 if no downstream connection (outlet)
-            return start_nodes.get(end_pt, -1) 
-        return -1
-
-    stream_parts["downstream_id"] = stream_parts.geometry.apply(find_downstream).astype(np.int64)
-
-    # 3. Assemble upstream connectivity 
-    upstream_map = {}
-    for _, row in stream_parts.iterrows():
-        ds_id = row["downstream_id"]
-        if ds_id != -1:
-            upstream_map.setdefault(ds_id, []).append(str(row["stream_id"]))
-
-    # Join multiple upstream ids with a comma for confluences
-    stream_parts["upstream_ids"] = stream_parts["stream_id"].apply(
-        lambda sid: ",".join(upstream_map.get(sid, []))
-    )
-    # ====================================================================
+    stream_parts["stream_id"] = np.arange(1, len(stream_parts) + 1, dtype=np.int64)
+    stream_parts["id"] = stream_parts["stream_id"]
+    stream_parts = _build_vector_stream_topology(stream_parts)
 
     _write_single_layer_gpkg(stream_parts, out_flowlines_gpkg, flowlines_layer_name)
 

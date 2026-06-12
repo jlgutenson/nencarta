@@ -589,10 +589,20 @@ All hydroterrain processing is conducted using
 NenCarta then calls
 ``create_catchments_and_flowlines_with_flow_direction_and_accumulation`` to
 extract a thresholded stream raster from the accumulation grid, convert that
-raster to vector flowlines, and delineate threshold-based catchments. The
-resulting flowlines are intersected with the catchments so the terrain-derived
-network carries catchment and topology fields such as ``catchment_id``,
+raster to vector flowlines, and delineate threshold-based catchments. By
+default the function keeps the vectorized stream reaches intact and assigns
+each reach a ``catchment_id`` from a point sampled just upstream of the
+reach's downstream endpoint. This avoids the small sliver segments that can
+appear when vector flowlines are split at catchment boundaries. The
+terrain-derived network therefore carries fields such as ``catchment_id``,
 ``stream_id``, ``downstream_id``, and ``upstream_ids``.
+
+Direct callers can still request the legacy overlay behavior by passing
+``catchment_assignment_mode="intersection"`` to
+``create_catchments_and_flowlines_with_flow_direction_and_accumulation``. That
+mode intersects vectorized streams with catchment polygons before building
+topology, which can be useful for reproducing older outputs but is more likely
+to create short stream segments near junctions.
 
 The final step is ``match_new_streams_to_old_streams``. That method compares the
 terrain-derived flowlines to the originally processed stream network, ranks

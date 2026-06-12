@@ -18,6 +18,7 @@ dependencies:
   - numpy
   - pandas
   - pillow
+  - proj-data
   - progress
   - pyproj
   - pyqt>=5.15

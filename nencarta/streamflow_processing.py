@@ -15,7 +15,7 @@ from osgeo import gdal, ogr
 import pandas as pd
 import requests
 import io
-from shapely.geometry import box
+from shapely.geometry import LineString, MultiLineString, box
 import s3fs
 import xarray as xr
 
@@ -35,6 +35,40 @@ def _write_single_layer_gpkg(gdf: gpd.GeoDataFrame, gpkg_path: str, layer_name: 
     if os.path.exists(gpkg_path):
         drv.DeleteDataSource(gpkg_path)
     gdf.to_file(gpkg_path, layer=layer_name, driver="GPKG")
+
+
+def _clip_stream_geometry_to_bbox(geom, raster_bbox):
+    # Change: clip each stream geometry to the raster footprint so vertices
+    # outside the valid DEM bounds are removed before the layer is written out.
+    if geom is None or geom.is_empty:
+        return None
+
+    clipped_geom = geom.intersection(raster_bbox)
+    if clipped_geom.is_empty:
+        return None
+
+    # Change: keep only linear output because clipping against the raster bbox
+    # can yield points or geometry collections when a line only touches an edge.
+    if clipped_geom.geom_type in {"LineString", "MultiLineString"}:
+        return clipped_geom
+
+    if clipped_geom.geom_type == "GeometryCollection":
+        linear_parts = []
+        for part in clipped_geom.geoms:
+            if part is None or part.is_empty:
+                continue
+            if part.geom_type == "LineString":
+                linear_parts.append(list(part.coords))
+            elif part.geom_type == "MultiLineString":
+                linear_parts.extend(list(subpart.coords) for subpart in part.geoms if subpart is not None and not subpart.is_empty)
+
+        if not linear_parts:
+            return None
+        if len(linear_parts) == 1:
+            return LineString(linear_parts[0])
+        return MultiLineString(linear_parts)
+
+    return None
 
 def get_rp_ds():
     """ This is faster for multiprocessing contexts since the dataset is only loaded once per process."""
@@ -487,20 +521,9 @@ def Process_and_Write_Retrospective_Data_for_DEM_Tile(StrmShp_gdf: gpd.GeoDataFr
     # Create a refined bounding box
     raster_bbox = box(x_min_valid, y_min_valid, x_max_valid, y_max_valid)
 
-    # Use GeoPandas spatial index to quickly find geometries within the bounding box
+    # Use GeoPandas spatial index to quickly find stream candidates near the valid raster footprint.
     sindex = StrmShp_gdf.sindex
     possible_matches_index = list(sindex.intersection(raster_bbox.bounds))
-    # Mike thinks that the "StrmShp_gdf.iloc[possible_matches_index]" function works just fine without the "possible_matches[possible_matches.geometry.within(raster_bbox)]" function
-    '''
-    possible_matches = StrmShp_gdf.iloc[possible_matches_index]
-
-    # Collect IDs of polyline features within the raster tile boundary
-    StrmShp_filtered_gdf = possible_matches[possible_matches.geometry.within(raster_bbox)]
-
-    # First attempt at fixing an empty StrmShp_filtered_gdf
-    if StrmShp_filtered_gdf.empty:
-        StrmShp_filtered_gdf = StrmShp_gdf.iloc[possible_matches_index]
-    '''
     StrmShp_filtered_gdf = StrmShp_gdf.iloc[possible_matches_index]
 
     # ensure that a 'LINKNO' and 'COMID' fields exists in StrmShp_filtered_gdf

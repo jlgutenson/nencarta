@@ -13,6 +13,7 @@ numpy
 pandas
 pillow
 progress
+proj-data
 pyproj
 PyQt5>=5.15
 rasterio

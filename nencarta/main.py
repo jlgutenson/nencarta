@@ -71,9 +71,19 @@ def is_bathymetry_disabled(watershed_dict: dict | None) -> bool:
 
 
 def get_floodmap_dem_file(folder: FloodFolder, watershed_dict: dict) -> str:
-    if is_bathymetry_disabled(watershed_dict):
-        return folder.DEM_File_Clean if watershed_dict.get("clean_dem") else folder.DEM_File
-    return folder.FS_BathyFile
+    """
+    Pick the DEM-like raster used by downstream flood-mapping and FIST steps.
+
+    Precedence:
+    1. Use `FS_BathyFile` when bathymetry is being generated.
+    2. Otherwise use `DEM_File_Clean` when the DEM cleaner is enabled.
+    3. Otherwise use the original `DEM_File`.
+    """
+    if not is_bathymetry_disabled(watershed_dict):
+        return folder.FS_BathyFile
+    if watershed_dict.get("clean_dem"):
+        return folder.DEM_File_Clean
+    return folder.DEM_File
 
 
 def has_required_arc_outputs(folder: FloodFolder, watershed_dict: dict) -> bool:
@@ -971,10 +981,10 @@ def create_fist_inputs(folder: FloodFolder, watershed_dict: dict, timer: Timer):
     for flow_file in flow_files:
         # SEED file for creating a GEOJSON for FIST
         if watershed_dict['floodmap_mode'] == 'forecast':
-            # There will be only one forecast file being used here
-            SEED_File = os.path.join(folder.FIST_Folder, folder.FileName + '_Seed.shp') 
+            # There will be only one file being used here for all forecasts
+            SEED_File = os.path.join(folder.FIST_Folder, folder.FileName + '_Seed.parquet') 
         elif watershed_dict['floodmap_mode'] == 'user':
-            SEED_File = os.path.join(folder.FIST_Folder, f"{folder.FileName}_{os.path.basename(flow_file).rsplit('.', 1)[0]}_Seed.shp")
+            SEED_File = os.path.join(folder.FIST_Folder, f"{folder.FileName}_{os.path.basename(flow_file).rsplit('.', 1)[0]}_Seed.parquet")
 
         streamflow_forecast_df = pd.read_csv(flow_file)
         streamflow_columns = streamflow_forecast_df.select_dtypes(include=['float']).columns.tolist()
@@ -1012,7 +1022,10 @@ def create_fist_inputs(folder: FloodFolder, watershed_dict: dict, timer: Timer):
 
             LOG.info('Creating FIST Input: ' + GeoJSON_File)
             with timer('geojson_fist'):
-                Run_Main_VDT_to_GEOJSON_Program_Stream_Vector(folder.VDT_File_Bathy, folder.STRM_File_Clean, GeoJSON_File, OutProjection, folder.DEM_StrmShp, stream_id_field, ds_stream_id_field, SEED_File, Thin_Output=True, comid_q_df=streamflow_forecast_filtered_df)
+                # Use the DEM grid for vector GeoJSON coordinates and for
+                # DEM-based SEED outlet inference when the local network is
+                # missing the downstream reach geometry.
+                Run_Main_VDT_to_GEOJSON_Program_Stream_Vector(folder.VDT_File_Bathy, get_floodmap_dem_file(folder, watershed_dict), GeoJSON_File, OutProjection, folder.DEM_StrmShp, stream_id_field, ds_stream_id_field, SEED_File, Thin_Output=True, comid_q_df=streamflow_forecast_filtered_df)
 
 def remove_old_forecast_files(folder: FloodFolder, watershed_dict: dict):
     if not watershed_dict['remove_old_forecast_files']:
