@@ -667,7 +667,7 @@ def Create_AR_LandRaster(LandCoverFiles, LAND_File, projWin_extents, out_project
         height=nrows,
         dstSRS=out_projection,
         resampleAlg='mode', # Best for categorical data
-        creationOptions=['COMPRESS=DEFLATE']
+        creationOptions=['COMPRESS=LZW', 'PREDICTOR=2']
     )
 
     gdal.Warp(LAND_File, LandCoverFiles, options=options)
@@ -711,7 +711,7 @@ def Create_AR_StrmRaster(StrmSHP, STRM_File, outputBounds, minx, miny, maxx, max
         outputBounds=outputBounds, width=ncols, height=nrows,
         noData=-9999, attribute=Param,
         layers=[layer_name] if StrmSHP.lower().endswith(".gpkg") else None,  # Fix layers param
-        creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=2"]
+        creationOptions=["COMPRESS=LZW", "PREDICTOR=2"]
     )
 
     # Clean up
@@ -724,7 +724,7 @@ def Write_Output_Raster(s_output_filename, raster_data, ncols, nrows, dem_geotra
     o_driver: gdal.Driver = gdal.GetDriverByName(s_file_format)  #Typically will be a GeoTIFF "GTiff"
     
     # Construct the file with the appropriate data shape
-    o_output_file: gdal.Dataset = o_driver.Create(s_output_filename, xsize=ncols, ysize=nrows, bands=1, eType=s_output_type, options=['COMPRESS=DEFLATE'])
+    o_output_file: gdal.Dataset = o_driver.Create(s_output_filename, xsize=ncols, ysize=nrows, bands=1, eType=s_output_type, options=['COMPRESS=LZW'])
 
     # Get the first band (assuming a single-band raster)
     band = o_output_file.GetRasterBand(1)
@@ -1205,7 +1205,7 @@ def run_go_consequences(folder: FloodFolder, timer: Timer):
                     format="GTiff",
                     dstSRS="EPSG:4326",
                     resampleAlg=gdal.GRA_Bilinear,
-                    creationOptions=["COMPRESS=DEFLATE"],
+                    creationOptions=["COMPRESS=LZW"],
                 )
                 ds = gdal.Warp(depth_file_wgs84, depth_file, options=warp_options)
                 if ds is None:
