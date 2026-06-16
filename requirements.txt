@@ -1,7 +1,6 @@
 beautifulsoup4
 cython
 dask
-dataretrieval
 fiona
 gdal
 geoglows
@@ -11,12 +10,9 @@ netCDF4
 numba
 numpy
 pandas
-pillow
 progress
-proj-data
 pyproj
 PyQt5>=5.15
-rasterio
 requests
 s3fs
 scipy
