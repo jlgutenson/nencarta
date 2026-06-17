@@ -124,10 +124,13 @@ def _resolve_parallel_settings(data, cli_parallel=None, cli_num_workers=None):
 
 def process_streams_locations_in_dem(folder: FloodFolder, watershed_dict: dict, DEM: str, stream_id_field: str):
     # now we need to figure out if our DEM_StrmShp and DEM_Reanalysis_Flowfile exists and if not, create it
-    if os.path.isfile(folder.DEM_StrmShp) and os.path.isfile(folder.DEM_Reanalsyis_FlowFile):
+    existing_stream_network_matches_dem = _stream_network_matches_dem_crs(folder.DEM_StrmShp, folder.DEM_File)
+    if os.path.isfile(folder.DEM_StrmShp) and os.path.isfile(folder.DEM_Reanalsyis_FlowFile) and existing_stream_network_matches_dem:
         LOG.info(folder.DEM_StrmShp + ' Already Exists')
         LOG.info(folder.DEM_Reanalsyis_FlowFile + ' Already Exists')
     else:
+        if os.path.isfile(folder.DEM_StrmShp) and not existing_stream_network_matches_dem:
+            LOG.info("Existing stream network CRS does not match the DEM used for this run. Rebuilding stream preprocessing outputs.")
         # Before we get too far ahead, let's make sure that our DEM and Flowlines have the same coordinate system
         StrmShp_gdf = process_river_geometry(folder, watershed_dict, DEM) 
         # save the initial network as a geopackage
@@ -236,9 +239,12 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
 
    
     #Create Land Dataset
-    if os.path.isfile(folder.LAND_File):
+    land_file_matches_dem = _raster_matches_dem_crs(folder.LAND_File, folder.DEM_File)
+    if os.path.isfile(folder.LAND_File) and land_file_matches_dem:
         LOG.info(folder.LAND_File + ' Already Exists')
     else: 
+        if os.path.isfile(folder.LAND_File) and not land_file_matches_dem:
+            LOG.info("Existing LAND raster CRS does not match the DEM used for this run. Recreating LAND raster.")
         LOG.info('Creating ' + folder.LAND_File) 
         Create_AR_LandRaster(folder.LandCoverFiles, folder.LAND_File, projWin_extents, dem_projection, ncols, nrows)
 
@@ -264,12 +270,25 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
     #The stream has to move if we are using Curve2Flood-FLDPLNpy
     move_stream_network_to_new_locations = bool(watershed_dict['move_stream_network_to_new_locations'])
     folder.setup_fldpln_files()
-    if (move_stream_network_to_new_locations is True or is_curve2flood_fldpln_mapper(watershed_dict['mapper'])) and (watershed_dict['process_stream_network'] is True or os.path.exists(folder.new_StrmShp_matched) is False or os.path.exists(folder.filled_dem) is False):
+    # Reuse moved-network hydroterrain outputs only when they were generated
+    # against the same effective DEM CRS as this run.
+    hydroterrain_outputs_match_dem = (
+        _raster_matches_dem_crs(folder.filled_dem, folder.DEM_File)
+        and _stream_network_matches_dem_crs(folder.new_StrmShp_matched, folder.filled_dem)
+    )
+    if (
+        move_stream_network_to_new_locations is True or is_curve2flood_fldpln_mapper(watershed_dict['mapper'])
+    ) and (
+        watershed_dict['process_stream_network'] is True
+        or not hydroterrain_outputs_match_dem
+    ):
         # check if the stream threshold was provided, otherwise throw an error:
         if watershed_dict['new_strm_threshold_km2'] is None:
             LOG.error("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using Curve2Flood-FLDPLNpy. Please provide new_strm_threshold_km2.")
             raise ValueError("The argument new_strm_threshold_km2 is required for both moving the stream network using the DEM and using Curve2Flood-FLDPLNpy. Please provide new_strm_threshold_km2.")
         else:
+            if not watershed_dict['process_stream_network'] and not hydroterrain_outputs_match_dem:
+                LOG.info("Existing hydroterrain outputs do not match the current DEM CRS. Rebuilding hydroterrain products before continuing.")
             Hydroterrain_Processing.create_flow_direction_and_flow_accumulation_raster(
                 folder.DEM_File, folder.filled_dem, folder.Flow_Direction_Folder, folder.flowdir, folder.flowacc
             )
@@ -281,25 +300,35 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
                                                                                                             folder.new_StrmShp,
                                                                                                             folder.new_catchment
                                                                                                         )
-            Hydroterrain_Processing.match_new_streams_to_old_streams(
-                                                                        folder.new_StrmShp,
-                                                                        folder.DEM_StrmShp,
-                                                                        folder.new_StrmShp_matched,
-                                                                        stream_id_field,
-                                                                        ds_stream_id_field,
-                                                                        watershed_dict["StrmOrder_Field"],
-                                                                        min_match_score = watershed_dict['min_match_score'],
-                                                                        require_overlap = False,
-                                                                        remove_detached_upstream = True,
-                                                                        connectivity_tolerance_m = 30.0,
-                                                                        buffer_distance_m =1000.0
-                                                                    )
-        # Update what things are since we've decided to use Curve2Flood-FLDPLNpy or to move the stream network.
-        original_dem_file = folder.DEM_File
-        folder.DEM_File = folder.filled_dem
-        folder.DEM_StrmShp = folder.new_StrmShp_matched
+            # add a check here to make sure the new stream vector dataset was created or if it is empty
+            # if it is empty use the original stream vector dataset and log a warning that the stream network processing likely failed
+            # else we can proceed with matching the new stream network to the old stream network
+            if not os.path.exists(folder.new_StrmShp) or os.path.getsize(folder.new_StrmShp) == 0:
+                LOG.warning(f"Stream network processing likely failed since the new stream shapefile {folder.new_StrmShp} was not created or is empty. Using the original stream shapefile {folder.DEM_StrmShp} for downstream processing.")
+                folder.new_StrmShp = None
+                folder.new_catchment = None
+            else:
+                Hydroterrain_Processing.match_new_streams_to_old_streams(
+                                                                            folder.new_StrmShp,
+                                                                            folder.DEM_StrmShp,
+                                                                            folder.new_StrmShp_matched,
+                                                                            stream_id_field,
+                                                                            ds_stream_id_field,
+                                                                            watershed_dict["StrmOrder_Field"],
+                                                                            min_match_score = watershed_dict['min_match_score'],
+                                                                            require_overlap = False,
+                                                                            remove_detached_upstream = True,
+                                                                            connectivity_tolerance_m = 30.0,
+                                                                            buffer_distance_m =1000.0
+                                                                        )
+                # Update what things are since we've decided to use Curve2Flood-FLDPLNpy or to move the stream network.
+                original_dem_file = folder.DEM_File
+                folder.DEM_File = folder.filled_dem
+                folder.DEM_StrmShp = folder.new_StrmShp_matched
     # logic to handle when the stream network was already moved and you just want to use it to forecast flood maps without reprocessing the stream network or downloading reanalysis data again.
-    if (move_stream_network_to_new_locations is True or is_curve2flood_fldpln_mapper(watershed_dict['mapper'])) and watershed_dict['process_stream_network'] is False and os.path.exists(folder.new_StrmShp_matched) is True and os.path.exists(folder.filled_dem) is True:
+    if (
+        move_stream_network_to_new_locations is True or is_curve2flood_fldpln_mapper(watershed_dict['mapper'])
+    ) and watershed_dict['process_stream_network'] is False and hydroterrain_outputs_match_dem and os.path.exists(folder.new_StrmShp_matched):
         # Update what things are since we've decided to use Curve2Flood-FLDPLNpy or to move the stream network.
         original_dem_file = folder.DEM_File
         folder.DEM_File = folder.filled_dem
@@ -766,6 +795,163 @@ def Get_Raster_Details(DEM_File):
     return minx, miny, maxx, maxy, dx, dy, ncols, nrows, geoTransform, Rast_Projection
 
 
+def _get_fldpln_projected_crs() -> CRS:
+    # FLDPLNpy hydroterrain processing requires projected coordinates. Use a
+    # fixed global metric CRS so every geographic DEM is normalized the same way.
+    return CRS.from_epsg(6933)
+
+
+def _prepare_fldpln_dem(folder: FloodFolder) -> None:
+    dem_dataset = gdal.Open(folder.DEM_File, gdal.GA_ReadOnly)
+    if dem_dataset is None:
+        raise FileNotFoundError(f"Could not open DEM for FLDPLNpy processing: {folder.DEM_File}")
+
+    dem_projection = dem_dataset.GetProjection()
+    if not dem_projection:
+        dem_dataset = None
+        raise ValueError(f"DEM is missing a coordinate system and cannot be prepared for FLDPLNpy: {folder.DEM_File}")
+
+    dem_crs = CRS.from_wkt(dem_projection)
+    if not dem_crs.is_geographic:
+        dem_dataset = None
+        return
+
+    projected_crs = _get_fldpln_projected_crs()
+    # Write the projected working DEM into the hydroterrain folder so every
+    # later FLDPLNpy step can reference a metric raster from one canonical path.
+    projected_dem = os.path.join(folder.Flow_Direction_Folder, f"{folder.FileName}.tif")
+
+    reuse_existing_projection = False
+    if os.path.exists(projected_dem):
+        existing_dataset = gdal.Open(projected_dem, gdal.GA_ReadOnly)
+        if existing_dataset is not None and existing_dataset.GetProjection():
+            try:
+                reuse_existing_projection = CRS.from_wkt(existing_dataset.GetProjection()) == projected_crs
+            except Exception:
+                reuse_existing_projection = False
+        existing_dataset = None
+
+    if not reuse_existing_projection:
+        # Ask GDAL/PROJ to build the target warped grid first so the projected
+        # extent and nominal resolution come from the actual reprojection.
+        warped_vrt = gdal.AutoCreateWarpedVRT(
+            dem_dataset,
+            None,
+            projected_crs.to_wkt(),
+            gdal.GRA_Bilinear,
+            0.0,
+        )
+        if warped_vrt is None:
+            dem_dataset = None
+            raise RuntimeError(f"Failed to derive projected DEM grid for FLDPLNpy hydroterrain processing: {folder.DEM_File}")
+
+        warped_gt = warped_vrt.GetGeoTransform()
+        x_res = abs(warped_gt[1])
+        y_res = abs(warped_gt[5])
+        # Whitebox hydroterrain tools are more reliable with square projected
+        # cells, so collapse the nominal warped resolution to one target size.
+        target_res = (x_res * y_res) ** 0.5
+        output_bounds = [
+            warped_gt[0],
+            warped_gt[3] + (warped_gt[5] * warped_vrt.RasterYSize),
+            warped_gt[0] + (warped_gt[1] * warped_vrt.RasterXSize),
+            warped_gt[3],
+        ]
+        warped_vrt = None
+
+        band = dem_dataset.GetRasterBand(1)
+        output_type = band.DataType
+        nodata = band.GetNoDataValue()
+        predictor = "3" if output_type in {gdal.GDT_Float32, gdal.GDT_Float64} else "2"
+        band = None
+
+        warp_kwargs = {
+            "format": "GTiff",
+            "dstSRS": projected_crs.to_wkt(),
+            "resampleAlg": gdal.GRA_Bilinear,
+            "outputBounds": output_bounds,
+            "targetAlignedPixels": True,
+            "creationOptions": [f"COMPRESS=LZW", f"PREDICTOR={predictor}"],
+            "outputType": output_type,
+            "xRes": target_res,
+            "yRes": target_res,
+        }
+
+        if nodata is not None:
+            warp_kwargs["srcNodata"] = nodata
+            warp_kwargs["dstNodata"] = nodata
+
+        LOG.info(
+            "FLDPLNpy requires projected terrain metrics. "
+            f"Reprojecting geographic DEM to {projected_crs.to_string()}."
+        )
+        projected_dataset = gdal.Warp(projected_dem, dem_dataset, options=gdal.WarpOptions(**warp_kwargs))
+        if projected_dataset is None:
+            dem_dataset = None
+            raise RuntimeError(f"Failed to reproject DEM for FLDPLNpy hydroterrain processing: {folder.DEM_File}")
+        projected_dataset = None
+    else:
+        LOG.info(f"Reusing projected DEM for FLDPLNpy hydroterrain processing: {projected_dem}")
+
+    dem_dataset = None
+    folder.DEM_File = projected_dem
+
+
+def _get_raster_crs(raster_path: str) -> CRS | None:
+    # Small helper used to validate whether cached rasters can be safely reused
+    # after switching the active DEM to a projected FLDPLNpy working raster.
+    if not os.path.isfile(raster_path):
+        return None
+
+    raster_dataset = gdal.Open(raster_path, gdal.GA_ReadOnly)
+    if raster_dataset is None or not raster_dataset.GetProjection():
+        raster_dataset = None
+        return None
+
+    try:
+        return CRS.from_wkt(raster_dataset.GetProjection())
+    except Exception:
+        return None
+    finally:
+        raster_dataset = None
+
+
+def _raster_matches_dem_crs(raster_path: str, dem_path: str) -> bool:
+    raster_crs = _get_raster_crs(raster_path)
+    dem_crs = _get_raster_crs(dem_path)
+    return raster_crs is not None and dem_crs is not None and raster_crs == dem_crs
+
+
+def _stream_network_matches_dem_crs(stream_path: str, dem_path: str) -> bool:
+    if not os.path.isfile(stream_path) or not os.path.isfile(dem_path):
+        return False
+
+    dem_crs = _get_raster_crs(dem_path)
+    if dem_crs is None:
+        return False
+
+    try:
+        try:
+            stream_gdf = gpd.read_file(stream_path, rows=1)
+        except TypeError:
+            stream_gdf = gpd.read_file(stream_path)
+    except Exception as ex:
+        LOG.warning(f"Could not inspect CRS for existing stream network {stream_path}: {ex}")
+        return False
+
+    if stream_gdf.crs is None:
+        return False
+
+    try:
+        stream_crs = CRS.from_user_input(stream_gdf.crs)
+    except Exception:
+        return False
+
+    # Existing stream preprocessing outputs are only reusable when they still
+    # match the DEM CRS that the current run will use downstream.
+    return dem_crs == stream_crs
+
+
 def Read_Raster_GDAL(InRAST_Name):
     try:
         dataset = gdal.Open(InRAST_Name, gdal.GA_ReadOnly)
@@ -1098,10 +1284,12 @@ def run_dem_cleaner(folder: FloodFolder, watershed_dict: dict, timer: Timer, DEM
     Create_FlowFile(folder.DEM_Reanalsyis_FlowFile, FlowFileName, OutputID, 'p_exceed_50')
     # start time for the simulation
     with timer('dem_cleaner'):
+        dem_folder_for_cleaner = os.path.dirname(folder.DEM_File)
+        dem_name_for_cleaner = os.path.basename(folder.DEM_File)
         DEM_Cleaner.DEM_Cleaner_Program(OutputID, 
                                         folder.DEM_StrmShp, 
-                                        folder.dem_folder, 
-                                        [DEM], 
+                                        dem_folder_for_cleaner, 
+                                        [dem_name_for_cleaner], 
                                         [folder.STRM_File_Clean], 
                                         folder.dem_updated_folder, 
                                         FlowFileName, 
@@ -1235,8 +1423,17 @@ def run_go_consequences(folder: FloodFolder, timer: Timer):
 def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Timer):
     if not (DEM.endswith(".tif") or DEM.endswith(".img")):
         return
-        
+
     folder.setup_folder_for_dem(DEM, watershed_dict)
+    if is_curve2flood_fldpln_mapper(watershed_dict.get('mapper')):
+        # Promote geographic FLDPLNpy inputs to the fixed EASE-Grid working DEM before
+        # downloading land cover or building any downstream terrain products.
+        _prepare_fldpln_dem(folder)
+    if os.path.exists(folder.LAND_File) and not _raster_matches_dem_crs(folder.LAND_File, folder.DEM_File):
+        # Force a refresh when an older LAND raster was built against a
+        # different DEM CRS than the one this run now uses.
+        LOG.info("Existing LAND raster CRS does not match the DEM used for this run. Removing cached LAND raster so it can be regenerated.")
+        os.remove(folder.LAND_File)
     folder.set_source_landcover_files(ESA.download_and_process_land_cover(folder))
 
     # This function sets-up the Input files for ARC and FloodSpreader
@@ -1297,9 +1494,8 @@ def process_river_geometry(folder: FloodFolder, watershed_dict: dict, DEM: str):
         raise ValueError("Unsupported stream file format. Please provide a .gdb, .shp, .gpkg, or .parquet file.")
 
     LOG.info('Converting the coordinate system of the stream file to match the DEM files, if necessary')
-    test_dem_path = os.path.join(folder.dem_folder, DEM)
     # Load the DEM file and get its CRS using gdal
-    dem_dataset: gdal.Dataset = gdal.Open(test_dem_path)
+    dem_dataset: gdal.Dataset = gdal.Open(folder.DEM_File)
     dem_crs = CRS.from_wkt(dem_dataset.GetProjection())
     strm_crs = CRS.from_user_input(StrmShp_gdf.crs)
     has_different_crs = dem_crs != strm_crs

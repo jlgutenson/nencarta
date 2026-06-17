@@ -36,7 +36,7 @@ def create_flow_direction_and_flow_accumulation_raster(dem: str, filled_dem: str
     wbt.d8_flow_accumulation(
                                 filled_dem,
                                 flowacc,
-                                out_type="specific contributing area", # Output type: 'cells' (default), 'catchment area', or 'specific contributing area'
+                                out_type="cells", # Output type: 'cells' (default), 'catchment area', or 'specific contributing area'
                                 log=False,
                                 clip=False
                             )
@@ -272,13 +272,25 @@ def create_catchments_and_flowlines_with_flow_direction_and_accumulation(
     fa_ds = None
     if cell_area <= 0:
         raise ValueError("Invalid flow accumulation raster pixel area.")
-    threshold_cells = max(1, int(round((stream_threshold_km2) * 1000000)))
+    threshold_cells = max(1, int(round((stream_threshold_km2) * 1000000)/cell_area))
     sample_back_distance = max(abs(float(fa_gt[1])), abs(float(fa_gt[5])), math.sqrt(cell_area) * 0.5)
 
     # Extract and vectorize thresholded stream network from FAC + D8 pointer.
     wbt.extract_streams(flow_accum=flowacc_raster, output=stream_mask, threshold=threshold_cells)
     wbt.raster_streams_to_vector(stream_mask, flowdir_raster, stream_lines_shp)
     wbt.subbasins(d8_pntr=flowdir_raster, streams=stream_mask, output=subbasins_raster)
+
+    # check to see if stream_lines_shp was created and has features before proceeding
+    # else log an error and raise an exception and return Nones
+    if not os.path.exists(stream_lines_shp):
+        LOG.error("Stream lines shapefile was not created. Check if the flow accumulation raster and threshold are valid.")
+        return {
+        "flowlines_vector": None,
+        "catchments_vector": None,
+        "stream_threshold_cells": None,
+        "stream_threshold_km2": None,
+        }
+
 
     streams_gdf = gpd.read_file(stream_lines_shp)
     if streams_gdf.empty:

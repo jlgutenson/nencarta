@@ -52,7 +52,12 @@ watershed objects in the ``watersheds`` array to run them in batch mode.
 .. _json-dem_dir:
 
 * ``dem_dir`` (String): A full filepath to the directory containing one or more DEMs
-  that you will be using as input in NenCarta.
+  that you will be using as input in NenCarta. If ``mapper`` is set to
+  ``Curve2Flood-FLDPLNpy`` and a DEM is stored in geographic coordinates
+  (latitude/longitude), NenCarta first creates a projected GeoTIFF copy in the
+  watershed ``FlowDirection`` folder using ``WGS 84 / NSIDC EASE-Grid 2.0
+  Global`` (EPSG:6933). That projected copy becomes the DEM used for all later
+  processing for that tile.
 
 .. _json-dem_filter:
 
@@ -212,7 +217,10 @@ watershed objects in the ``watersheds`` array to run them in batch mode.
   threshold-based catchments, and then transfer stream IDs from the original
   flowline dataset onto the new network. Default is False. This is required if using
   FLDPLNpy as the ``mapper`` option. This option should not be used if your DEM does
-  not contain the entire contribution upstream area of your area of interest.
+  not contain the entire contribution upstream area of your area of interest. When
+  FLDPLNpy is selected and the DEM CRS is geographic, NenCarta automatically
+  reprojects the DEM to ``WGS 84 / NSIDC EASE-Grid 2.0 Global`` (EPSG:6933)
+  before this hydroterrain workflow begins.
 
 .. _json-name:
 
@@ -580,6 +588,12 @@ Stream network movement options
 When ``move_stream_network_to_new_locations`` is enabled, or when
 ``mapper`` is set to ``Curve2Flood-FLDPLNpy``, NenCarta switches to the stream
 movement workflow implemented in ``nencarta/nencarta/main.py``. That workflow
+first checks the DEM coordinate system. If the DEM is geographic
+(``lat/lon``), NenCarta creates a projected GeoTIFF copy in
+``WGS 84 / NSIDC EASE-Grid 2.0 Global`` (EPSG:6933) and uses that projected
+copy for stream preprocessing, hydroterrain generation, DEM cleaning,
+bathymetry, flood mapping, and FIST output generation for the rest of that DEM
+tile's run. The hydroterrain workflow
 first calls ``create_flow_direction_and_flow_accumulation_raster`` in
 ``Hydroterrain_Processing.py`` to fill depressions in the DEM and create a
 filled DEM, D8 flow-direction raster, and D8 flow-accumulation raster. 
@@ -622,6 +636,11 @@ Stream network movement outputs
 
 This workflow writes its outputs beneath the watershed's ``FlowDirection`` and
 ``STRM`` subdirectories:
+
+* ``FlowDirection/{DEM}.tif``: projected DEM copy created only when
+  ``Curve2Flood-FLDPLNpy`` is used with a geographic DEM. The output is written
+  as a GeoTIFF in ``WGS 84 / NSIDC EASE-Grid 2.0 Global`` (EPSG:6933) and
+  becomes the DEM used by subsequent NenCarta steps for that tile.
 
 * ``FlowDirection/{DEM}_filled.tif``: depression-filled DEM created before
   stream extraction. When stream movement is active, this becomes the DEM used
