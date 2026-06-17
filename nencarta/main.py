@@ -795,30 +795,30 @@ def Get_Raster_Details(DEM_File):
     return minx, miny, maxx, maxy, dx, dy, ncols, nrows, geoTransform, Rast_Projection
 
 
-def _get_fldpln_projected_crs() -> CRS:
-    # FLDPLNpy hydroterrain processing requires projected coordinates. Use a
+def _get_projected_crs() -> CRS:
+    # NenCarta's hydroterrain processing requires projected coordinates. Use a
     # fixed global metric CRS so every geographic DEM is normalized the same way.
     return CRS.from_epsg(6933)
 
 
-def _prepare_fldpln_dem(folder: FloodFolder) -> None:
+def _prepare_projected_dem(folder: FloodFolder) -> None:
     dem_dataset = gdal.Open(folder.DEM_File, gdal.GA_ReadOnly)
     if dem_dataset is None:
-        raise FileNotFoundError(f"Could not open DEM for FLDPLNpy processing: {folder.DEM_File}")
+        raise FileNotFoundError(f"Could not open DEM for NenCarta hydroterrain processing: {folder.DEM_File}")
 
     dem_projection = dem_dataset.GetProjection()
     if not dem_projection:
         dem_dataset = None
-        raise ValueError(f"DEM is missing a coordinate system and cannot be prepared for FLDPLNpy: {folder.DEM_File}")
+        raise ValueError(f"DEM is missing a coordinate system and cannot be prepared for NenCarta hydroterrain processing: {folder.DEM_File}")
 
     dem_crs = CRS.from_wkt(dem_projection)
     if not dem_crs.is_geographic:
         dem_dataset = None
         return
 
-    projected_crs = _get_fldpln_projected_crs()
+    projected_crs = _get_projected_crs()
     # Write the projected working DEM into the hydroterrain folder so every
-    # later FLDPLNpy step can reference a metric raster from one canonical path.
+    # later the mapper step can reference a metric raster from one canonical path.
     projected_dem = os.path.join(folder.Flow_Direction_Folder, f"{folder.FileName}.tif")
 
     reuse_existing_projection = False
@@ -843,7 +843,7 @@ def _prepare_fldpln_dem(folder: FloodFolder) -> None:
         )
         if warped_vrt is None:
             dem_dataset = None
-            raise RuntimeError(f"Failed to derive projected DEM grid for FLDPLNpy hydroterrain processing: {folder.DEM_File}")
+            raise RuntimeError(f"Failed to derive projected DEM grid for NenCarta hydroterrain processing: {folder.DEM_File}")
 
         warped_gt = warped_vrt.GetGeoTransform()
         x_res = abs(warped_gt[1])
@@ -882,16 +882,16 @@ def _prepare_fldpln_dem(folder: FloodFolder) -> None:
             warp_kwargs["dstNodata"] = nodata
 
         LOG.info(
-            "FLDPLNpy requires projected terrain metrics. "
+            "NenCarta requires projected terrain metrics. "
             f"Reprojecting geographic DEM to {projected_crs.to_string()}."
         )
         projected_dataset = gdal.Warp(projected_dem, dem_dataset, options=gdal.WarpOptions(**warp_kwargs))
         if projected_dataset is None:
             dem_dataset = None
-            raise RuntimeError(f"Failed to reproject DEM for FLDPLNpy hydroterrain processing: {folder.DEM_File}")
+            raise RuntimeError(f"Failed to reproject DEM for NenCarta hydroterrain processing: {folder.DEM_File}")
         projected_dataset = None
     else:
-        LOG.info(f"Reusing projected DEM for FLDPLNpy hydroterrain processing: {projected_dem}")
+        LOG.info(f"Reusing projected DEM for NenCarta hydroterrain processing: {projected_dem}")
 
     dem_dataset = None
     folder.DEM_File = projected_dem
@@ -899,7 +899,7 @@ def _prepare_fldpln_dem(folder: FloodFolder) -> None:
 
 def _get_raster_crs(raster_path: str) -> CRS | None:
     # Small helper used to validate whether cached rasters can be safely reused
-    # after switching the active DEM to a projected FLDPLNpy working raster.
+    # after switching the active DEM to a projected NenCarta working raster.
     if not os.path.isfile(raster_path):
         return None
 
@@ -1425,10 +1425,12 @@ def run_one_dem(DEM: str, folder: FloodFolder, watershed_dict: dict, timer: Time
         return
 
     folder.setup_folder_for_dem(DEM, watershed_dict)
-    if is_curve2flood_fldpln_mapper(watershed_dict.get('mapper')):
-        # Promote geographic FLDPLNpy inputs to the fixed EASE-Grid working DEM before
-        # downloading land cover or building any downstream terrain products.
-        _prepare_fldpln_dem(folder)
+    if (
+        bool(watershed_dict.get('move_stream_network_to_new_locations'))
+    ):
+        # Promote geographic DEM inputs to the fixed projected working DEM before
+        # building hydroterrain or downstream products that depend on metric cells.
+        _prepare_projected_dem(folder)
     if os.path.exists(folder.LAND_File) and not _raster_matches_dem_crs(folder.LAND_File, folder.DEM_File):
         # Force a refresh when an older LAND raster was built against a
         # different DEM CRS than the one this run now uses.

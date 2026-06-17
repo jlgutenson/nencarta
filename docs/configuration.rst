@@ -52,8 +52,9 @@ watershed objects in the ``watersheds`` array to run them in batch mode.
 .. _json-dem_dir:
 
 * ``dem_dir`` (String): A full filepath to the directory containing one or more DEMs
-  that you will be using as input in NenCarta. If ``mapper`` is set to
-  ``Curve2Flood-FLDPLNpy`` and a DEM is stored in geographic coordinates
+  that you will be using as input in NenCarta. If 
+  :ref:`move_stream_network_to_new_locations <json-move_stream_network_to_new_locations>`
+  is ``true``, and a DEM is stored in geographic coordinates
   (latitude/longitude), NenCarta first creates a projected GeoTIFF copy in the
   watershed ``FlowDirection`` folder using ``WGS 84 / NSIDC EASE-Grid 2.0
   Global`` (EPSG:6933). That projected copy becomes the DEM used for all later
@@ -217,10 +218,11 @@ watershed objects in the ``watersheds`` array to run them in batch mode.
   threshold-based catchments, and then transfer stream IDs from the original
   flowline dataset onto the new network. Default is False. This is required if using
   FLDPLNpy as the ``mapper`` option. This option should not be used if your DEM does
-  not contain the entire contribution upstream area of your area of interest. When
-  FLDPLNpy is selected and the DEM CRS is geographic, NenCarta automatically
+  not contain most of the contribution upstream area of your area of interest. When
+  this option is enabled and the DEM CRS is geographic, NenCarta automatically
   reprojects the DEM to ``WGS 84 / NSIDC EASE-Grid 2.0 Global`` (EPSG:6933)
-  before this hydroterrain workflow begins.
+  before this hydroterrain workflow begins. The same reprojection also occurs
+  when FLDPLNpy is selected as the ``mapper`` option.
 
 .. _json-name:
 
@@ -637,10 +639,12 @@ Stream network movement outputs
 This workflow writes its outputs beneath the watershed's ``FlowDirection`` and
 ``STRM`` subdirectories:
 
-* ``FlowDirection/{DEM}.tif``: projected DEM copy created only when
-  ``Curve2Flood-FLDPLNpy`` is used with a geographic DEM. The output is written
-  as a GeoTIFF in ``WGS 84 / NSIDC EASE-Grid 2.0 Global`` (EPSG:6933) and
-  becomes the DEM used by subsequent NenCarta steps for that tile.
+* ``FlowDirection/{DEM}.tif``: A projected DEM that is either supplied by the user or automatically created. 
+  A projected DEM copy is automatically created only when a geographic DEM is used with ``Curve2Flood-FLDPLNpy`` 
+  or with
+  ``move_stream_network_to_new_locations=true``. The automated DEM reprojection
+  output is written as a GeoTIFF in ``WGS 84 / NSIDC EASE-Grid 2.0 Global`` (EPSG:6933) 
+  and becomes the DEM used by subsequent NenCarta steps for that tile.
 
 * ``FlowDirection/{DEM}_filled.tif``: depression-filled DEM created before
   stream extraction. When stream movement is active, this becomes the DEM used

@@ -90,12 +90,6 @@ The JSON should look like what's provided below. Multiple watersheds can be prov
 
 The JSON inputs are each described [here](https://nencarta.readthedocs.io/en/latest/configuration.html#json-inputs). 
 
-If `mapper` is set to `Curve2Flood-FLDPLNpy` and an input DEM is stored in
-geographic coordinates (`lat/lon`), NenCarta creates a projected GeoTIFF copy
-in the watershed `FlowDirection` folder using `WGS 84 / NSIDC EASE-Grid 2.0
-Global` (`EPSG:6933`). NenCarta then uses that projected DEM for all
-subsequent processing for that tile.
-
 Once you have a JSON created. You can simply issue this command (assuming your conda environment is active in the command prompt):
 
 ```bash
