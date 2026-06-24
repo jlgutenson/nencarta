@@ -187,6 +187,9 @@ def _assign_streams_to_catchments_by_downstream_point(
             distance_col="_catchment_dist",
         )[["_stream_index", "catchment_id"]]
         nearest = nearest.drop_duplicates(subset=["_stream_index"], keep="first")
+        # Drop the null placeholder rows from the initial "within" join so the
+        # nearest-match fallback can replace them for the same stream index.
+        assigned = assigned.loc[assigned["catchment_id"].notna()]
         assigned = pd.concat([assigned, nearest], ignore_index=True)
         assigned = assigned.drop_duplicates(subset=["_stream_index"], keep="first")
 
@@ -278,7 +281,16 @@ def create_catchments_and_flowlines_with_flow_direction_and_accumulation(
     # Extract and vectorize thresholded stream network from FAC + D8 pointer.
     wbt.extract_streams(flow_accum=flowacc_raster, output=stream_mask, threshold=threshold_cells)
     wbt.raster_streams_to_vector(stream_mask, flowdir_raster, stream_lines_shp)
+    if fa_proj:
+        # Whitebox may omit the shapefile CRS sidecar; restore it from the
+        # flow-accumulation raster so downstream readers see the correct CRS.
+        stream_srs = osr.SpatialReference()
+        if stream_srs.ImportFromWkt(fa_proj) == ogr.OGRERR_NONE:
+            stream_srs.MorphToESRI()
+            with open(stream_lines_shp.replace(".shp", ".prj"), "w", encoding="utf-8") as prj_file:
+                prj_file.write(stream_srs.ExportToWkt())
     wbt.subbasins(d8_pntr=flowdir_raster, streams=stream_mask, output=subbasins_raster)
+
 
     # check to see if stream_lines_shp was created and has features before proceeding
     # else log an error and raise an exception and return Nones

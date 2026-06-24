@@ -1,6 +1,3 @@
-#conda env create -f **.yml
-#conda activate ffs_esa_dc
-
 # build-in imports
 import glob
 import os
@@ -204,7 +201,7 @@ def download_forecast_streamflows(watershed_dict: dict, folder: FloodFolder, riv
 def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str):
     #Get the Spatial Information from the DEM Raster
     (minx, miny, maxx, maxy, dx, dy, ncols, nrows, _, dem_projection) = Get_Raster_Details(folder.DEM_File)
-    projWin_extents = [minx, maxy, maxx, miny]
+    # projWin_extents = [minx, maxy, maxx, miny]
     outputBounds = [minx, miny, maxx, maxy]  #https://gdal.org/api/python/osgeo.gdal.html
 
     #Check the coordinate system of the rasters and if they are not in meters or degrees, end with log an error message and stop processing
@@ -246,7 +243,7 @@ def Process_Geospatial_Data(folder: FloodFolder, watershed_dict: dict, DEM: str)
         if os.path.isfile(folder.LAND_File) and not land_file_matches_dem:
             LOG.info("Existing LAND raster CRS does not match the DEM used for this run. Recreating LAND raster.")
         LOG.info('Creating ' + folder.LAND_File) 
-        Create_AR_LandRaster(folder.LandCoverFiles, folder.LAND_File, projWin_extents, dem_projection, ncols, nrows)
+        Create_AR_LandRaster(folder.LandCoverFiles, folder.LAND_File, outputBounds, dem_projection, ncols, nrows)
 
     #Describe the streamflow forecast source we are using
     streamflow_source = watershed_dict['streamflow_source']
@@ -871,7 +868,7 @@ def _prepare_projected_dem(folder: FloodFolder) -> None:
             "resampleAlg": gdal.GRA_Bilinear,
             "outputBounds": output_bounds,
             "targetAlignedPixels": True,
-            "creationOptions": [f"COMPRESS=LZW", f"PREDICTOR={predictor}"],
+            "creationOptions": [f"COMPRESS=LZW"],
             "outputType": output_type,
             "xRes": target_res,
             "yRes": target_res,
@@ -895,6 +892,7 @@ def _prepare_projected_dem(folder: FloodFolder) -> None:
 
     dem_dataset = None
     folder.DEM_File = projected_dem
+    folder.DEM_File_Clean = projected_dem
 
 
 def _get_raster_crs(raster_path: str) -> CRS | None:
