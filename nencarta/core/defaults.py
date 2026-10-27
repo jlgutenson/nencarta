@@ -102,6 +102,8 @@ DEFAULT_CONFIG = {
     "raise_errors_if_nothing_in_domain": True,
     "reanalysis_file": None,
     "remove_old_forecast_files": False,
+    "representative_cross_section_creation": False,
+    "stream_length_field": None,
     "return_periods": [],
     "slope_high_percentile": 75,
     "slope_low_percentile": 25,

@@ -15,3 +15,4 @@ from .fist import get_fist_inputs, run_fist
 from .consequences import run_consequences
 from .unbuffer import unbuffer_maps
 from .prepare_inputs import prepare_inputs_for_dem
+from .make_combined_representative_xs_data import make_combined_representative_xs_data

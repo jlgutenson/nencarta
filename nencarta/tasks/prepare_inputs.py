@@ -23,6 +23,12 @@ from nencarta.core.model_config import ModelConfig
 from nencarta.core.enumerations import FloodMapMode
 
 def prepare_inputs_for_dem(workspace: Workspace) -> ModelConfig:
+    """Prepare ARC inputs and, when enabled, downstream mapping inputs.
+
+    Representative mode keeps the optional DEM-cleaning workflow (including
+    its initial mapper run), then exports ARC products without forecast flows,
+    FIST inputs, or flood-mapper configurations.
+    """
     DEM = workspace.assigned_dem
     configs = workspace.configs
     if not DEM.suffix.lower() in {'.tif', '.vrt', '.img', '.tiff', '.btiff', '.bil', '.dem'}:
@@ -48,6 +54,11 @@ def prepare_inputs_for_dem(workspace: Workspace) -> ModelConfig:
     if configs.clean_dem:
         define_configs_for_dem_cleaning(workspace)
         make_clean_dem(workspace)
+
+    if configs.representative_cross_section_creation:
+        # The representative coefficients describe each DEM's reaches rather
+        # than a forecast or return-period scenario. No scenario flows are needed.
+        return ModelConfig(define_arc_configs(workspace), [], [], configs.mapper, configs.quiet)
         
     if configs.floodmap_mode == FloodMapMode.FORECAST:
         flow_files = make_flow_file_from_forecast(workspace)

@@ -102,6 +102,12 @@ def _write_config(config_path: Path, params: dict):
                 first_line = False
 
 def _has_required_arc_outputs(workspace: Workspace) -> bool:
+    """Check ARC products, including representative exports when requested."""
+    if workspace.configs.representative_cross_section_creation:
+        return all(path.exists() for path in (
+            workspace.representative_cross_section_file,
+            workspace.representative_cross_section_coefficients_file,
+        ))
     required_files = [workspace.VDT_File_Bathy]
     if workspace.Curve_File_Bathy:
         required_files.append(workspace.Curve_File_Bathy)
@@ -179,6 +185,7 @@ def define_configs_for_dem_cleaning(workspace: Workspace) -> Path:
     return workspace.ARC_FileName_for_DEM_Cleaner
 
 def define_arc_configs(workspace: Workspace,) -> Path:
+    """Write ARC inputs and enable per-workspace representative exports on request."""
     workspace.ARC_Folder.mkdir(parents=True, exist_ok=True)
     workspace.VDT_Folder.mkdir(parents=True, exist_ok=True)
     workspace.flood_folder.mkdir(parents=True, exist_ok=True)
@@ -233,6 +240,12 @@ def define_arc_configs(workspace: Workspace,) -> Path:
     params["StrmShp_File"] = stream_vector
     params["Slope_Low_Percentile"] = configs.slope_low_percentile
     params["Slope_High_Percentile"] = configs.slope_high_percentile
+
+    if configs.representative_cross_section_creation:
+        workspace.XS_Folder.mkdir(parents=True, exist_ok=True)
+        params["Build_Representative_Cross_Section"] = True
+        params["Representative_Cross_Section_File"] = workspace.representative_cross_section_file
+        params["Stream_Length_m"] = configs.stream_length_field
 
     if not configs.disable_bathymetry:
         if configs.use_power_laws_for_bathymetry:

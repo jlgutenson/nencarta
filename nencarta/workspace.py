@@ -21,6 +21,7 @@ class Workspace:
         self.land_folder = self.output_dir / 'LAND'
         self.FLOW_Folder = self.output_dir / 'FLOW'
         self.VDT_Folder = self.output_dir / 'VDT'
+        self.XS_Folder = self.output_dir / 'XS'
         self.ESA_LC_Folder = self.output_dir / 'ESA_LC'
         self.FIST_Folder = self.output_dir / 'FIST'
         self.Consequences_Folder = self.output_dir / 'Consequences'
@@ -84,6 +85,12 @@ class Workspace:
         self.Curve_File_Bathy = self.Curve_File.with_name(self.Curve_File.stem + '_Bathy.csv')
 
         self.Cross_Section_File = self.VDT_Folder / f"{strm_source}_{self.FileName}_XS.txt"
+
+        # ARC derives the companion coefficients path by appending _exponents.
+        self.representative_cross_section_file = self.XS_Folder / f"{strm_source}_{self.FileName}_representative_cross_section.csv"
+        self.representative_cross_section_coefficients_file = self.representative_cross_section_file.with_name(
+            self.representative_cross_section_file.stem + '_exponents.csv'
+        )
 
         # self.LU_and_Streams_Water_Map = self.flood_folder / f"{strm_source}_{self.FileName}_ARC_Flood_Initial.tif"
         self.bathy_water_mask = self.bathy_file_folder / f"{strm_source}_{self.FileName}_water_mask.tif"

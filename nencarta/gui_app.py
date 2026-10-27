@@ -743,6 +743,17 @@ class FloodSimulationGUI(QMainWindow):
         self._add_path(group, "flowline", "Flowline file", "", file_filter=vector_files)
         self._add_multi_files(group, "source_flowlines", "Source flowline files", _default("source_flowlines"), vector_files)
 
+        group = self._make_group(run_tab, "Representative Cross Sections")
+        self._add_checkbox(
+            group, "representative_cross_section_creation", "Create Representative Cross Sections",
+            _default("representative_cross_section_creation"),
+            tooltip="Export ARC representative hydraulics and coefficients for each DEM; skip mapping except the optional DEM cleaner's initial mapper run.",
+        )
+        self._add_line(
+            group, "stream_length_field", "Reach length column (meters)", _default("stream_length_field") or "",
+            tooltip="Existing flowline column containing reach lengths in meters; required for representative cross sections.",
+        )
+
         group = self._make_group(run_tab, "Core")
         self._add_combo(group, "mapper", "Mapper", Mapper.list_names(), default=_default("mapper"))
         saved_streamflow_source = _streamflow_label(settings.value("streamflow_source", _default("streamflow_source")))
@@ -928,9 +939,9 @@ class FloodSimulationGUI(QMainWindow):
             raise ValueError("Provide a DEM file, DEM directory, or source DEM files.")
         if params.get("streamflow_source", "").upper().startswith("NWM") and not params.get("nwm_api_key"):
             raise ValueError("NWM API key is required for NWM streamflow sources.")
-        if params.get("floodmap_mode") == FloodMapMode.USER.value and not params.get("user_flow_files"):
+        if not params.get("representative_cross_section_creation") and params.get("floodmap_mode") == FloodMapMode.USER.value and not params.get("user_flow_files"):
             raise ValueError("User flow files are required when floodmap mode is user.")
-        if params.get("floodmap_mode") == FloodMapMode.RETURN_PERIOD.value and not params.get("return_periods"):
+        if not params.get("representative_cross_section_creation") and params.get("floodmap_mode") == FloodMapMode.RETURN_PERIOD.value and not params.get("return_periods"):
             raise ValueError("Return periods are required when floodmap mode is return_period.")
 
         NencartaConfig(dict(params))

@@ -42,7 +42,13 @@ def get_streamids_from_source(streamflow_source: str):
 
 
 class NencartaConfig:
-    """Validated user configuration for a watershed run."""
+    """Validated user configuration for a watershed run.
+
+    ``representative_cross_section_creation`` enables ARC's representative
+    hydraulics and coefficients exports and skips flood-mapper simulations.
+    The optional DEM cleaner retains its initial mapper run in this mode.
+    ``stream_length_field`` names a flowline column containing lengths in meters.
+    """
 
     def __init__(self, config_dict: dict):
         self.config_dict = config_dict
@@ -212,6 +218,14 @@ class NencartaConfig:
     def setup(self):
         """Populate validated attributes used by the processing pipeline."""
         self.verify_required_keys()
+        self.representative_cross_section_creation: bool = self.get("representative_cross_section_creation")
+        if not isinstance(self.representative_cross_section_creation, bool):
+            raise ValueError("representative_cross_section_creation must be true or false.")
+        self.stream_length_field: str | None = self.get("stream_length_field")
+        if self.representative_cross_section_creation:
+            if not isinstance(self.stream_length_field, str) or not self.stream_length_field.strip():
+                raise ValueError("representative_cross_section_creation requires stream_length_field, the flowline length column in meters.")
+            self.stream_length_field = self.stream_length_field.strip()
         self.watershed_name: str = self.get("name")
         self.warn_if_multiple_primary_dems()
 

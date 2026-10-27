@@ -10,6 +10,7 @@ from nencarta.workspace import Workspace
 from nencarta.pipeline import build_pipeline
 from nencarta.core.enumerations import Mapper
 from nencarta.core.configs import NencartaConfig
+from nencarta.tasks.make_combined_representative_xs_data import make_combined_representative_xs_data
 from nencarta.Download_Process_ForecastData import Download_USGS_DEM_Data_Using_WarningFlag_Data
 
 
@@ -115,6 +116,21 @@ def _make_console_lenient() -> None:
 
 
 def run_pipeline(workspaces: list[Workspace], executor=None):
+    """Run DEM tasks, then consolidate representative coefficients per watershed.
+
+    Consolidation runs in the parent process after serial or parallel tasks
+    finish, avoiding concurrent writes to each watershed's workspace.output_dir.
+    Each combined CSV uses only that watershed's DEM exports. Failed runs leave
+    any previous combined file untouched rather than publishing partial data.
+    """
+    representative_workspaces = [w for w in workspaces if w.configs.representative_cross_section_creation]
+    # All DEM workspaces for a watershed share workspace.output_dir. Group by
+    # that directory so coefficients from different watersheds stay separate.
+    representative_files_by_output_dir = {}
+    for workspace in representative_workspaces:
+        representative_files_by_output_dir.setdefault(workspace.output_dir.resolve(), []).append(
+            workspace.representative_cross_section_coefficients_file
+        )
     _make_console_lenient()
     profile = workspaces[0].configs.profile and not workspaces[0].configs.parallel
     parallel = workspaces[0].configs.parallel
@@ -153,6 +169,16 @@ def run_pipeline(workspaces: list[Workspace], executor=None):
         if pipeline.error_snapshot:
             _print_unencodable(pipeline.error_snapshot.traceback)
             _print_unencodable(pipeline.error_snapshot)
+
+    if representative_workspaces:
+        if pipeline.error_snapshot:
+            LOG.warning("Skipping combined representative coefficients because the pipeline reported failures; any previous combined file is unchanged.")
+        else:
+            for output_dir, coefficient_files in representative_files_by_output_dir.items():
+                make_combined_representative_xs_data(
+                    coefficient_files,
+                    output_dir / "combined_representative_cross_section_coefficients.csv",
+                )
 
     LOG.info(f"Finished processing")
     return
@@ -244,6 +270,8 @@ def main():
     cli_parser.add_argument("dem_dir", type=str, help="Directory containing DEM files")
     cli_parser.add_argument("output_dir", type=str, help="Directory where results will be saved")
     cli_parser.add_argument("--disable_bathymetry", action="store_true", help="Disable ARC, Curve2Flood, and FloodSpreader bathymetry estimation inputs")
+    cli_parser.add_argument("--representative_cross_section_creation", action="store_true", help="Export representative cross sections and coefficients with ARC; skip flood-mapper simulations")
+    cli_parser.add_argument("--stream_length_field", help="Flowline column containing reach lengths in meters (required for representative cross sections)")
     cli_parser.add_argument("--bathy_use_banks", action="store_true", help="Use bathy banks for processing")
     cli_parser.add_argument("--flood_waterlc_and_strm_cells", action="store_true",
                         help="In the flood inundation maps it shows water related land use and stream raster cells as flooded")
