@@ -229,14 +229,14 @@ def define_arc_configs(workspace: Workspace,) -> Path:
     if configs.make_cross_section_file:
         params["XS_Out_File"] = workspace.Cross_Section_File
 
+    params["reach_id"] = configs.stream_id_field
+    params["downstream_reach_id"] = configs.downstream_id_field
     params["Reach_Average_Curve_File"] = configs.create_reach_average_curve_file
     params["StrmShp_File"] = stream_vector
     params["Slope_Low_Percentile"] = configs.slope_low_percentile
     params["Slope_High_Percentile"] = configs.slope_high_percentile
 
     if not configs.disable_bathymetry:
-        params["reach_id"] = configs.stream_id_field
-        params["downstream_reach_id"] = configs.downstream_id_field
         if configs.use_power_laws_for_bathymetry:
             params["drainage_area_field"] = configs.area_km2_field
             params["coefficient_depth"] = configs.coefficient_depth or DEFAULT_CONFIG["coefficient_depth"]

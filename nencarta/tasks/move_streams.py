@@ -260,12 +260,18 @@ def burn_streams_and_move_streams(workspace: Workspace) -> Path:
 
     if configs.mapper.is_curve2flood_fldpln_mapper():
         if not should_move_streams:
-            final_streams = Raster(workspace.STRM_File_Clean).read_array()
-            streams_gdf = Vector(workspace.DEM_StrmShp, not configs.parallel).to_geopandas().to_crs(assigned_dem.projection)
-            if configs.burn_streams:
-                dem_for_stream_info = workspace.fixed_dem
+            if configs.move_stream_network_to_thalweg:
+                # Reused VDT and FLDPLN products refer to the matched network.
+                final_streams = Raster(workspace.new_stream_raster).read_array()
+                streams_gdf = Vector(workspace.new_StrmShp_matched, not configs.parallel).to_geopandas().to_crs(assigned_dem.projection)
+                dem_for_stream_info = workspace.filled_dem
             else:
-                dem_for_stream_info = workspace.assigned_dem
+                final_streams = Raster(workspace.STRM_File_Clean).read_array()
+                streams_gdf = Vector(workspace.DEM_StrmShp, not configs.parallel).to_geopandas().to_crs(assigned_dem.projection)
+                if configs.burn_streams:
+                    dem_for_stream_info = workspace.fixed_dem
+                else:
+                    dem_for_stream_info = workspace.assigned_dem
 
         _create_stream_info_table(
             workspace.stream_info_file,
@@ -1530,6 +1536,10 @@ def fill_in_paths_between_headwaters_and_outlets(
                         best_score = score
                         best_linkno = linkno
 
+            # if best_linkno is still None, we need to stop processing and not pass this stream to the final matches.
+            if best_linkno is None:
+                continue
+
             final_matches[fid] = best_linkno
             linkno_to_fid[best_linkno].add(fid)
 
@@ -1753,6 +1763,7 @@ def _conflate_streams(
         source_gdf['buffered'] = source_gdf.simplify(tolerance=1e-5, preserve_topology=False).buffer(buffer_distance, resolution=1, cap_style='square', join_style='mitre')
 
     source_gdf['buffered'] = source_gdf["buffered"].make_valid()
+    wtbx_gdf['buffered'] = wtbx_gdf["buffered"].make_valid()
 
     GA, GB = build_graphs(source_gdf, wtbx_gdf, min_strm_order, source_id_col, source_ds_col, wtbx_id_col, wtbx_ds_col)
 

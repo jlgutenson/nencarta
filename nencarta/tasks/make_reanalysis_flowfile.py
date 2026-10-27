@@ -111,21 +111,48 @@ def _get_geoglows_rp(river_ids: list[int]) -> pd.DataFrame:
     final_df = final_df.round(3)
     return final_df
 
+NWM_RP_BATCH_SIZE = 100
+
+
+def _request_nwm_rp_batch(comids: list[int], header: dict[str, str]) -> pd.DataFrame:
+    """Fetch a bounded batch, splitting further if a server rejects its size."""
+    params = {'comids': ','.join(map(str, comids)),
+              'output_format': 'csv',
+              'order_by_comid': False,}
+    response = requests.get(NWM_RP_URL, params=params, headers=header, timeout=60)
+
+    if response.status_code in (413, 414) and len(comids) > 1:
+        midpoint = len(comids) // 2
+        return pd.concat([
+            _request_nwm_rp_batch(comids[:midpoint], header),
+            _request_nwm_rp_batch(comids[midpoint:], header),
+        ], ignore_index=True)
+
+    if response.status_code != 200:
+        raise requests.exceptions.HTTPError(
+            f"NWM return period request failed (HTTP {response.status_code}, "
+            f"{len(comids)} COMIDs).",
+            response=response,
+            request=response.request,
+        )
+    return pd.read_csv(io.StringIO(response.text))
+
+
 def _get_nwm_rp(comids: list[int], nwm_api_key: str):
     if not nwm_api_key:
         raise ValueError("nwm_api_key is required for NWM return period requests.")
 
+    # Keep the query string small, even for watersheds with thousands of reaches.
+    # Preserve the original ID order while avoiding redundant requests.
+    comids = list(dict.fromkeys(comids))
+    if not comids:
+        raise NoStreamsFoundException("No COMIDs supplied for NWM return period retrieval.")
+
     header = {'x-api-key': nwm_api_key}
-    params = {'comids': ','.join(map(str, comids)),
-              'output_format': 'csv',
-              'order_by_comid': False,}
-
-    response = requests.get(NWM_RP_URL, params=params, headers=header, timeout=60)
-
-    if response.status_code == 200:
-        return_period_df = pd.read_csv(io.StringIO(response.text))
-    else:
-        raise requests.exceptions.HTTPError(response.text)
+    return_period_df = pd.concat([
+        _request_nwm_rp_batch(comids[start:start + NWM_RP_BATCH_SIZE], header)
+        for start in range(0, len(comids), NWM_RP_BATCH_SIZE)
+    ], ignore_index=True)
     
     return_period_df = return_period_df.set_index("feature_id")
     return_period_df.index.name = "river_id"

@@ -159,7 +159,7 @@ def _nwm_google_forecast_specs(streamflow_source):
         specs = [("medium_range", "medium_range.channel_rt", range(3, 240, 3))]
         specs.extend(
             (f"medium_range_mem{i}", f"medium_range.channel_rt_{i}", range(3, 240, 3))
-            for i in range(1, 6)
+            for i in range(1, 6+1)
         )
         return specs
 
@@ -167,7 +167,7 @@ def _nwm_google_forecast_specs(streamflow_source):
         specs = [("long_range", "long_range.channel_rt", range(6, 720, 6))]
         specs.extend(
             (f"long_range_mem{i}", f"long_range.channel_rt_{i}", range(6, 720, 6))
-            for i in range(1, 4)
+            for i in range(1, 4+1)
         )
         return specs
 
