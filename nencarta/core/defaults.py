@@ -63,6 +63,7 @@ DEFAULT_CONFIG = {
     "fldpln_max_wse_rise": 0.01,
     "fldpln_min_depth": 0.1,
     "fldpln_parallel": False,
+    "fldpln_solver": "exact",
     "flood_waterlc_and_strm_cells": False,
     "floodmap_args": DEFAULT_FLOODMAP_ARGS,
     "floodmap_identifier": "",

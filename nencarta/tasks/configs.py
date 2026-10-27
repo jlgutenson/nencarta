@@ -66,12 +66,10 @@ def _fldpln_inputs(workspace: Workspace):
     }
     if workspace.configs.floodmap_args.get("FLDPLN_Median_Filter_Size"):
         output.update({
-            "FLDPLN_Median_Filter_Size": workspace.configs.floodmap_args.get("FLDPLN_Median_Filter_Size"),
-            "FLDPLN_Missing_FSP_Interpolation": workspace.configs.floodmap_args.get("FLDPLN_Missing_FSP_Interpolation"),
-            "FLDPLN_DoF_Signal": workspace.configs.floodmap_args.get("FLDPLN_DoF_Signal"),
-            "FLDPLN_Threshold_Mode": workspace.configs.floodmap_args.get("FLDPLN_Threshold_Mode"),
-            "": "",
+            "FLDPLN_Median_Filter_Size": workspace.configs.floodmap_args.get("FLDPLN_Median_Filter_Size")
         })
+
+    output[""] = ""
     return output
 
 def _write_config(config_path: Path, params: dict):

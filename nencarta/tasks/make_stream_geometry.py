@@ -87,9 +87,14 @@ def make_stream_geometry(workspace: Workspace,) -> Path:
     if configs.StrmOrder_Field and (configs.StrmOrder_Lower is not None or configs.StrmOrder_Upper is not None):
         gdf = _filter_streams_by_stream_order(gdf, configs.StrmOrder_Field, configs.StrmOrder_Lower, configs.StrmOrder_Upper)
 
+
     # TODO
     if configs.exclude:
         gdf = gdf[~gdf[configs.stream_id_field].isin(configs.exclude)]
+
+    gdf['geometry'] = gdf.geometry.line_merge()
+    if configs.drop_multilinestrings and not configs.mapper.is_curve2flood_fldpln_mapper():
+        gdf = gdf[gdf.geometry.geom_type != 'MultiLineString'].copy()
 
     if gdf.empty:
         if configs.raise_errors_if_nothing_in_domain:

@@ -1,5 +1,6 @@
 # build-in imports
 import json
+import sys
 import argparse
 from pathlib import Path
 
@@ -68,7 +69,53 @@ def process_many_watersheds(input_dicts: list[dict]):
         return
     run_pipeline(workspaces)
 
+def _print_unencodable(obj) -> None:
+    """
+    Print a snapshot that may contain characters the console cannot encode.
+
+    The error snapshot carries emoji, and on a cp1252 Windows console ``print`` raises
+    UnicodeEncodeError on them. That happens inside ``run_pipeline``'s ``finally`` block,
+    where the new exception replaces the real pipeline failure -- so the one thing the user
+    needed to see is exactly what gets lost. Fall back to the console's own encoding with
+    ``errors="replace"`` instead.
+    """
+    text = str(obj)
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        print(text.encode(encoding, errors="replace").decode(encoding, errors="replace"))
+
+
+def _make_console_lenient() -> None:
+    """
+    Stop a character the console cannot encode from killing the run.
+
+    The rich progress display asked for below prints emoji, and a Windows console defaults to
+    cp1252, which has no mapping for them. rich then raises UnicodeEncodeError from inside its
+    own renderer -- at the *end* of a successful run, when it reports completion -- so a
+    pipeline that did all of its work still exits on a traceback about a codepage. Switching
+    the stream to errors="replace" leaves its encoding alone and substitutes only the
+    characters it cannot represent.
+    """
+    # Only these actually substitute an unencodable character on the way out. "surrogateescape"
+    # is the Windows default and looks lenient, but it only round-trips lone surrogates -- an
+    # emoji still raises through it.
+    substituting = {"replace", "ignore", "xmlcharrefreplace", "backslashreplace", "namereplace"}
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        if (getattr(stream, "errors", None) or "") in substituting:
+            continue
+        try:
+            reconfigure(errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
 def run_pipeline(workspaces: list[Workspace], executor=None):
+    _make_console_lenient()
     profile = workspaces[0].configs.profile and not workspaces[0].configs.parallel
     parallel = workspaces[0].configs.parallel
     num_workers = workspaces[0].configs.num_workers
@@ -92,7 +139,7 @@ def run_pipeline(workspaces: list[Workspace], executor=None):
             scheduling_strategy='eager',
             show_progress="rich",
             executor=executor,
-            # error_handling='continue'
+            error_handling='continue'
             )
         
         if profile:
@@ -104,8 +151,8 @@ def run_pipeline(workspaces: list[Workspace], executor=None):
         if should_shutdown_executor:
             executor.shutdown()
         if pipeline.error_snapshot:
-            print(pipeline.error_snapshot.traceback)
-            print(pipeline.error_snapshot)
+            _print_unencodable(pipeline.error_snapshot.traceback)
+            _print_unencodable(pipeline.error_snapshot)
 
     LOG.info(f"Finished processing")
     return

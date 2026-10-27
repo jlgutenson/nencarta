@@ -131,7 +131,8 @@ def run_fldpln_library(model_config: ModelConfig, workspace: Workspace) -> Model
         vdt_file = workspace.VDT_File_Bathy,
         parallel = workspace.configs.fldpln_parallel,
         pbar = not workspace.configs.quiet,
-        bg_mask=bg_mask
+        bg_mask=bg_mask,
+        solver=workspace.configs.fldpln_solver
     )
 
     return model_config

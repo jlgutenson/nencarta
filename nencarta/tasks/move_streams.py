@@ -6,7 +6,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from itertools import combinations
 from collections import defaultdict
-from functools import partial, cache
+from functools import partial
 
 import tqdm
 import numpy as np
@@ -24,19 +24,43 @@ from shapely.geometry import box, Point, LineString, Polygon, MultiLineString, G
 from nencarta.logger import LOG
 from nencarta.core.raster import Raster
 from nencarta.core.vector import Vector
+from nencarta.tasks.make_stream_geometry import _filter_streams_by_stream_order
 from nencarta.workspace import Workspace
 from curve2flood import remove_cells_not_connected
 
-@cache
-def get_lake_ds(path: Path) -> gdal.Dataset:
-    ds = ogr.Open(str(path))
-    if ds is None:
-        raise FileNotFoundError(f"Lake shapefile not found at {path}. Please ensure it is included in the nencarta package.")
-    return ds
+def _in_memory_ogr_layer(gdf: gpd.GeoDataFrame, projection: str) -> tuple[ogr.DataSource, ogr.Layer]:
+    """
+    Copy ``gdf``'s geometries into an in-memory OGR layer so GDAL can rasterize them.
+
+    The caller must keep the returned DataSource alive: OGR owns the layer, and letting the
+    DataSource fall out of scope invalidates the layer while it is still in use.
+    """
+    # 'Memory' is the pre-GDAL-3.11 spelling and now warns on every call; 'MEM' is the
+    # current name. Fall back so this still works on older GDAL builds.
+    driver = ogr.GetDriverByName('MEM') or ogr.GetDriverByName('Memory')
+    ogr_ds: ogr.DataSource = driver.CreateDataSource('lakes')
+    srs = osr.SpatialReference()
+    srs.ImportFromWkt(projection)
+    layer: ogr.Layer = ogr_ds.CreateLayer('lakes', srs, ogr.wkbUnknown)
+    layer_defn = layer.GetLayerDefn()
+    for geometry in gdf.geometry.values:
+        if geometry is None or geometry.is_empty:
+            continue
+        feature = ogr.Feature(layer_defn)
+        feature.SetGeometry(ogr.CreateGeometryFromWkb(geometry.wkb))
+        layer.CreateFeature(feature)
+        feature = None
+    return ogr_ds, layer
 
 def load_lake_array(workspace: Workspace, dem_raster: Raster) -> np.ndarray | None:
     """
     We load the lakes in the DEM's domain. We do not want to include lakes/reservoirs.
+
+    The lakes are read through :class:`Vector` rather than ``ogr.Open`` so that every vector
+    format nencarta accepts elsewhere works here too. ``ogr.Open`` cannot read a GeoParquet
+    lakes file unless GDAL was built with the Parquet/Arrow driver; without it GDAL falls
+    through to the ADBC driver and dies on a missing ``duckdb.dll``, which took out the whole
+    burn/move step for the default (GeoParquet) lakes layer.
     """
     if not workspace.configs.lakes:
         return None
@@ -48,23 +72,19 @@ def load_lake_array(workspace: Workspace, dem_raster: Raster) -> np.ndarray | No
     lakes_ds: gdal.Dataset = gdal.GetDriverByName('GTiff').Create(str(workspace.lake_raster), dem_raster.shape[1], dem_raster.shape[0], 1, gdal.GDT_Byte, options=[f'COMPRESS={workspace.configs.compression}'])
     lakes_ds.SetGeoTransform(dem_raster.geotransform)
     lakes_ds.SetProjection(dem_raster.projection)
-    ds: gdal.Dataset = get_lake_ds(workspace.configs.lakes)
-    lakes_layer: ogr.Layer = ds.GetLayer()
-    bbox = dem_raster.bbox
-    # If the lake shapefile is in a different projection than the DEM, we need to transform the bbox to the lake shapefile's projection
-    lake_srs: osr.SpatialReference = lakes_layer.GetSpatialRef()
-    if lake_srs is not None and lake_srs.ExportToWkt() != dem_raster.projection:
-        source_srs: osr.SpatialReference = osr.SpatialReference(dem_raster.projection)
-        transform = osr.CoordinateTransformation(source_srs, lake_srs)
-        min_x, min_y, _ = transform.TransformPoint(bbox[0], bbox[1])
-        max_x, max_y, _ = transform.TransformPoint(bbox[2], bbox[3])
-        bbox = (min_x, min_y, max_x, max_y)
 
-    lakes_layer.SetSpatialFilterRect(*bbox)
+    # Vector.to_geopandas() does the bbox reprojection itself, so the subset comes back
+    # already clipped to the DEM's footprint.
+    lakes_gdf = load_lake_gdf(workspace, dem_raster)
+    if lakes_gdf is not None and not lakes_gdf.empty:
+        lakes_gdf = lakes_gdf.to_crs(dem_raster.projection)
+        ogr_ds, lakes_layer = _in_memory_ogr_layer(lakes_gdf, dem_raster.projection)
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        gdal.RasterizeLayer(lakes_ds, [1], lakes_layer, burn_values=[1])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            gdal.RasterizeLayer(lakes_ds, [1], lakes_layer, burn_values=[1])
+
+        ogr_ds = None
 
     lakes_ds.FlushCache()
     lakes = lakes_ds.ReadAsArray().astype(np.bool_, copy=False)
@@ -89,6 +109,62 @@ def whitebox_callback(message: str) -> None:
     if "error" in lowered or "panic" in lowered:
         LOG.error(message) 
 
+class _WhiteboxOutput:
+    """Collects WhiteboxTools messages so a failure can report what the tool actually said."""
+
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def __call__(self, message: str) -> None:
+        self.lines.append(message)
+        whitebox_callback(message)
+
+
+def _run_whitebox(tool, expected: Path, description: str, *args, **kwargs) -> int:
+    """
+    Run one WhiteboxTools tool and fail loudly if it did not produce ``expected``.
+
+    The WhiteboxTools Python wrapper reads the tool's stdout until EOF and then returns 0
+    unconditionally -- it never waits on the child or looks at its exit status. With verbose
+    mode off the tool prints nothing at all, so a crash is indistinguishable from success and
+    the only symptom is a missing output file. whitebox_tools.exe does crash: under a process
+    pool it panics (exit code 101) on a minority of runs, and without the child's real exit
+    status there is nothing to tell that apart from a bad input.
+    """
+    import whitebox.whitebox_tools as whitebox_module
+
+    output = _WhiteboxOutput()
+    launched = []
+    original_popen = whitebox_module.Popen
+
+    def recording_popen(*popen_args, **popen_kwargs):
+        process = original_popen(*popen_args, **popen_kwargs)
+        launched.append(process)
+        return process
+
+    whitebox_module.Popen = recording_popen
+    try:
+        code = tool(*args, callback=output, **kwargs)
+    finally:
+        whitebox_module.Popen = original_popen
+
+    if expected.exists():
+        return code
+
+    exit_codes = []
+    for process in launched:
+        try:
+            exit_codes.append(process.wait(timeout=30))
+        except Exception as exc:
+            exit_codes.append(f"<{type(exc).__name__}>")
+    reported = "\n".join(output.lines[-15:]) or "<the tool printed nothing>"
+    panicked = " (101 is a Rust panic)" if 101 in exit_codes else ""
+    raise FileNotFoundError(
+        f"{description} was not created successfully: {expected}. "
+        f"whitebox_tools exited with {exit_codes}{panicked}. Output:\n{reported}"
+    )
+
+
 def derive_hydrography_using_whitebox(workspace: Workspace, dem_raster: Raster, fixed_dem: np.ndarray, dem_for_conflation_path: Path) -> float:
     wbt = WhiteboxTools()
     wbt.set_compress_rasters(True)
@@ -97,15 +173,17 @@ def derive_hydrography_using_whitebox(workspace: Workspace, dem_raster: Raster, 
     workspace.dem_updated_folder.mkdir(parents=True, exist_ok=True)
     workspace.Flow_Direction_Folder.mkdir(parents=True, exist_ok=True)
 
-    wbt.fill_depressions(str(dem_for_conflation_path), str(workspace.filled_dem), callback=whitebox_callback)
-    if not workspace.filled_dem.exists():
-        raise FileNotFoundError(f"Filled DEM file {workspace.filled_dem} was not created successfully using {dem_for_conflation_path}.")
-    wbt.d8_pointer(str(workspace.filled_dem), str(workspace.flowdir), callback=whitebox_callback)
-    if not workspace.flowdir.exists():
-        raise FileNotFoundError(f"Flow direction file {workspace.flowdir} was not created successfully.")
-    wbt.d8_flow_accumulation(str(workspace.flowdir), str(workspace.flowacc), pntr=True, out_type='catchment area', callback=whitebox_callback)
-    if not workspace.flowacc.exists():
-        raise FileNotFoundError(f"Flow accumulation file {workspace.flowacc} was not created successfully.")
+    attempts = 1
+    while not workspace.filled_dem.exists() and attempts <= 1:
+        _run_whitebox(wbt.fill_depressions, workspace.filled_dem,
+                    f"Filled DEM from {dem_for_conflation_path}",
+                    str(dem_for_conflation_path), str(workspace.filled_dem))
+        attempts += 1
+    _run_whitebox(wbt.d8_pointer, workspace.flowdir, "Flow direction file",
+                  str(workspace.filled_dem), str(workspace.flowdir))
+    _run_whitebox(wbt.d8_flow_accumulation, workspace.flowacc, "Flow accumulation file",
+                  str(workspace.flowdir), str(workspace.flowacc), pntr=True,
+                  out_type='catchment area')
 
     # If DEM units are not in km2, convert the threshold to the DEM units. This is important for the stream extraction step, which uses the flow accumulation raster to determine where streams are.
     threshold = workspace.configs.new_strm_threshold_km2
@@ -118,9 +196,11 @@ def derive_hydrography_using_whitebox(workspace: Workspace, dem_raster: Raster, 
         if file.stem.startswith(workspace.new_StrmShp.stem):
             file.unlink()
 
-    wbt.extract_streams(str(workspace.flowacc), str(workspace.whitebox_stream_raster), threshold=threshold_native, zero_background=True, callback=whitebox_callback)
-    if not workspace.whitebox_stream_raster.exists():
-        raise FileNotFoundError(f"Whitebox stream raster file {workspace.whitebox_stream_raster} was not created successfully. The threshold used was {threshold_native} in DEM units, which is equivalent to {threshold} km2.")
+    _run_whitebox(wbt.extract_streams, workspace.whitebox_stream_raster,
+                  f"Whitebox stream raster (threshold {threshold_native} DEM units "
+                  f"= {threshold} km2)",
+                  str(workspace.flowacc), str(workspace.whitebox_stream_raster),
+                  threshold=threshold_native, zero_background=True)
 
     # Remove flow accumulation for space
     workspace.flowacc.unlink()
@@ -222,24 +302,17 @@ def burn_streams_and_move_streams(workspace: Workspace) -> Path:
             source_id_col=configs.streamflow_source.upstream_id,
             source_ds_col=configs.streamflow_source.downstream_id,
             strm_order_col=configs.StrmOrder_Field,
+            drop_multilinestrings=configs.drop_multilinestrings
         )
         if streams_gdf.empty:
             if configs.raise_errors_if_nothing_in_domain:
-                # _conflate_streams(
-                #     source_gdf=source_gdf, 
-                #     streams_vector=workspace.new_StrmShp, 
-                #     lakes_gdf=lakes_gdf,
-                #     buffer_distance=buffer_distance,
-                #     dem_proj=assigned_dem.projection, 
-                #     dem_bbox=assigned_dem.bbox,
-                #     source_id_col=configs.streamflow_source.upstream_id,
-                #     source_ds_col=configs.streamflow_source.downstream_id,
-                #     strm_order_col=configs.StrmOrder_Field,
-                # )
                 raise ValueError("No stream geometries remain after conflation.")
             else:
                 workspace.DEM_StrmShp = workspace.new_StrmShp_matched
                 return None
+
+        if configs.StrmOrder_Field and (configs.StrmOrder_Lower is not None or configs.StrmOrder_Upper is not None) and not configs.mapper.is_curve2flood_fldpln_mapper():
+            streams_gdf = _filter_streams_by_stream_order(streams_gdf, configs.StrmOrder_Field, configs.StrmOrder_Lower, configs.StrmOrder_Upper)
 
         kwargs = {'index': False}
         if workspace.DEM_StrmShp.suffix.lower().endswith('.parquet'):
@@ -256,31 +329,20 @@ def burn_streams_and_move_streams(workspace: Workspace) -> Path:
 
         workspace.bathy_water_mask.parent.mkdir(parents=True, exist_ok=True)
         make_channel_mask(channel_mask, str(dem_for_conflation_path), str(workspace.bathy_water_mask), configs.compression)
-        dem_for_stream_info = workspace.filled_dem
 
     if configs.mapper.is_curve2flood_fldpln_mapper():
         if not should_move_streams:
+            # Nothing was regenerated this run, so read back whichever stream raster the
+            # rest of the pipeline is pointed at (see params["Stream_File"] in tasks/configs.py).
             if configs.move_stream_network_to_thalweg:
-                # Reused VDT and FLDPLN products refer to the matched network.
                 final_streams = Raster(workspace.new_stream_raster).read_array()
-                streams_gdf = Vector(workspace.new_StrmShp_matched, not configs.parallel).to_geopandas().to_crs(assigned_dem.projection)
-                dem_for_stream_info = workspace.filled_dem
             else:
                 final_streams = Raster(workspace.STRM_File_Clean).read_array()
-                streams_gdf = Vector(workspace.DEM_StrmShp, not configs.parallel).to_geopandas().to_crs(assigned_dem.projection)
-                if configs.burn_streams:
-                    dem_for_stream_info = workspace.fixed_dem
-                else:
-                    dem_for_stream_info = workspace.assigned_dem
 
         _create_stream_info_table(
             workspace.stream_info_file,
-            streams_array=final_streams, 
-            streams_gdf=streams_gdf, 
-            dem_file=dem_for_stream_info,
-            source_id_col=configs.streamflow_source.upstream_id,
-            source_ds_col=configs.streamflow_source.downstream_id,
-            no_data_value=assigned_dem.nodata_value
+            streams_array=final_streams,
+            flow_direction_file=workspace.flowdir,
         )
 
 def smooth_and_burn_dem(
@@ -516,7 +578,7 @@ def burn_streams_into_dem(
 
     # Mask out lakes
     if lakes is not None:
-        channel_mask &= ~lakes
+        channel_mask = channel_mask.astype(bool) & ~lakes
 
     # Mask out ocean (where elevation == 0)
     ocean_mask = (dem == 0)
@@ -716,6 +778,15 @@ def _burn_linestring(
     started_in_mask = channel_mask[row1, col1]
     write = True
     will_come_back = True
+    has_written = False
+
+    # The trailing edge-of-DEM check below reads state from the last iteration of the loop.
+    # A single-pixel reach never enters that loop, so these have to exist beforehand -- and
+    # numba needs them bound on every path to compile the function at all. `has_written`
+    # gates both uses, so the seed values are never the ones acted on.
+    row2 = row1
+    col2 = col1
+    outstream_neighbor_count = 0
 
     for i, (row1, col1, row2, col2) in enumerate(zip(rows[:-1], cols[:-1], rows[1:], cols[1:])):
         if started_in_mask and write and not channel_mask[row2, col2]:
@@ -736,6 +807,8 @@ def _burn_linestring(
 
         if not write:
             continue
+
+        has_written = True
 
         upstream_elev = dem[row1, col1]
         downstream_elev = dem[row2, col2]
@@ -772,19 +845,24 @@ def _burn_linestring(
         instream_neighbors = []
         outstream_neighbors = []
         for r, c in zip(rs, cs):
-            if r == row1 and c == col1:
+            if (r == row1 and c == col1) or dem[r, c] == nodata_value:
                 continue
             if streams[r, c] > 0:
                 instream_neighbors.append((r, c))
             else:
                 outstream_neighbors.append((r, c))
 
+        outstream_neighbor_count = len(outstream_neighbors)
+
         if instream_neighbors and outstream_neighbors:
             for r, c in outstream_neighbors:
                 dem[r, c] = upstream_elev + 0.5
 
     # One more thing: check if the last (row2, col2) is on the border of the dem. If so, drop by 0.5 (helps filled dem step route out of the DEM)
-    if row2 == 0 or row2 == nrows - 1 or col2 == 0 or col2 == ncols - 1:
+    if has_written and (row2 == 0 or row2 == nrows - 1 or col2 == 0 or col2 == ncols - 1) and dem[row2, col2] != nodata_value:
+        dem[row2, col2] -= 0.5
+    # Same check, but for if we are on the edge of nodata
+    elif has_written and outstream_neighbor_count == 0 and dem[row2, col2] != nodata_value:
         dem[row2, col2] -= 0.5
 
 class NodeType(Enum):
@@ -1294,6 +1372,14 @@ def find_outlets_of_headwaters(
     if not headwater_fids:
         return headwater_fids, best_outlet_linkno_to_fid, headwater_fid_to_linkno
 
+    # Which weakly-connected component of the source network each reach belongs to. Two source
+    # reaches in different components can never drain to a common downstream reach, so this is
+    # what makes the convergence test below answerable.
+    component_of_linkno = {}
+    for component_index, component in enumerate(nx.weakly_connected_components(GA)):
+        for linkno in component:
+            component_of_linkno[linkno] = component_index
+
     headwater_fids_to_remove = set()
     
     # For each headwater, find the corresponding outlet
@@ -1324,7 +1410,29 @@ def find_outlets_of_headwaters(
         
         # Find the most common downstream linkno for these headwaters in GA
         headwater_linknos = [headwater_fid_to_linkno[f] for f in outlet_headwaters]
-        current_linkno_outlet = headwater_linknos[0]
+
+        # The Whitebox network comes off the filled DEM, so it drains the whole domain as one
+        # connected system. The clipped source network does not -- reaches whose downstream
+        # neighbour lies outside the AOI were cut loose, leaving several components. Every
+        # headwater sharing this Whitebox outlet therefore lands in the list above, including
+        # ones the source network can never route to the same reach. Those are guaranteed
+        # misses: keeping them only drags the convergence ratio down, and once it falls under
+        # the threshold this outlet is abandoned and every reach on the path to it is dropped
+        # from the conflated network. At South Platte that is what removed the entire order-6
+        # mainstem -- 12 of 12 reachable headwaters converged on the true outlet, but 4
+        # headwaters from other components made it read as 12/16.
+        home_component = component_of_linkno.get(headwater_linkno)
+        headwater_linknos = [
+            linkno for linkno in headwater_linknos
+            if component_of_linkno.get(linkno) == home_component
+        ]
+        if not headwater_linknos:
+            headwater_linknos = [headwater_linkno]
+
+        # Walk down from this headwater rather than an arbitrary member of a set, so the path
+        # taken does not depend on set iteration order. Any headwater in the component reaches
+        # the same confluence, so this only fixes which one we start from.
+        current_linkno_outlet = headwater_linkno
         found = False
         while True:
             try:
@@ -1613,7 +1721,8 @@ def update_wtbx_gdf(
     GB: nx.DiGraph,
     source_gdf: gpd.GeoDataFrame,
     strm_order_col: str,
-    dem_proj: str
+    dem_proj: str,
+    drop_multilinestrings: bool
 
 ):
      # Finally assign to the gdf
@@ -1666,6 +1775,22 @@ def update_wtbx_gdf(
     }
 
     wtbx_gdf = pd.concat([wtbx_gdf, pd.DataFrame(mapped_source_columns, index=wtbx_gdf.index)], axis=1).copy()
+
+    # If there is a wtbx stream that has a linkno, where that linkno is in the source gdf and is a multilinstring in the source, we will remove them
+
+    if drop_multilinestrings:
+        # Whether a reach is genuinely in disconnected pieces has to be decided after a
+        # line_merge, not read off the stored geometry type. make_stream_geometry() does merge
+        # before writing, but DEM_StrmShp is a GeoPackage unless streams_as_parquet is set, and
+        # a GeoPackage layer promotes every LineString back to MultiLineString on the way in --
+        # so the stored type says "MultiLineString" for every reach and carries no information.
+        # Taken at face value this test drops the entire network: on the N14W89 domain it threw
+        # away all 665 reaches and conflation returned nothing, when only 165 are really split.
+        merged_source = source_gdf.geometry.line_merge()
+        source_multilines = set(
+            source_gdf.loc[merged_source.geom_type == 'MultiLineString', source_id_col]
+        )
+        wtbx_gdf = wtbx_gdf[~wtbx_gdf[source_id_col].isin(source_multilines)].copy()
 
     # Move linkno to the front
     cols = wtbx_gdf.columns.tolist()
@@ -1720,6 +1845,7 @@ def _conflate_streams(
     wtbx_id_col: str = "FID",
     wtbx_ds_col: str = "DS_LINK_ID",
     strm_order_col: str = "strmOrder",
+    drop_multilinestrings: bool = False
 ) -> gpd.GeoDataFrame:
     """
     Read files, build graphs, match the stream networks, and return the mapping state.
@@ -1865,7 +1991,8 @@ def _conflate_streams(
         GB,
         source_gdf,
         strm_order_col,
-        dem_proj
+        dem_proj,
+        drop_multilinestrings
     )
 
     return wtbx_gdf
@@ -1885,129 +2012,164 @@ def _rasterize_streams(stream_raster: str, dem: str, streams_vector: str, attrib
         warnings.filterwarnings("ignore", category=RuntimeWarning)
         gdal.Rasterize(stream_ds, streams_vector, options=options)
 
+# WhiteboxTools D8 pointer codes, mapped to the (row, col) offset of the cell each
+# code drains into. Curve2Flood's FLDPLN spreader walks the stream info table with
+# this same encoding, so the table has to be built against it.
+_D8_OFFSETS = {
+    64: (-1, -1), 128: (-1, 0), 1: (-1, 1),
+    32: (0, -1),                2: (0, 1),
+    16: (1, -1),    8: (1, 0),  4: (1, 1),
+}
+
+# How far the D8 path may run outside a reach's rasterized cells before we call the
+# reach finished. Rasterizing a vector line and tracing D8 across a filled DEM pick
+# slightly different cells, but over 95% of the gaps measured on real tiles are a
+# single cell, so a short tolerance keeps a reach whole while still stopping a badly
+# conflated reach from running away down the network.
+_MAX_OFF_REACH_STEPS = 2
+
+def _d8_offset_tables() -> tuple[np.ndarray, np.ndarray]:
+    """Row/column offset per D8 code. An offset of (0, 0) means 'no outflow'."""
+    row_offsets = np.zeros(256, np.int64)
+    col_offsets = np.zeros(256, np.int64)
+    for code, (d_row, d_col) in _D8_OFFSETS.items():
+        row_offsets[code] = d_row
+        col_offsets[code] = d_col
+    return row_offsets, col_offsets
+
 @njit(cache=True)
-def nearest_stream_cell(streams_array: np.ndarray, dem: np.ndarray, no_data_value: float, linkno: int, row_raw: float, col_raw: float, row: int, col: int) -> tuple[int | None, int | None]:
-    min_dist = float('inf')
-    closest_row, closest_col = None, None
-    for dr in range(-2, 3):
-        for dc in range(-2, 3):
-            r = row + dr
-            c = col + dc
-            if 0 <= r < streams_array.shape[0] and 0 <= c < streams_array.shape[1] and dem[r, c] != no_data_value:
-                if streams_array[r, c] == linkno:
-                    dist = np.sqrt((c - col_raw) ** 2 + (r - row_raw) ** 2)
-                    if dist < min_dist:
-                        min_dist = dist
-                        closest_row, closest_col = r, c
+def _trace_reach(cells: np.ndarray, flowdir: np.ndarray, nrows: int, ncols: int,
+                 row_offsets: np.ndarray, col_offsets: np.ndarray,
+                 max_off_reach_steps: int) -> tuple[int, int, int]:
+    """
+    Follow the D8 flow direction through one reach's cells.
 
-    if closest_row is not None and closest_col is not None:
-        return closest_row, closest_col
+    ``cells`` is the sorted flat index of every pixel carrying this reach's link
+    number. Returns ``(start_pixel, end_pixel, length)``: the pixel the longest D8
+    path through those cells begins at, the last cell of the reach on that path, and
+    the number of pixels the path visits, inclusive. Walking ``length`` pixels
+    downstream from ``start_pixel`` therefore lands exactly on ``end_pixel``.
+    """
+    n = cells.size
 
-    rows, cols = np.nonzero(streams_array == linkno)
-    if len(rows) == 0:
-        return None, None
+    # link[i] is the next cell of this reach that cells[i] drains into (-1 if the
+    # path leaves the reach for good), and gap[i] is how many D8 steps that takes.
+    # It is usually one step; more when the rasterized line strays off the D8 path.
+    link = np.full(n, -1, np.int64)
+    gap = np.zeros(n, np.int64)
+    for i in range(n):
+        pixel = cells[i]
+        for step in range(1, max_off_reach_steps + 1):
+            code = flowdir[pixel]
+            if code < 0 or code > 255:
+                break
+            d_row = row_offsets[code]
+            d_col = col_offsets[code]
+            if d_row == 0 and d_col == 0:  # pit, outlet, or nodata
+                break
+            row = pixel // ncols + d_row
+            col = pixel % ncols + d_col
+            if row < 0 or row >= nrows or col < 0 or col >= ncols:
+                break
+            pixel = row * ncols + col
+            j = np.searchsorted(cells, pixel)
+            if j < n and cells[j] == pixel:
+                link[i] = j
+                gap[i] = step
+                break
 
-    distances = (cols - col_raw) ** 2 + (rows - row_raw) ** 2
-    nearest = int(np.argmin(distances))
-    return int(rows[nearest]), int(cols[nearest])
+    # Every cell has at most one successor, so the reach forms a forest. Score each
+    # cell by the path leading out of it and keep whichever root covers the most of
+    # the reach: that is its head, and the far end of its path is its outlet.
+    covered = np.zeros(n, np.int64)   # cells of this reach on the path out of i
+    path_len = np.zeros(n, np.int64)  # D8 steps from i to the end of that path
+    terminus = np.arange(n)
+    state = np.zeros(n, np.uint8)     # 0 unvisited, 1 on the stack, 2 resolved
+    stack = np.empty(n, np.int64)
+    for root in range(n):
+        if state[root] != 0:
+            continue
+        top = 0
+        stack[0] = root
+        state[root] = 1
+        while top >= 0:
+            i = stack[top]
+            j = link[i]
+            if j >= 0 and state[j] == 0:
+                top += 1
+                stack[top] = j
+                state[j] = 1
+                continue
+            if j < 0 or state[j] == 1:  # end of the path, or a cycle across a flat
+                link[i] = -1
+                covered[i] = 1
+                path_len[i] = 0
+                terminus[i] = i
+            else:
+                covered[i] = 1 + covered[j]
+                path_len[i] = gap[i] + path_len[j]
+                terminus[i] = terminus[j]
+            state[i] = 2
+            top -= 1
+
+    head = 0
+    for i in range(1, n):
+        if covered[i] > covered[head] or (covered[i] == covered[head] and path_len[i] > path_len[head]):
+            head = i
+    return cells[head], cells[terminus[head]], path_len[head] + 1
 
 def _create_stream_info_table(
-        stream_info_file: str,
-        streams_array: np.ndarray, 
-        streams_gdf: gpd.GeoDataFrame,
-        dem_file: str,
-        source_id_col: str,
-        source_ds_col: str,
-        no_data_value: float = -9999) -> pd.DataFrame:
-    ds: gdal.Dataset = gdal.Open(dem_file)
-    dem: np.ndarray = ds.ReadAsArray()
-    gt = ds.GetGeoTransform()
+        stream_info_file: Path,
+        streams_array: np.ndarray,
+        flow_direction_file: str | Path) -> None:
+    """
+    Write the reach table that Curve2Flood's FLDPLN spreader reads.
+
+    For each reach the spreader takes ``start_pixel`` and walks ``length`` pixels down
+    the D8 flow direction raster, treating what it visits as that reach's stream
+    pixels, then traces from ``end_pixel`` to exclude everything further downstream.
+    Every row therefore has to describe a real D8 path. Taking ``length`` to be the
+    number of rasterized cells carrying the link number, and the two endpoints from
+    the ends of the stream vector, does not: rasterizing a line and tracing D8 across
+    a filled DEM disagree about which cells belong to the reach, so the walk drifts
+    off the reach and stops somewhere other than ``end_pixel``. The table is read off
+    the flow direction raster instead, which is the same thing the spreader walks.
+    """
+    flow_direction_file = Path(flow_direction_file)
+    if not flow_direction_file.exists():
+        raise FileNotFoundError(
+            f"Flow direction raster {flow_direction_file} does not exist. The FLDPLN stream info table is "
+            "traced from it, so the hydrography has to be derived first (move_stream_network_to_thalweg)."
+        )
+
+    flowdir_ds: gdal.Dataset = gdal.Open(str(flow_direction_file))
+    flowdir: np.ndarray = flowdir_ds.ReadAsArray()
+    if flowdir.shape != streams_array.shape:
+        raise ValueError(
+            f"Flow direction raster {flow_direction_file} is {flowdir.shape} but the stream raster is "
+            f"{streams_array.shape}. Both have to be on the DEM grid for the pixel indices to line up."
+        )
+
     nrows, ncols = streams_array.shape
-    
-    G: nx.DiGraph = nx.from_pandas_edgelist(
-        streams_gdf[streams_gdf[source_ds_col] > 0],
-        source=source_id_col,
-        target=source_ds_col,
-        create_using=nx.DiGraph()
-    )
+    linknos_flat = np.ascontiguousarray(streams_array).ravel()
+    flowdir_flat = np.ascontiguousarray(flowdir).ravel().astype(np.int64, copy=False)
+    row_offsets, col_offsets = _d8_offset_tables()
 
-    values, counts = np.unique(streams_array, return_counts=True)
-    linkno_counts = dict(zip(values, counts))
-
-    streams_gdf = streams_gdf.set_index(source_id_col)
+    # Group the stream pixels into one sorted block per link number.
+    stream_pixels = np.flatnonzero(linknos_flat > 0)
+    stream_pixels = stream_pixels[np.argsort(linknos_flat[stream_pixels], kind='stable')]
+    linknos, block_starts = np.unique(linknos_flat[stream_pixels], return_index=True)
+    block_ends = np.append(block_starts[1:], stream_pixels.size)
 
     output_table = []
-    for linkno, row in streams_gdf.iterrows():
-        line = row.geometry
-        if isinstance(line, MultiLineString):
-            line = max(line.geoms, key=lambda l: l.length)  # Choose the longest line if there are multiple parts
+    for linkno, block_start, block_end in zip(linknos, block_starts, block_ends):
+        cells = np.sort(stream_pixels[block_start:block_end])
+        start_pixel, end_pixel, length = _trace_reach(
+            cells, flowdir_flat, nrows, ncols, row_offsets, col_offsets, _MAX_OFF_REACH_STEPS
+        )
+        output_table.append((int(start_pixel), int(end_pixel), int(length), int(linkno)))
 
-        # Get the pixel coordinates of the start and end points
-        start_point = Point(line.coords[0])
-        end_point = Point(line.coords[-1])
-        start_col_raw = (start_point.x - gt[0]) / gt[1]
-        start_row_raw = (start_point.y - gt[3]) / gt[5]
-        start_col = round(start_col_raw)
-        start_row = round(start_row_raw)
-        end_col_raw = (end_point.x - gt[0]) / gt[1]
-        end_row_raw = (end_point.y - gt[3]) / gt[5]
-        end_col = round(end_col_raw)
-        end_row = round(end_row_raw)
-
-        # For both the start and end points, check if we are right on the stream pixel. If not, check the neighbors and choose whichever is closest to the original point. This is to account for slight misalignments between the stream vector and raster.
-        if not (0 <= start_row < streams_array.shape[0] and 0 <= start_col < streams_array.shape[1] and dem[start_row, start_col] != no_data_value) or streams_array[start_row, start_col] != linkno:
-            closest_row, closest_col = nearest_stream_cell(streams_array, dem, no_data_value, linkno, start_row_raw, start_col_raw, start_row, start_col)
-            if closest_row is not None and closest_col is not None:
-                start_row, start_col = closest_row, closest_col
-            else:
-                continue # Skip this stream if we can't find a valid start pixel
-
-        if not (0 <= end_row < streams_array.shape[0] and 0 <= end_col < streams_array.shape[1] and dem[end_row, end_col] != no_data_value) or streams_array[end_row, end_col] != linkno:
-            closest_row, closest_col = nearest_stream_cell(streams_array, dem, no_data_value, linkno, end_row_raw, end_col_raw, end_row, end_col)
-            if closest_row is not None and closest_col is not None:
-                end_row, end_col = closest_row, closest_col
-            else:
-                continue # Skip this stream if we can't find a valid start pixel
-
-        if linkno in G:
-            upstream_nodes = list(G.predecessors(linkno))
-            downstream_nodes = list(G.successors(linkno))
-        else:
-            upstream_nodes = []
-            downstream_nodes = []
-        if upstream_nodes:          
-            # Check if the first point is an endpoint in the upstream node. If not, then the first point is downstream and we need to reverse the line.
-            upstream_node = upstream_nodes[0]
-            upstream_geom = streams_gdf.at[upstream_node, 'geometry']
-            if not start_point.touches(upstream_geom):
-                start_row, start_col, end_row, end_col = end_row, end_col, start_row, start_col
-        elif downstream_nodes and any(G.successors(downstream_nodes[0])):  # Only check downstream if the downstream node has a successor (i.e., it is not an outlet)
-            # Check if the last point is an endpoint in the downstream node. If not, then the last point is upstream and we need to reverse the line.
-            downstream_node = downstream_nodes[0]
-            downstream_geom = streams_gdf.at[downstream_node, 'geometry']
-            if not end_point.touches(downstream_geom):
-                start_row, start_col, end_row, end_col = end_row, end_col, start_row, start_col
-        else:
-            # Fallback to using elevation to determine upstream/downstream if no upstream or downstream nodes exist.
-            elev1 = dem[start_row, start_col]
-            try:
-                elev2 = dem[end_row, end_col]
-            except IndexError:
-                pass
-            if elev1 < elev2:
-                # Reverse the line
-                start_row, start_col, end_row, end_col = end_row, end_col, start_row, start_col
-
-        # Length is simply the number of pixels with that linkno
-        length = linkno_counts.get(linkno, 0)
-
-        # convert start_row, start_col, end_row, end_col to single value
-        start_idx = start_row * ncols + start_col
-        end_idx = end_row * ncols + end_col
-
-        output_table.append((start_idx, end_idx, length, linkno))
-
-    stream_info = pd.DataFrame(output_table, 
+    stream_info = pd.DataFrame(output_table,
                  columns=['start_pixel', 'end_pixel', 'length', 'stream_id'])
     if stream_info_file.suffix.lower() in {".parquet", ".pq"}:
         stream_info.to_parquet(stream_info_file, index=False)

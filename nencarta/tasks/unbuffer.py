@@ -52,5 +52,8 @@ def unbuffer_maps(floodmapper_output: FloodMapperBulkOutput, workspace: Workspac
                                         outputBounds=(minx, maxy, maxx, miny),
                                         width=unbuffered_width,
                                         height=unbuffered_height,
+                                        creationOptions=[f"COMPRESS={configs.compression}", "PREDICTOR=2"]
                                         )
         gdal.Warp(output_file, file, options=options)
+
+        file.unlink()  # Remove the buffered file after unbuffering
