@@ -1,29 +1,30 @@
 import json
 from pathlib import Path
 
-import pandas as pd
 import geopandas as gpd
-import shapely
+import pandas as pd
 
-from nencarta.logger import LOG
 from nencarta.core.raster import Raster
 from nencarta.core.vector import Vector
+from nencarta.logger import LOG
 from nencarta.workspace import Workspace
 
+
 def _filter_streams_with_lake_json(lake_filter_json: str, stream_df: gpd.GeoDataFrame, rivid_field: str) -> gpd.GeoDataFrame:
-    # First let's remove the stream reaches that are in the stream_ids_in_lake_list
-    # filter out the streams that are in the stream_ids_in_lake_list by using the "LINKNO values in stream_ids_in_lake_list"
+    """Drop the reaches the lake filter JSON lists as inside a lake: {"<lake>": {"inside": [<reach ID>, ...]}}."""
     with open(lake_filter_json, 'r') as f:
         lake_filter: dict[str, dict[str, list[int]]] = json.load(f)
         stream_ids_in_lake_list = []
-        for _k, v in lake_filter.items():
+        for v in lake_filter.values():
             inside = v.get("inside", [])
             for x in inside:
                 if x is not None:
                     stream_ids_in_lake_list.append(x)
+                    
     return stream_df[~stream_df[rivid_field].isin(stream_ids_in_lake_list)]
 
 def _filter_streams_by_stream_order(stream_df: gpd.GeoDataFrame, strm_order_field: str, strm_order_low: float | None, strm_order_high: float | None) -> gpd.GeoDataFrame:
+    """Keep the reaches whose stream order is between the two bounds (inclusive). A None bound is no limit."""
     if strm_order_field not in stream_df.columns:
         LOG.warning(f"StrmOrder_Field '{strm_order_field}' not found in stream shapefile; skipping stream order filter.")
         return stream_df
@@ -38,6 +39,11 @@ def _filter_streams_by_stream_order(stream_df: gpd.GeoDataFrame, strm_order_fiel
 
 
 def make_stream_geometry(workspace: Workspace,) -> Path:
+    """
+    Write the domain's streams (workspace.DEM_StrmShp): the reaches of flowline or source_flowlines that overlap the
+    DEM, in the DEM's CRS, less those removed by lake_filter_json, the stream order bounds and exclude. A
+    downstream ID outside the domain becomes -1.
+    """
     configs = workspace.configs
     if workspace.DEM_StrmShp.exists() and not configs.overwrite:
         LOG.info(f"{workspace.DEM_StrmShp} already exists and we aren't making it again...")
@@ -88,12 +94,13 @@ def make_stream_geometry(workspace: Workspace,) -> Path:
         gdf = _filter_streams_by_stream_order(gdf, configs.StrmOrder_Field, configs.StrmOrder_Lower, configs.StrmOrder_Upper)
 
 
-    # TODO
     if configs.exclude:
         gdf = gdf[~gdf[configs.stream_id_field].isin(configs.exclude)]
 
     gdf['geometry'] = gdf.geometry.line_merge()
-    if configs.drop_multilinestrings and not configs.mapper.is_curve2flood_fldpln_mapper():
+    # Streams that are moved keep them here, and are left out before they are relocated, burned or moved (see
+    # move_streams._reaches_left_out)
+    if configs.drop_multilinestrings and not configs.move_stream_network_to_thalweg             and not configs.mapper.is_curve2flood_fldpln_mapper():
         gdf = gdf[gdf.geometry.geom_type != 'MultiLineString'].copy()
 
     if gdf.empty:
@@ -108,12 +115,13 @@ def make_stream_geometry(workspace: Workspace,) -> Path:
         kwargs['write_covering_bbox'] = True
         kwargs['geometry_encoding'] = 'geoarrow'
 
-    if configs.use_power_laws_for_bathymetry:
-        if configs.area_km2_field not in gdf.columns:
-            if configs.area_m2_field not in gdf.columns:
-                raise ValueError(f"Area field '{configs.area_m2_field}' not found in stream geometry; cannot use power laws for bathymetry.")
-
+    # ARC's drainage-area power laws take the area in km2: the width's always, the depth's when arc_args give it
+    # (see tasks.configs._drainage_area_power_laws)
+    if configs.area_km2_field and configs.area_km2_field not in gdf.columns:
+        if configs.area_m2_field and configs.area_m2_field in gdf.columns:
             gdf[configs.area_km2_field] = gdf[configs.area_m2_field] * 1e-6
+        elif configs.uses_depth_power_law:
+            raise ValueError(f"Area field '{configs.area_m2_field}' not found in stream geometry; cannot use the depth's power law (arc_args' coefficient_depth).")
 
     existing_river_ids = set(gdf[configs.stream_id_field])
     # Set the downstream id to -1 for any river that has a downstream id that is not in the existing river ids

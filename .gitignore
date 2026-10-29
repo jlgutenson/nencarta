@@ -5,7 +5,7 @@ ignore/
 build/
 dist/
 .esa_worldcover_grid.parquet
-docs/_build/
+site/
 docs/__pycache__/
 .vscode/
 pytest_tmp/

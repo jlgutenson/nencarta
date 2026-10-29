@@ -1,0 +1,586 @@
+{
+  "clean_dem_new": {
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_Bathy.txt": {
+      "sha256": "319081d73a6cc40cc97b5a3993fce603fae82f08538a551c35c3ab1c9d17c401",
+      "size": 2112
+    },
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_InitialFlood.txt": {
+      "sha256": "75f6c20cf4ed77b7797e48d2bd5e78773278d4d1bbf51e23baf1a9bccf10075e",
+      "size": 1697
+    },
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_stage=20.txt": {
+      "sha256": "933d023fe75d3fb31d3b93862b3fbc64d4dbb3ee5e279cddcc2aee9c27c71949",
+      "size": 1310
+    },
+    "Bathymetry/GEOGLOWS_fabdem_ARC_Bathy.tif": {
+      "sha256": "7c4cbc98bb460fe121aa4f376d39b6ea3e512003c53c1f906394736a787de11a",
+      "size": 9284
+    },
+    "Bathymetry/GEOGLOWS_fabdem_FS_Bathy.tif": {
+      "sha256": "29589df46d8093228d59e9b3936aebe927ad7f3ef264999e4da51312b35d5729",
+      "size": 107635
+    },
+    "Bathymetry/GEOGLOWS_fabdem_water_mask.tif": {
+      "sha256": "0e553d2289a6e934bd7ebbc6ff2fe5d8966faad99299297f41c68df284b56e6f",
+      "size": 2069
+    },
+    "DEM_Updated/Elev_Streams_fabdem.tif": {
+      "sha256": "9a7472024c65ae66118d3bee9c7c00ef2241f91c31a3e013fbe231ee653ed02b",
+      "size": 222412
+    },
+    "DEM_Updated/FLOOD_IMPACT_fabdem.tif": {
+      "sha256": "ebef66328e994b977fe52caad01e3640c64fefcd41359a04798fabb73ff1b13f",
+      "size": 222412
+    },
+    "DEM_Updated/SEED_CONNECT_fabdem.tif": {
+      "sha256": "53216d0697b4700328766bf3c58ff98c7601f085c80de3db6a8d347707269d9f",
+      "size": 222412
+    },
+    "DEM_Updated/fabdem_Clean.tif": {
+      "sha256": "e5086750fc51b3596333da5d9b104c1dccf2e48f6aa706c9a49676241ff45a0c",
+      "size": 222412
+    },
+    "FLOW/GEOGLOWS_fabdem_Reanalysis.csv": {
+      "sha256": "5e6cbbc44568e47c4cf67d45f132a42e5085190b12ebc085b8818a3503e9d374",
+      "size": 2188
+    },
+    "FLOW/fabdem_2yr_flow_initial.csv": {
+      "sha256": "b54fa6eb07b2e775ef727835af2dfc6d1578f2f3b32ff510a0f6792f38d0dcda",
+      "size": 203
+    },
+    "FLOW/fabdem_Flow_COMID_Q.txt": {
+      "sha256": "584226b5d3fc62b2ec9cd841e50285e91d181e21e771403422740d910fb7b22b",
+      "size": 190
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_FloodWSE_stage=20.tif": {
+      "sha256": "172f2ed9ab4d6a53e899dd27747e21e523acac3940bacb8dacf90c76b94e382c",
+      "size": 10482
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Bathy.gpkg": {
+      "sha256": "08ed92c8aa09fdb45d861f0ba68d096c461460b860953432b7356e95fa4280b9",
+      "size": 143360
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Bathy.tif": {
+      "sha256": "7c508629e28ca5102e07fa950ea77567d7254705c6e6a8404e24588a768db14a",
+      "size": 2528
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Initial.gpkg": {
+      "sha256": "35f248db42d1944ec21bdb7d90885afdffedd1cb3691a546acf074d3e6988d8e",
+      "size": 139264
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Initial.tif": {
+      "sha256": "e5d482b86566d64be7ef7911d0a620cfdf7a2b90bad0d751c0d51357c0b3a10b",
+      "size": 2649
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_stage=20.gpkg": {
+      "sha256": "88b87341481f207b4d11738620bd8a08c43507ac7a208f9c7690a79b3554563c",
+      "size": 143360
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_stage=20.tif": {
+      "sha256": "a36760ead0e2dd39f53a7bda071d31ba21d2fd4a6c0308d9de39ee82109983c5",
+      "size": 2218
+    },
+    "LAND/AR_Manning_n_MED.txt": {
+      "sha256": "68e6a7f2c588ade268f06498a6db5ca61fdb29ed1197107b7f6fde56821765e9",
+      "size": 244
+    },
+    "LAND/fabdem_LAND_Raster.tif": {
+      "sha256": "a710ec9bcd6ff8371a89f6c3668762d84d16293c2a4f190804f85bcfaf6d4a84",
+      "size": 10279
+    },
+    "STRM/GEOGLOWS_fabdem_STRM_Raster_Clean.tif": {
+      "sha256": "7aa1de6987979c14f6b275926c6c0720010323295214ab2124197b137630ccf1",
+      "size": 4247
+    },
+    "STRM/GEOGLOWS_fabdem_StrmShp.gpkg": {
+      "sha256": "64f719b4851e6ec2aef220fe4208257f0789320d9838ca6c483c72418d6ec343",
+      "size": 200704
+    },
+    "VDT/GEOGLOWS_fabdem_AP_Database_Bathy.parquet": {
+      "sha256": "7214bde6bc5019b06653e05a7301d0a6b266de6e6503489ff3fc0b060bf33ee0",
+      "size": 364816
+    },
+    "VDT/GEOGLOWS_fabdem_CurveFile_Initial.csv": {
+      "sha256": "6a855467254ae64ab645940a203079ccff6ce8529075a0d11ca89849a0d203cd",
+      "size": 62289
+    },
+    "VDT/GEOGLOWS_fabdem_VDT_Database_Bathy.parquet": {
+      "sha256": "455e01fc67136a245969b05fa4aa4165f53c0311606298a1348c9957319112b3",
+      "size": 460668
+    },
+    "VDT/GEOGLOWS_fabdem_VDT_Database_Initial.parquet": {
+      "sha256": "b3efd87a331e2ae10d4c587d7c45ee38af66d49945da9ee5ae0ae6b805601125",
+      "size": 459414
+    }
+  },
+  "clean_dem_original": {
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_Bathy.txt": {
+      "sha256": "a0eb8167dfd5ede90105cd6493b4c7e7ae8399921672c946fa2255e775716dd1",
+      "size": 2293
+    },
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_InitialFlood.txt": {
+      "sha256": "088803f1f14dd89d7d91b9356a6a7e85b2f7492a1fd9b006fbd98850395c81f6",
+      "size": 1747
+    },
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem__stage=20.txt": {
+      "sha256": "be3a34119120de5ad7ed2c128b7da9750d196d5f251c86254589321f07e75a7b",
+      "size": 1390
+    },
+    "Bathymetry/GEOGLOWS_fabdem_ARC_Bathy.tif": {
+      "sha256": "b253e4bb7cd70508591d3205f6f968d8b385ecf8954b0baa5c437535cc1eff90",
+      "size": 9138
+    },
+    "Bathymetry/GEOGLOWS_fabdem_FS_Bathy.tif": {
+      "sha256": "cd13b330170c40d3693ca91c6140dde3d3b4e36e1c59a77e82c5cc3ebaea6137",
+      "size": 107692
+    },
+    "DEM_Updated/Elev_Streams_fabdem.tif": {
+      "sha256": "c051d086eef1ccc0787dadfe7e8d91b8892e6239fd2f1509dd943bd576c78a7d",
+      "size": 222412
+    },
+    "DEM_Updated/FLOOD_IMPACT_fabdem.tif": {
+      "sha256": "cfbd97613de48b00c86bce3ab71800746a5b607333df703939d16bfdb1737de0",
+      "size": 222412
+    },
+    "DEM_Updated/SEED_CONNECT_fabdem.tif": {
+      "sha256": "043024a355471c1a8e9bf0eb4e004ebc78d25b3308869c14a1df281ff2685c11",
+      "size": 222412
+    },
+    "DEM_Updated/fabdem_Clean.tif": {
+      "sha256": "e5086750fc51b3596333da5d9b104c1dccf2e48f6aa706c9a49676241ff45a0c",
+      "size": 222412
+    },
+    "FLOW/GEOGLOWS_fabdem_Reanalysis.csv": {
+      "sha256": "968cca4d401907835ca912a98d5ba306222f841965d9d4b8605899fda5d60c1c",
+      "size": 2114
+    },
+    "FLOW/fabdem_2yr_flow_initial.txt": {
+      "sha256": "a7fda17828b96a6c08516cf89ebb0167cf6123bd63c9217050231d0eff3984c1",
+      "size": 201
+    },
+    "FLOW/fabdem_Flow_COMID_Q.txt": {
+      "sha256": "b789a785417edc38eb31e49ef95fd6dad738bd2b190bca1e38229b7fd85ab846",
+      "size": 188
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_FloodWSE_stage=20.tif": {
+      "sha256": "895242d7a87aa7ac8bf8b78ea78fbf58424dbeba3f987bbd41642674a156bd67",
+      "size": 10290
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Bathy.gpkg": {
+      "sha256": "8ddc897aba192a7e97dd1ab8a9fc50683bcde3cd9e90f96d6b573a4cc7789642",
+      "size": 139264
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Bathy.tif": {
+      "sha256": "3adc36bbc159b52c632cf3e69c13cd6da0a617db1aa13972232a61685687670f",
+      "size": 2521
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Initial.gpkg": {
+      "sha256": "ba14a05c62e3d7af42724e909f2ef89d688e8134e49d5878b6f6f93afbdbada8",
+      "size": 135168
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Initial.tif": {
+      "sha256": "3b98a2bb620cca048e4a1cb22b6135a81f3f0253c00095f677409b37b4b91316",
+      "size": 2660
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_stage=20.gpkg": {
+      "sha256": "faaf6f08e95f4bbb66f7671627b527dab5874acc90caa6f3cc8de39b1d491006",
+      "size": 143360
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_stage=20.tif": {
+      "sha256": "99d31525a0e27ba50736f71ad917552ff8381b9195f0f32552f589050d71006b",
+      "size": 2205
+    },
+    "LAND/AR_Manning_n_MED.txt": {
+      "sha256": "68e6a7f2c588ade268f06498a6db5ca61fdb29ed1197107b7f6fde56821765e9",
+      "size": 244
+    },
+    "LAND/fabdem_LAND_Raster.tif": {
+      "sha256": "34fba8b8c7ef7f5c32a58bf6e59da47c513f314e5f996b0c30bbb6b3d2a40d8c",
+      "size": 10604
+    },
+    "STRM/GEOGLOWS_fabdem_STRM_Raster.tif": {
+      "sha256": "f4e6376c58860a0482ad5b09c1573f2706242795ea176e5f9c4f8c798f78346e",
+      "size": 7785
+    },
+    "STRM/GEOGLOWS_fabdem_STRM_Raster_Clean.tif": {
+      "sha256": "1caec7a59e978809a357198231bfedaa2b32bfa7703016a6e0664318476ea8ae",
+      "size": 10950
+    },
+    "STRM/GEOGLOWS_fabdem_StrmShp.gpkg": {
+      "sha256": "3eef8e6c313910f5718920223928e463948e79d3cb39ea54ac177f31ef091054",
+      "size": 204800
+    },
+    "VDT/GEOGLOWS_fabdem_AP_Database_Bathy.txt": {
+      "sha256": "57e9aa12aa73efb4619c9e7de1ac24b63266d143a371a6c6b32c8b0db369a02c",
+      "size": 437242
+    },
+    "VDT/GEOGLOWS_fabdem_CurveFile_Initial.csv": {
+      "sha256": "439489592108d7348afdbd6fe2e7771533137a9da1c4e19175f6b75640a52f06",
+      "size": 62004
+    },
+    "VDT/GEOGLOWS_fabdem_VDT_Database_Bathy.parquet": {
+      "sha256": "a18ab598ea40c9ebd3723ccef2674487050efdca2be5901fc0652e342fec304b",
+      "size": 460111
+    },
+    "VDT/GEOGLOWS_fabdem_VDT_Database_Initial.parquet": {
+      "sha256": "1e988988bcbc6f1c0758ceeb9b0f494327ece897620e5a3b5b49c2098661b2d6",
+      "size": 457654
+    }
+  },
+  "forecast_test_new": {
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_Bathy.txt": {
+      "sha256": "d0a9b68426fa50c8dc9cfc417099f79bce28b52e940812db8f2dcda7b3793895",
+      "size": 2277
+    },
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_FloodForecast.txt": {
+      "sha256": "f58057022a2da331f5eb10c418b72b339ac02e29d3e8e23baa0035fcc73b78ec",
+      "size": 1376
+    },
+    "Bathymetry/GEOGLOWS_fabdem_ARC_Bathy.tif": {
+      "sha256": "2a22a1d1033b67daf3a1c86e68d25e412eb3cb9822e99cb0d2b27b095e09662f",
+      "size": 9244
+    },
+    "Bathymetry/GEOGLOWS_fabdem_FS_Bathy.tif": {
+      "sha256": "79dd3e5dbd68350719fe9768db10fbc66162ac5c9d5191e552bc1eb65b47a514",
+      "size": 105196
+    },
+    "Bathymetry/GEOGLOWS_fabdem_water_mask.tif": {
+      "sha256": "215833ac6df1466c8e3666f49208bc18d70484eb2f1676180c3b7bd760cde9fe",
+      "size": 1471
+    },
+    "FLOW/GEOGLOWS_fabdem_Reanalysis.csv": {
+      "sha256": "5d3ddce91e758931f7caafde3467f9770cce1d364cd2e52c190f64d6fbf17712",
+      "size": 977
+    },
+    "FLOW/fabdem_20250807_GEOGLOWS_forecast.csv": {
+      "sha256": "e97b365bd51127808f3d8393a5b3733bed40f738778567136a50a24197477593",
+      "size": 118
+    },
+    "FLOW/fabdem_2yr_flow_initial.csv": {
+      "sha256": "d9fc3d41ba4acae37d65f7e7bd7cb097092d22a717d04ce52424636a95053b50",
+      "size": 68
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_FloodWSE_testForecast_20250807.tif": {
+      "sha256": "87c9a15ba92de3086de3d5681a2c52fb8bec80ffa9346f1435c1a5a07961b756",
+      "size": 9310
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_testForecast_20250807.gpkg": {
+      "sha256": "dbdc4356206cb8ef8878f6060433821060901f16e9067a3c6a55729b3b7cf3c2",
+      "size": 118784
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_testForecast_20250807.tif": {
+      "sha256": "645eac1a43505f0049a3894526829f15e2ed7479b890ea8bfa29386aeb65adfe",
+      "size": 1915
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_test_Bathy.gpkg": {
+      "sha256": "2f17bd45f77b38dab8277f22f718b97f6b3ca361ab386444b79f8c786a10fa30",
+      "size": 114688
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_test_Bathy.tif": {
+      "sha256": "a207ca754792a31d237ffc0c2a61a9ffca8dc688f8b5734666a8bfa00104e8aa",
+      "size": 1843
+    },
+    "LAND/AR_Manning_n_MED.txt": {
+      "sha256": "68e6a7f2c588ade268f06498a6db5ca61fdb29ed1197107b7f6fde56821765e9",
+      "size": 244
+    },
+    "LAND/fabdem_LAND_Raster.tif": {
+      "sha256": "a710ec9bcd6ff8371a89f6c3668762d84d16293c2a4f190804f85bcfaf6d4a84",
+      "size": 10279
+    },
+    "STRM/GEOGLOWS_fabdem_STRM_Raster_Clean.tif": {
+      "sha256": "6c455baf5165505ff57b20cf90bd0bda27dd30fa1c4de8b061bf08c12818c56e",
+      "size": 2285
+    },
+    "STRM/GEOGLOWS_fabdem_StrmShp.gpkg": {
+      "sha256": "2dc6f9b1d023ab6100b4d217d37a5bb11522e5d7333ec31b76bc28daa2ab19f0",
+      "size": 122880
+    },
+    "VDT/GEOGLOWS_fabdem_AP_Database_Bathy.parquet": {
+      "sha256": "32f9360b215c2f2308b9530b135e75e3a6962d63fe39fcc440c822a40540c657",
+      "size": 248727
+    },
+    "VDT/GEOGLOWS_fabdem_VDT_Database_Bathy.parquet": {
+      "sha256": "c8a8fd7fd938f14009b2f1490ed154889a79b7dc3274dd280d04bd745e84098b",
+      "size": 316158
+    }
+  },
+  "forecast_test_original": {
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_Bathy.txt": {
+      "sha256": "710b1b79d99cb02a95c105f0d4efcc4207139d4653ca77d4b090ccb6b6d7900b",
+      "size": 2472
+    },
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_FloodForecast.txt": {
+      "sha256": "6cb1951e3e1f794d30feb0f86082e7369984e05c64711868da7301962d85a0df",
+      "size": 1428
+    },
+    "Bathymetry/GEOGLOWS_fabdem_ARC_Bathy.tif": {
+      "sha256": "733662d2a14d1556bad9f08dcba2b0eda940173456c00b33d8ef4440393031aa",
+      "size": 9127
+    },
+    "Bathymetry/GEOGLOWS_fabdem_FS_Bathy.tif": {
+      "sha256": "0f5598d4efb5c30fe0100181fea1330a65250ac528c5049eac31373fa4b20f3e",
+      "size": 103441
+    },
+    "FLOW/GEOGLOWS_fabdem_Reanalysis.csv": {
+      "sha256": "3a036aa1c3a60a3a89457087fd2f6c0d036fb609db51169646aeb444b64cc428",
+      "size": 943
+    },
+    "FLOW/fabdem_20250807_GEOGLOWS_forecast.csv": {
+      "sha256": "c5973f0886694cd4f127a00d64bd6c9ff9caf332b9630587b3b5541e46cbed98",
+      "size": 225
+    },
+    "FLOW/fabdem_2yr_flow_initial.txt": {
+      "sha256": "3d23b2082df9d9cf1c935dcce1479b6a2df3c7db70189ec1907f62851297f5b1",
+      "size": 66
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_FloodWSE_test_Forecast_20250807.tif": {
+      "sha256": "ab35dc282faffe0eac6bba9eb319dc3c2e731890e0c1e936dc50820eda0afc3d",
+      "size": 7576
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Initial.tif": {
+      "sha256": "2ea7a3b3afeda1683b00bd9969884f8c373e71699e478b3963b44a34c8ffcee3",
+      "size": 6620
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_test_Bathy.gpkg": {
+      "sha256": "d7f9cc654c5dc028092666b00a6113c40248828aad096b449d42823d6a81dbf3",
+      "size": 114688
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_test_Bathy.tif": {
+      "sha256": "daac3e5d6e773c1abd1006d645627e45d560df49c9c670121cc0662ef20d1f8f",
+      "size": 1848
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_test_Forecast_20250807.gpkg": {
+      "sha256": "0c44cfd0e53c235f2a065bf6072d075eaac3d0ac36dc4ae814dcc8b388f9c5ec",
+      "size": 118784
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_test_Forecast_20250807.tif": {
+      "sha256": "6fa9313023059d7e3b6a707b2f5a44306f303b16687f648264a6293a896bb632",
+      "size": 1842
+    },
+    "LAND/AR_Manning_n_MED.txt": {
+      "sha256": "68e6a7f2c588ade268f06498a6db5ca61fdb29ed1197107b7f6fde56821765e9",
+      "size": 244
+    },
+    "LAND/fabdem_LAND_Raster.tif": {
+      "sha256": "34fba8b8c7ef7f5c32a58bf6e59da47c513f314e5f996b0c30bbb6b3d2a40d8c",
+      "size": 10604
+    },
+    "STRM/GEOGLOWS_fabdem_STRM_Raster.tif": {
+      "sha256": "7029bf3782a75451a4b967fd6e64585f4a76e7ee60d12f07ade4358f667cceda",
+      "size": 5798
+    },
+    "STRM/GEOGLOWS_fabdem_STRM_Raster_Clean.tif": {
+      "sha256": "90ebfc825360f1130810a1b9ea47d597e8a103dcbefa49ff4accaf136d6b75d6",
+      "size": 7612
+    },
+    "STRM/GEOGLOWS_fabdem_StrmShp.gpkg": {
+      "sha256": "8c765005c0aaf9df7c5f2d7d43c1a881793541c58adfea9104a03d07405b9312",
+      "size": 122880
+    },
+    "VDT/GEOGLOWS_fabdem_AP_Database_Bathy.txt": {
+      "sha256": "5dd4cd168644e9f8a99b65b26fb568d45f3ee801aa6bfed17495ac0f3d35eb6c",
+      "size": 271122
+    },
+    "VDT/GEOGLOWS_fabdem_VDT_Database_Bathy.parquet": {
+      "sha256": "6bacfd98e6bc21738d30ad5f0bff0ef0312d6844b079a7beb866c1d39c0d0a12",
+      "size": 316496
+    }
+  },
+  "no_bathy_new": {
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_Bathy.txt": {
+      "sha256": "d099b56fa42e309452a7a22698eefde5e189cc55e729d450419e932d00bfdd1a",
+      "size": 1055
+    },
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_InitialFlood.txt": {
+      "sha256": "580d3161a7f00f407d4a1e5efebf187d89c4bcdc00773fc95846ec7d42cd1d1d",
+      "size": 1687
+    },
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_stage=20.txt": {
+      "sha256": "3b769182a88bffb5b8afda86cd76348410d9e3e940e127becacb4013e2996bb2",
+      "size": 1290
+    },
+    "Bathymetry/GEOGLOWS_fabdem_water_mask.tif": {
+      "sha256": "0e553d2289a6e934bd7ebbc6ff2fe5d8966faad99299297f41c68df284b56e6f",
+      "size": 2069
+    },
+    "DEM_Updated/Elev_Streams_fabdem.tif": {
+      "sha256": "9a7472024c65ae66118d3bee9c7c00ef2241f91c31a3e013fbe231ee653ed02b",
+      "size": 222412
+    },
+    "DEM_Updated/FLOOD_IMPACT_fabdem.tif": {
+      "sha256": "ebef66328e994b977fe52caad01e3640c64fefcd41359a04798fabb73ff1b13f",
+      "size": 222412
+    },
+    "DEM_Updated/SEED_CONNECT_fabdem.tif": {
+      "sha256": "53216d0697b4700328766bf3c58ff98c7601f085c80de3db6a8d347707269d9f",
+      "size": 222412
+    },
+    "DEM_Updated/fabdem_Clean.tif": {
+      "sha256": "e5086750fc51b3596333da5d9b104c1dccf2e48f6aa706c9a49676241ff45a0c",
+      "size": 222412
+    },
+    "FLOW/GEOGLOWS_fabdem_Reanalysis.csv": {
+      "sha256": "5e6cbbc44568e47c4cf67d45f132a42e5085190b12ebc085b8818a3503e9d374",
+      "size": 2188
+    },
+    "FLOW/fabdem_2yr_flow_initial.csv": {
+      "sha256": "b54fa6eb07b2e775ef727835af2dfc6d1578f2f3b32ff510a0f6792f38d0dcda",
+      "size": 203
+    },
+    "FLOW/fabdem_Flow_COMID_Q.txt": {
+      "sha256": "584226b5d3fc62b2ec9cd841e50285e91d181e21e771403422740d910fb7b22b",
+      "size": 190
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_FloodWSE_stage=20.tif": {
+      "sha256": "27710f33efa5deacc3e26c0ece5204548a72a56e88b2d0252522fab3cbeded61",
+      "size": 14788
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Initial.gpkg": {
+      "sha256": "772a2c5510e5f549426fd80237b8f01c47ea869d8b3f866e8737018659cfc702",
+      "size": 139264
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Initial.tif": {
+      "sha256": "e5d482b86566d64be7ef7911d0a620cfdf7a2b90bad0d751c0d51357c0b3a10b",
+      "size": 2649
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_stage=20.gpkg": {
+      "sha256": "5375bc8d16a1913874ed0b33cd6d9331f90a0c271323b20fbc576b26a0bed1ad",
+      "size": 143360
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_stage=20.tif": {
+      "sha256": "ad355da29194fc8c441d185ac12d69cd30b6ac2fded498ff0f5094fe5c13b604",
+      "size": 2294
+    },
+    "LAND/AR_Manning_n_MED.txt": {
+      "sha256": "68e6a7f2c588ade268f06498a6db5ca61fdb29ed1197107b7f6fde56821765e9",
+      "size": 244
+    },
+    "LAND/fabdem_LAND_Raster.tif": {
+      "sha256": "a710ec9bcd6ff8371a89f6c3668762d84d16293c2a4f190804f85bcfaf6d4a84",
+      "size": 10279
+    },
+    "STRM/GEOGLOWS_fabdem_STRM_Raster_Clean.tif": {
+      "sha256": "7aa1de6987979c14f6b275926c6c0720010323295214ab2124197b137630ccf1",
+      "size": 4247
+    },
+    "STRM/GEOGLOWS_fabdem_StrmShp.gpkg": {
+      "sha256": "e02226617de2636ce4d26375a8272be17d24c99af4c3c1a6beaaa3cac8ac5a35",
+      "size": 200704
+    },
+    "VDT/GEOGLOWS_fabdem_AP_Database_Bathy.parquet": {
+      "sha256": "e3919d94ceb0d236675a6790f70fec91131ce08ef9f91d9c1af5a24e2c39e7a6",
+      "size": 361000
+    },
+    "VDT/GEOGLOWS_fabdem_CurveFile_Initial.csv": {
+      "sha256": "6a855467254ae64ab645940a203079ccff6ce8529075a0d11ca89849a0d203cd",
+      "size": 62289
+    },
+    "VDT/GEOGLOWS_fabdem_VDT_Database_Bathy.parquet": {
+      "sha256": "316ca0ee5913777a8b2b1faf1ee295fb3d84fff528efb271b9845807722db459",
+      "size": 459292
+    },
+    "VDT/GEOGLOWS_fabdem_VDT_Database_Initial.parquet": {
+      "sha256": "b3efd87a331e2ae10d4c587d7c45ee38af66d49945da9ee5ae0ae6b805601125",
+      "size": 459414
+    }
+  },
+  "no_bathy_original": {
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_Bathy.txt": {
+      "sha256": "ab1a4f53ab48cc1a263e19472457394c2f904e7c6fabda249bb79c9ab7ad4d78",
+      "size": 1200
+    },
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem_InitialFlood.txt": {
+      "sha256": "45a0fae607df552e8fc69a456e8d852ddc967538255107bcd946c13983ca76dc",
+      "size": 1737
+    },
+    "ARC_InputFiles/GEOGLOWS_ARC_Input_fabdem__stage=20.txt": {
+      "sha256": "475ff9f92f2af728a3f5e5a0251b34e64a908898897a92cd522717953ee52d2b",
+      "size": 1370
+    },
+    "DEM_Updated/Elev_Streams_fabdem.tif": {
+      "sha256": "c051d086eef1ccc0787dadfe7e8d91b8892e6239fd2f1509dd943bd576c78a7d",
+      "size": 222412
+    },
+    "DEM_Updated/FLOOD_IMPACT_fabdem.tif": {
+      "sha256": "cfbd97613de48b00c86bce3ab71800746a5b607333df703939d16bfdb1737de0",
+      "size": 222412
+    },
+    "DEM_Updated/SEED_CONNECT_fabdem.tif": {
+      "sha256": "043024a355471c1a8e9bf0eb4e004ebc78d25b3308869c14a1df281ff2685c11",
+      "size": 222412
+    },
+    "DEM_Updated/fabdem_Clean.tif": {
+      "sha256": "e5086750fc51b3596333da5d9b104c1dccf2e48f6aa706c9a49676241ff45a0c",
+      "size": 222412
+    },
+    "FLOW/GEOGLOWS_fabdem_Reanalysis.csv": {
+      "sha256": "968cca4d401907835ca912a98d5ba306222f841965d9d4b8605899fda5d60c1c",
+      "size": 2114
+    },
+    "FLOW/fabdem_2yr_flow_initial.txt": {
+      "sha256": "a7fda17828b96a6c08516cf89ebb0167cf6123bd63c9217050231d0eff3984c1",
+      "size": 201
+    },
+    "FLOW/fabdem_Flow_COMID_Q.txt": {
+      "sha256": "b789a785417edc38eb31e49ef95fd6dad738bd2b190bca1e38229b7fd85ab846",
+      "size": 188
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_FloodWSE_stage=20.tif": {
+      "sha256": "ebd71ba9742a079d91327b1044f6e585e05719142cc3adcbdf7c8131dab47ffa",
+      "size": 14756
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Initial.gpkg": {
+      "sha256": "3c7825165b5c8648638a2799f5ceac10522856de0e34a3633e9bc2ea07f5e51f",
+      "size": 135168
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_Initial.tif": {
+      "sha256": "3b98a2bb620cca048e4a1cb22b6135a81f3f0253c00095f677409b37b4b91316",
+      "size": 2660
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_stage=20.gpkg": {
+      "sha256": "aa21d8d493e5d14b354c8e60e3ffd37fb641ed1ac93a0b63aa9c3bc808bf8818",
+      "size": 143360
+    },
+    "FloodMap/GEOGLOWS_fabdem_ARC_Flood_stage=20.tif": {
+      "sha256": "db13bd881945fc122761a2c4ac639b978967cfe10e145318153957576993f5d9",
+      "size": 2302
+    },
+    "LAND/AR_Manning_n_MED.txt": {
+      "sha256": "68e6a7f2c588ade268f06498a6db5ca61fdb29ed1197107b7f6fde56821765e9",
+      "size": 244
+    },
+    "LAND/fabdem_LAND_Raster.tif": {
+      "sha256": "34fba8b8c7ef7f5c32a58bf6e59da47c513f314e5f996b0c30bbb6b3d2a40d8c",
+      "size": 10604
+    },
+    "STRM/GEOGLOWS_fabdem_STRM_Raster.tif": {
+      "sha256": "f4e6376c58860a0482ad5b09c1573f2706242795ea176e5f9c4f8c798f78346e",
+      "size": 7785
+    },
+    "STRM/GEOGLOWS_fabdem_STRM_Raster_Clean.tif": {
+      "sha256": "1caec7a59e978809a357198231bfedaa2b32bfa7703016a6e0664318476ea8ae",
+      "size": 10950
+    },
+    "STRM/GEOGLOWS_fabdem_StrmShp.gpkg": {
+      "sha256": "ab30368a4f52c11e0fda8b847bd4fbfa11b2e4e0d3ecc7dfea6ab5871b01d09b",
+      "size": 204800
+    },
+    "VDT/GEOGLOWS_fabdem_AP_Database_Bathy.txt": {
+      "sha256": "b8c6cc2cbf3b93414de14879636b4007c5c8ffb7475fe98477142582d16b192d",
+      "size": 421975
+    },
+    "VDT/GEOGLOWS_fabdem_CurveFile_Initial.csv": {
+      "sha256": "169736cc808cb5ddc109569ecfe2d7651df2b95f0703e10e942de48b6f98d637",
+      "size": 62003
+    },
+    "VDT/GEOGLOWS_fabdem_VDT_Database_Bathy.parquet": {
+      "sha256": "49a4063d3a5f8f37ea5d3cfb39c9f0de4996ca24ed87677ea9f64921620ac1fc",
+      "size": 457529
+    },
+    "VDT/GEOGLOWS_fabdem_VDT_Database_Initial.parquet": {
+      "sha256": "5f0a6b6800343cffd34803192179f0f7716550449861d6f26fe84d5ccd350994",
+      "size": 457651
+    }
+  }
+}

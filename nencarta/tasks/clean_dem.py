@@ -1,20 +1,27 @@
 from pathlib import Path
 
+from nencarta import dem_cleaner
 from nencarta.logger import LOG
-from nencarta import DEM_Cleaner
+from nencarta.tasks.make_bathy_water_mask import flood_streams_to_depth
+from nencarta.tasks.make_flow_file_from_reanalysis import (
+    _make_flood_flow_file_from_base_max_file,
+)
+from nencarta.tasks.run_models import run_arc_for_initial_floodmap
 from nencarta.workspace import Workspace
-from nencarta.tasks.run_models import _run_mapper, run_arc_for_initial_floodmap
-from nencarta.tasks.make_flow_file_from_reanalysis import _make_flood_flow_file_from_base_max_file
+
 
 def make_clean_dem(workspace: Workspace) -> Path:
-    # Run the DEM Cleaner Program, if you wanna
+    """
+    Smooth the DEM's stream channels with the DEM cleaner (workspace.DEM_File_Clean). ARC first estimates each
+    reach's channel size. The cleaner outlines the channels with an initial flood map: the streams flooded to the
+    first of specify_depths_for_bathy_mask with use_specified_depth_for_bathy_mask, and otherwise the water mask.
+    """
     configs = workspace.configs
     if workspace.DEM_File_Clean.exists() and not configs.overwrite:
         return workspace.DEM_File_Clean
 
     if configs.overwrite:
-        # Ensure we regenerate ARC + DEM cleaner products when overwriting, so the
-        # outputs match a fresh legacy run (important for ignore/*_original fixtures).
+        # Remake ARC's and the DEM cleaner's outputs, which the cleaner would otherwise reuse
         for path in (
             workspace.DEM_File_Clean,
             workspace.Curve_File_Initial,
@@ -39,14 +46,22 @@ def make_clean_dem(workspace: Workspace) -> Path:
         LOG.info(f"{workspace.Curve_File_Initial} exists and we aren't making it again...")
 
     if configs.use_specified_depth_for_bathy_mask:
-        LOG.info(f"Executing Curve2Flood using {workspace.ARC_FileName_for_DEM_Cleaner}")
-        _run_mapper(workspace.ARC_FileName_for_DEM_Cleaner, configs)
-    
+        # On the DEM the cleaner's ARC run had
+        dem = workspace.fixed_dem if configs.burn_streams else workspace.assigned_dem
+        initial_flood_map = flood_streams_to_depth(workspace, dem, configs.specify_depths_for_bathy_mask[0],
+                                                   workspace.FloodMapFile_Initial,
+                                                   workspace.Mapper_FileName_InitialFlood)
+        if not initial_flood_map.exists():
+            raise FileNotFoundError(f"The flood mapper did not make the DEM cleaner's initial flood map, {initial_flood_map}.")
+    else:
+        # Water land cover and stream cells
+        initial_flood_map = workspace.bathy_water_mask
+
     OutputID = 'COMID'
     Q_Fraction = 0.10
     TopWidthPlausibleLimit = 600
     search_dist_perp_cells = 10 # this was 40
-    FlowFileName = workspace.FLOW_Folder / f"{workspace.FileName}_Flow_COMID_Q.txt"
+    FlowFileName = workspace.file_path(workspace.FLOW_Folder, 'Flow_COMID_Q', 'txt')
     _make_flood_flow_file_from_base_max_file(
         reanalysis_flow_file=workspace.DEM_Reanalsyis_FlowFile,
         out_file=FlowFileName,
@@ -67,17 +82,16 @@ def make_clean_dem(workspace: Workspace) -> Path:
         streamlines = workspace.DEM_StrmShp
         stream_raster = workspace.STRM_File_Clean
 
-    # start time for the simulation
-    DEM_Cleaner.DEM_Cleaner_Program(OutputID, 
+    dem_cleaner.DEM_Cleaner_Program(OutputID,
                                     streamlines, 
                                     dem.parent, 
                                     [dem.name], 
                                     [stream_raster], 
                                     workspace.dem_updated_folder, 
                                     FlowFileName, 
-                                    workspace.Curve_File_Initial, 
-                                    workspace.bathy_water_mask, 
-                                    Q_Fraction, 
+                                    workspace.Curve_File_Initial,
+                                    initial_flood_map,
+                                    Q_Fraction,
                                     TopWidthPlausibleLimit, 
                                     workspace.configs.compression, 
                                     search_dist_perp_cells)

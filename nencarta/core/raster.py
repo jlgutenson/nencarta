@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import os
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
-from propcache import cached_property
-
 import geopandas as gpd
 import numpy as np
-from pyproj import CRS, Geod
 from osgeo import gdal, osr
 from shapely.geometry import box
 
@@ -19,6 +17,7 @@ gdal.UseExceptions()
 
 
 class Raster(GISDataSource, LMDBCache):
+    """A raster file. Its grid, CRS and bounds are cached (see geo_cache)."""
     def __init__(self, filepath: os.PathLike):
         self.filepath = Path(filepath).resolve()
 
@@ -68,22 +67,6 @@ class Raster(GISDataSource, LMDBCache):
         return self._metadata.get("nodata_value", None)
     
     @property
-    def is_in_meters(self) -> bool:
-        srs = osr.SpatialReference()
-        srs.ImportFromWkt(self.projection)
-
-        if not srs.IsProjected():
-            return False
-
-        units = srs.GetLinearUnitsName().lower()
-        scale = srs.GetLinearUnits()
-
-        return (
-            units in {"meter", "metre", "meters", "metres"}
-            and abs(scale - 1.0) < 1e-6
-        )
-    
-    @property
     def is_in_degrees(self) -> bool:
         srs = osr.SpatialReference()
         srs.ImportFromWkt(self.projection)
@@ -99,89 +82,6 @@ class Raster(GISDataSource, LMDBCache):
             and abs(scale - 0.017453292519943295) < 1e-9
         )
     
-    @cached_property
-    def cell_area_km2(self) -> float:
-        """
-        Return the approximate cell area in km² for an arbitrary raster.
-
-        For projected CRSs:
-            Uses the CRS linear units.
-
-        For geographic CRSs (degrees):
-            Computes the geodesic width and height of the center pixel.
-        """
-        crs = CRS.from_user_input(self.projection)
-
-        pixel_width = abs(np.hypot(self.geotransform[1], self.geotransform[4]))
-        pixel_height = abs(np.hypot(self.geotransform[2], self.geotransform[5]))
-
-        if crs.is_projected:
-            # Convert CRS units to meters
-            unit = crs.axis_info[0].unit_name.lower()
-
-            if "metre" in unit or "meter" in unit:
-                factor = 1.0
-            elif "kilometre" in unit or "kilometer" in unit:
-                factor = 1000.0
-            elif "us survey foot" in unit:
-                factor = 1200.0 / 3937.0
-            elif "foot" in unit:
-                factor = 0.3048
-            else:
-                raise ValueError(f"Unsupported CRS unit: {unit}")
-
-            width_m = pixel_width * factor
-            height_m = pixel_height * factor
-
-        elif crs.is_geographic:
-            # Compute geodesic distances at raster center
-            # geod = Geod(ellps=crs.ellipsoid.name if crs.ellipsoid else "WGS84")
-            geod = crs.get_geod()
-
-            center_col = self.ncols / 2
-            center_row = self.nrows / 2
-            lon = self.geotransform[0] + center_col * self.geotransform[1] + center_row * self.geotransform[2]
-            lat = self.geotransform[3] + center_col * self.geotransform[4] + center_row * self.geotransform[5]
-
-            # Horizontal distance
-            _, _, width_m = geod.inv(
-                lon,
-                lat,
-                lon + pixel_width,
-                lat,
-            )
-
-            # Vertical distance
-            _, _, height_m = geod.inv(
-                lon,
-                lat,
-                lon,
-                lat + pixel_height,
-            )
-
-        else:
-            raise ValueError("Unknown CRS type.")
-
-        return (width_m * height_m) / 1_000_000.0
-    
-    @property
-    def native_cell_area(self) -> float:
-        """
-        Return the approximate cell area in native CRS units for an arbitrary raster.
-        """
-        gt = self.geotransform
-        return np.hypot(gt[1], gt[4]) * np.hypot(gt[2], gt[5])
-    
-    def km2_to_raster_cells(self, area_km2: float) -> int:
-        """
-        Convert an area in km² to the equivalent number of raster cells.
-
-        Args:
-            area_km2 (float): Area in square kilometers.
-        """
-        cell_area_km2 = self.cell_area_km2
-        return int(area_km2 / cell_area_km2) if cell_area_km2 > 0 else 0
-
     def _load_or_compute_metadata(self) -> dict[str, Any]:
         if not self.can_cache:
             return self._compute_metadata()
@@ -289,7 +189,11 @@ class Raster(GISDataSource, LMDBCache):
         return list(output)
     
     def read_array(self) -> np.ndarray:
-        return self.ds.ReadAsArray()
+        array = self.ds.ReadAsArray()
+        # GDAL keeps the blocks it read cached while the file is open, as a Raster keeps it, up to 5% of the machine's
+        # memory by default: now that they're all in the array, they're let go
+        self.ds.FlushCache()
+        return array
     
     @classmethod
     def write_array_using_reference(cls, 

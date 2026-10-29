@@ -13,12 +13,20 @@ if not LOG.hasHandlers():
 
 def set_log_level(level: str):
     """
-    Set the logging level.
+    Set how much NenCarta logs.
 
-    Parameters:
-    - level (str): The logging level to set ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL').
+    Parameters
+    ----------
+    level : str
+        ``DEBUG``, ``INFO`` (the default), ``WARNING``, ``ERROR`` or ``CRITICAL``, in any case.
+
+    Raises
+    ------
+    TypeError
+        When ``level`` isn't a logging level.
     """
     numeric_level = getattr(logging, level.upper(), None)
     if not isinstance(numeric_level, int):
-        raise ValueError(f'Invalid log level: {level}')
+        raise TypeError(f'Invalid log level: {level}')
+    
     LOG.setLevel(numeric_level)
