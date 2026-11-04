@@ -2460,6 +2460,11 @@ def _burn_cells(
 
         upstream_elev = dem[row1, col1]
         downstream_elev = dem[row2, col2]
+        # Cells more than a cell apart are where the line left the DEM and came back (see _line_cells): no water falls
+        # from one to the other, so neither the drain cap nor the ground beside applies across the gap. Measured
+        # across it, the cap scaled the fall to a cell beside by the gap's length, and cut a line hundreds of metres
+        # deep, which routing_dem then carried down the whole network below it.
+        adjacent = max(abs(row2 - row1), abs(col2 - col1)) <= 1
 
         if not keep[k]:
             upstream_elev = min(upstream_elev, last_elevation)
@@ -2473,8 +2478,9 @@ def _burn_cells(
             # Lowered to the ground beside the cell above only as far as its water would fall onto that ground
             # instead. Lowered to the lowest ground beside itself, a cell at the lip of a cliff was cut to the cliff's
             # foot, and the line stayed that deep downstream until the ground came down to it.
-            cap = _drain_cap(dem, streams, row1, col1, upstream_elev, row2, col2, dx_by_row, dy, nodata_value)
-            downstream_elev = min(downstream_elev, cap)
+            if adjacent:
+                cap = _drain_cap(dem, streams, row1, col1, upstream_elev, row2, col2, dx_by_row, dy, nodata_value)
+                downstream_elev = min(downstream_elev, cap)
             if downstream_elev > upstream_elev:
                 downstream_elev = upstream_elev
             elif downstream_elev % 0.5 != 0:
@@ -2483,7 +2489,7 @@ def _burn_cells(
             dem[row2, col2] = downstream_elev
 
         last_elevation = downstream_elev
-        if keep[k]:
+        if keep[k] or not adjacent:
             continue  # left as the DEM has it, and the ground around it too
 
         # Ground beside this cell that would still take its water as steeply as the next cell does, as level ground
