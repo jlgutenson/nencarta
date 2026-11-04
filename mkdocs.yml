@@ -1,0 +1,82 @@
+site_name: NenCarta
+site_description: Documentation for NenCarta, which makes riverine flood maps from a DEM and a stream network.
+repo_url: https://github.com/jlgutenson/nencarta
+repo_name: jlgutenson/nencarta
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - content.tabs.link
+    - navigation.sections
+    - navigation.footer
+
+docs_dir: docs
+site_dir: site
+# Pages keep the addresses the Sphinx docs gave them (configuration.html#json-dem)
+use_directory_urls: false
+# The scripts and drawings the figures are made from
+exclude_docs: |
+  figures/make_figures.py
+  figures/*.drawio
+
+validation:
+  anchors: warn
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.details
+
+extra_css:
+  - stylesheets/api.css
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Overview:
+    - Usage: usage.md
+    - Configuration: configuration.md
+    - Python API: api.md
+  - Technical Details:
+    - How It Works: methods.md
+    - Development: development.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            filters:
+              - "!^_"
+            heading_level: 3
+            show_signature: true
+            # The parameter tables give the types, so the signatures leave them out
+            show_signature_annotations: false
+            # Each signature in its own code block, one parameter a line (formatted by ruff)
+            separate_signature: true
+            line_length: 80
+            signature_crossrefs: true
+            docstring_style: numpy
+            docstring_section_style: spacy
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            show_labels: false
+            merge_init_into_class: true
+            members_order: source
+            annotations_path: brief
+            show_if_no_docstring: false

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+
 class GISDataSource(ABC):
     @classmethod
     def bounds_intersect(cls, bounds1: tuple[float, float, float, float], bounds2: tuple[float, float, float, float]) -> bool:

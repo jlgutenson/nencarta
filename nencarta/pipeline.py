@@ -1,8 +1,30 @@
-from pipefunc import Pipeline, PipeFunc
+from pipefunc import PipeFunc, Pipeline
 
-import nencarta.tasks as tasks
+from nencarta import tasks
 
-def build_pipeline(profile: bool) -> Pipeline:
+
+def build_pipeline(profile: bool, outlet_exchange: str = "off") -> Pipeline:
+    """
+    The steps every workspace runs through: prepare the inputs, run ARC, add the bathymetry to the DEM, build the
+    FLDPLN library, map the floods, crop buffered maps, and write the FIST inputs and consequences. With
+    outlet_exchange pass1, only prepare the inputs and write the water the neighbouring DEMs need (see
+    tasks/outlet_exchange.py).
+    """
+    if outlet_exchange == "pass1":
+        return Pipeline([
+            PipeFunc(
+                tasks.prepare_inputs_for_dem,
+                "model_configs",
+                mapspec="workspace[i] -> model_configs[i]",
+            ),
+            PipeFunc(
+                tasks.run_boundary_pass,
+                "boundary_wse",
+                renames={'model_config': 'model_configs'},
+                mapspec="model_configs[i], workspace[i] -> boundary_wse[i]",
+            ),
+        ], profile=profile)
+
     funcs = [
         PipeFunc(
             tasks.prepare_inputs_for_dem,

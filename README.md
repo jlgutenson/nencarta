@@ -1,122 +1,89 @@
 # About NenCarta
-NenCarta is a workflow designed to automate the creation of riverine flood inundation maps using the Automated Rating Curve (ARC) tool and Curve2Flood and streamflow from either the National Water Model or the GEOGLOWS ECWMF Streamflow Service. For the coterminous United States, NenCarta can then take the resulting flood inundaton maps and estimate direct flood consequences using Go-Consequences and the National Structure Inventory (NSI).
+NenCarta makes riverine flood inundation maps from a DEM and a stream network, using the Automated Rating Curve (ARC) tool, Curve2Flood, and streamflow from the GEOGLOWS ECMWF Streamflow Service or the National Water Model. For the coterminous United States, NenCarta can then estimate direct flood consequences from the flood maps using Go-Consequences and the National Structure Inventory (NSI).
 
 Here is an overview of how NenCarta produces flood inundation maps and performs consequence assessment.
 
-[![NenCarta Overview](https://github.com/jlgutenson/nencarta/blob/main/workflow.png)](https://github.com/jlgutenson/nencarta/blob/main/workflow.png)
+![NenCarta Overview](docs/figures/workflow.png)
 
 # Documentation
 
-Structured documentation and examples can be found at our [Read the Docs page](https://nencarta.readthedocs.io/en/latest/index.html). 
+The full documentation is on our [Read the Docs page](https://nencarta.readthedocs.io/en/latest/index.html), including [how it works](https://nencarta.readthedocs.io/en/latest/methods.html), [every setting](https://nencarta.readthedocs.io/en/latest/configuration.html) and [the Python API](https://nencarta.readthedocs.io/en/latest/api.html).
 
 # Setting up NenCarta
 
-Below are instructions for setting up NenCarta using Miniconda and Docker.
+With [conda](https://github.com/conda-forge/miniforge), in the folder this repository was cloned to:
 
-1. Clone this repository and return to the command prompt window and navigate to where the NenCarta repository was cloned locally.
-
-2. Create the necessary conda environment with the following command:
 ```bash
 conda env create -f environment.yaml
-```
-
-3. Activate the conda environment:
-```bash
 conda activate nencarta_py312
+pip install --no-deps "git+https://github.com/MikeFHS/automated-rating-curve.git"
+pip install --no-deps "git+https://github.com/MikeFHS/curve2flood.git"
+pip install --no-deps .
+flood-mapping -h
 ```
 
-4. Use the nencarta_py312 to install the Automated Rating Curve (ARC) toolkit by cloning the repository and installing using the instructions provided [in ARC's README](https://github.com/MikeFHS/automated-rating-curve). You can ignore the instruction in ARC's README that discuss creating another conda environment. 
+The two `git+` lines install ARC and Curve2Flood, in the versions NenCarta is tested with.
 
-5. Use the nencarta_py312 to install Curve2Flood by cloning the repository and installing using the instructions provided in [Curve2Flood's README](https://github.com/MikeFHS/curve2flood). You can ignore the instruction in Curve2Flood's README that discuss creating another conda environment. 
-
-
-6. Inside the NenCarta repository run:
-```bash
-pip install .
-```
-
-7. Optional, if you want to compute economic consequences using the resulting flood inundation map, install Go-Consequences creating a Go-Consequences Docker container using the Dockerfile found [in this repository](https://github.com/jlgutenson/nencarta/blob/main/Dockerfile.prod). The easiet way to do this is to install Docker (e.g., [Docker Desktop](https://www.docker.com/products/docker-desktop/)), navigate to where the NenCarta repository was cloned locally using the command prompt window, and running the command:
+To compute economic consequences from the flood maps, install Docker (e.g. [Docker Desktop](https://www.docker.com/products/docker-desktop/)) and build the Go-Consequences image:
 
 ```bash
 docker build --progress=plain --file Dockerfile.prod -t go-consequences:latest .
 ```
 
-8. You should be set up now. You can run `flood-mapping -h` in your command prompt to see if things installed properly. Have fun you dirty animals! 
+You should be set up now. Have fun you dirty animals!
 
 # How to Run NenCarta
 
-There are three ways to run NenCarta, either by providing a JSON input's filepath, command line arguments, or through a built-in graphical user interface (GUI).
+There are four ways to run NenCarta, which all take the same settings: the GUI, a JSON file, the command line, or Python.
 
 ## Graphical User Interface (GUI)
-A built-in GUI can be accessed that will build the JSON file and simulate a serial simulation in NenCarta.
-
-The GUI can be accessed using the command below.
 
 ```bash
 flood-mapping gui
 ```
 
-## JSON File Arguments
-The JSON should look like what's provided below. Multiple watersheds can be provided in this JSON format
+## JSON file
 
-```
+```json
 {
     "watersheds": [
         {
-            "name": "yellowstone_wsebathy_notclean_2_nencartatest",
-            "flowline": "C:/Users/follumm/Desktop/CHL_MultiModel/Yellowstone_2022_Flood/StrmShp/Yellowstone_flood_2022_stream_reaches_for_ARC.shp",
-            "dem_dir": "C:/Users/follumm/Desktop/CHL_MultiModel/Yellowstone_2022_Flood/DEM_FABDEM_merged",
-            "bathy_use_banks": false,
-            "clean_dem": true,
-            "mapper": "FloodSpreader",
-            "output_dir": "C:/Users/follumm/Desktop/CHL_MultiModel/Yellowstone_2022_Flood/Results",
-            "overwrite": true,
-            "use_specified_depth_for_bathy_mask": true,
-            "age_of_forecast_days": 7,
-            "find_banks_based_on_landcover": true,
-            "specify_depths_for_bathy_mask": [1.0, 2.0],
-            "create_reach_average_curve_file": false,
-            "forensic_forecast_date":"20250807",
-            "specified_bathyflow_field":"qout_median",
-            "specified_highflow_field":"rp100_premium",
-            "drainage_area_field":"TotDASqKm",
-            "coefficient_depth":0.12,
-            "exponent_depth":0.42,
-            "coefficient_width":1.75,
-            "exponent_width":0.55,
-            "lake_filter_json":"C:/Users/follumm/Desktop/CHL_MultiModel/Yellowstone_2022_Flood/StrmShp/Yellowstone_flood_2022_stream_reaches_for_ARC_that_are_in_lakes.json",
-            "streamflow_source": "NWM",
-            "geoglows_vpu":715,
-            "nwm_api_key": "YOUR_NWM_API_KEY"
+            "name": "example",
+            "dem_dir": "C:/data/dems",
+            "flowline": "C:/data/streams.gpkg",
+            "output_dir": "C:/data/results",
+            "floodmap_mode": "return_period",
+            "return_periods": [2, 100]
         }
     ]
 }
 ```
 
-The JSON inputs are each described [here](https://nencarta.readthedocs.io/en/latest/configuration.html#json-inputs). 
+```bash
+flood-mapping json "/path/to/your.json"
+```
 
-Once you have a JSON created. You can simply issue this command (assuming your conda environment is active in the command prompt):
+Add `--parallel --num_workers 8` to map several DEMs at once.
+
+## Command line
+
+Every JSON setting is also an option of the same name:
 
 ```bash
-flood-mapping json "/path/to/your.json" --serial
+flood-mapping cli --name example --output_dir C:/data/results --dem_dir C:/data/dems --flowline C:/data/streams.gpkg --floodmap_mode return_period --return_periods 2 100
 ```
 
-Using the json argument you can also specify whether you intend to run NenCarta in serial or parallel model using either `--serial` or `--parallel --num_workers 8`, where 8 is the number of workers or processes that you intend to utilize in your NenCarta
-simulation.
+Run `flood-mapping cli -h` to see them all.
 
+## Python
 
-And your NenCarta simulation will commense with the JSON file.
+```python
+from nencarta import process_watershed
 
-## Command Line Interface
-The second option is to run an indivdual watershed straight from the command line. This can be done by issuing the following command:
-
+process_watershed({
+    "name": "example",
+    "dem_dir": r"C:\data\dems",
+    "flowline": r"C:\data\streams.gpkg",
+    "output_dir": r"C:\data\results",
+})
 ```
-flood-mapping cli ExampleWatershed "C:\path\to\flowline.shp" "C:\path\to\dem_dir" "C:\path\to\output" --bathy_use_banks --clean_dem --overwrite --mapper FloodSpreader --use_specified_depth_for_bathy_mask --specify_depths_for_bathy_mask 1.0 2.0 --age_of_forecast_days 7 --find_banks_based_on_landcover --create_reach_average_curve_file --forensic_forecast_date "20250807" --specified_bathyflow_field 'p_exceed_50' --specified_highflow_field "rp100_premium" --use_warning_flags_to_download_dem --geoglows_vpu 15 --lake_filter_json "C:\path\to\lake_filter_json" 
---estimate_consequences --streamflow_source "NWM_short_range" --nwm_api_key "YOUR_NWM_API_KEY"
-```
-
-The arguments `--bathy_use_banks`, `--clean_dem`, `--overwrite`, `--use_specified_depth_for_bathy_mask`,`--find_banks_based_on_landcover`, `--create_reach_average_curve_file`, `use_warning_flags_to_download_dem`, and `--estimate_consequences` are issued when you intend setting those options as True.
-
-The argument `--specify_depths_for_bathy_mask` requires two float arguments if `clean_dem` is True and one float argument if `clean_dem` is False.
-
-The cli option will only operate in serial.
