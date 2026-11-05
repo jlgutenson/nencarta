@@ -61,6 +61,11 @@ def prepare_inputs_for_dem(workspace: Workspace) -> ModelConfig:
     if configs.clean_dem:
         define_configs_for_dem_cleaning(workspace)
         make_clean_dem(workspace)
+
+    if configs.representative_cross_section_creation:
+        # The representative coefficients describe each DEM's reaches rather
+        # than a forecast or return-period scenario. No scenario flows are needed.
+        return ModelConfig(define_arc_configs(workspace), [], [], configs.mapper, configs.quiet)
         
     if configs.floodmap_mode == FloodMapMode.FORECAST:
         flow_files = make_flow_file_from_forecast(workspace)

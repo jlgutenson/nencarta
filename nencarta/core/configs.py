@@ -372,6 +372,14 @@ class NencartaConfig:
     def setup(self):
         """Check the config and set its values as attributes."""
         self.verify_required_keys()
+        self.representative_cross_section_creation: bool = self.get("representative_cross_section_creation")
+        if not isinstance(self.representative_cross_section_creation, bool):
+            raise ValueError("representative_cross_section_creation must be true or false.")
+        self.stream_length_field: str | None = self.get("stream_length_field")
+        if self.representative_cross_section_creation:
+            if not isinstance(self.stream_length_field, str) or not self.stream_length_field.strip():
+                raise ValueError("representative_cross_section_creation requires stream_length_field, the flowline length column in meters.")
+            self.stream_length_field = self.stream_length_field.strip()
         self.watershed_name: str = self.get("name")
         self.reject_moved_keys()
         self.warn_about_unknown_keys()

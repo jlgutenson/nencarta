@@ -30,15 +30,20 @@ def _run_mapper(config_file: Path, model_config: ModelConfig) -> None:
         Curve2Flood_MainFunction(str(config_file), quiet=model_config.quiet)
 
 def run_arc_bathymetry(model_config: ModelConfig, workspace: Workspace) -> ModelConfig:
-    """Run ARC: rating curves (the VDT database) and bathymetry. Skipped when its outputs exist, unless overwrite."""
+    """Run ARC unless its requested products already exist and overwrite is off."""
     if model_config.arc_config is None:
         LOG.info("No ARC config was generated for this workspace; skipping ARC bathymetry.")
         return model_config
 
-    # ARC writes the representative cross sections in the same run as the VDT
-    representative_missing = workspace.configs.make_representative_cross_section_file and \
-        not workspace.Representative_Cross_Section_File.exists()
-    if model_config.rating_curves_exist and not workspace.configs.overwrite and not representative_missing:
+    if workspace.configs.representative_cross_section_creation:
+        # A cached VDT does not imply that the representative exports exist.
+        outputs_exist = all(path.exists() for path in (
+            workspace.representative_cross_section_file,
+            workspace.representative_cross_section_coefficients_file,
+        ))
+    else:
+        outputs_exist = model_config.vdt_exists
+    if outputs_exist and not workspace.configs.overwrite:
         return model_config
     
     if not workspace.model_StrmShp.exists() and not workspace.configs.raise_errors_if_nothing_in_domain:
@@ -50,12 +55,11 @@ def run_arc_bathymetry(model_config: ModelConfig, workspace: Workspace) -> Model
     return model_config
 
 def run_mapper_bathymetry(model_config: ModelConfig, workspace: Workspace) -> ModelConfig:
-    """
-    Run the flood mapper on its bathymetry config to burn ARC's bathymetry into the DEM (FS_Bathy), which the flood
-    maps use. Skipped without bathymetry, or when it exists, unless overwrite.
-    """
-    if not model_config.rating_curves_exist or\
-          workspace.configs.disable_bathymetry or model_config.bathy_mapper_config is None or \
+    """Create mapper bathymetry unless running ARC representative exports only."""
+    if workspace.configs.representative_cross_section_creation:
+        return model_config
+    if not model_config.vdt_exists or\
+          workspace.configs.disable_bathymetry or \
             (model_config.burned_dem_exists and not workspace.configs.overwrite):
         return model_config
     
@@ -65,8 +69,10 @@ def run_mapper_bathymetry(model_config: ModelConfig, workspace: Workspace) -> Mo
     return model_config
 
 def run_mapper_floodmaps(model_config: ModelConfig, workspace: Workspace) -> FloodMapperBulkOutput:
-    """Make the flood maps of each mapper config, skipping those whose maps exist, unless overwrite_floodmaps."""
-    if not workspace.model_StrmShp.exists() and not workspace.configs.raise_errors_if_nothing_in_domain:
+    """Run flood maps, or return no mapper outputs for representative-only runs."""
+    if workspace.configs.representative_cross_section_creation:
+        return FloodMapperBulkOutput([])
+    if not workspace.DEM_StrmShp.exists() and not workspace.configs.raise_errors_if_nothing_in_domain:
         return FloodMapperBulkOutput([])
     
     LOG.info("Running flood mapper to generate flood maps...")
@@ -103,7 +109,10 @@ def run_fldpln_library(model_config: ModelConfig, workspace: Workspace) -> Model
     """
     Build the FLDPLN library for Curve2Flood-FLDPLNpy: which floodplain cells each stream cell floods, and at what
     depth. Skipped when it exists, unless overwrite.
+    Build the mapping library only when flood-mapper simulations are enabled.
     """
+    if workspace.configs.representative_cross_section_creation:
+        return model_config
     if not workspace.mapper.is_curve2flood_fldpln_mapper() or \
         (workspace.fldpln_library.exists() and not workspace.configs.overwrite):
         return model_config
