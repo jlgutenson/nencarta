@@ -6,16 +6,18 @@ from typing import Literal
 
 os.environ["AWS_NO_SIGN_REQUEST"] = "YES"  # for s3 access to ESA WorldCover data
 
-from osgeo import gdal
 import geopandas as gpd
+from osgeo import gdal
 from shapely.geometry import box
 
-from nencarta.logger import LOG
-from nencarta.core.raster import Raster
-from nencarta.workspace import Workspace
 from nencarta._constants import CACHED_ESA_GRID
+from nencarta.core.raster import Raster
+from nencarta.logger import LOG
+from nencarta.workspace import Workspace
+
 
 def _get_esa_tiles(bbox):
+    """The names of the ESA WorldCover tiles overlapping ``bbox`` (EPSG:4326), e.g. 'N36W120'."""
     if CACHED_ESA_GRID.exists():
         try:
             return set(gpd.read_parquet(CACHED_ESA_GRID, bbox=bbox)['ll_tile'])
@@ -25,7 +27,7 @@ def _get_esa_tiles(bbox):
                 grid.to_parquet(CACHED_ESA_GRID, write_covering_bbox=True)
                 return set(grid[grid.intersects(box(*bbox))]['ll_tile'])
 
-            raise e
+            raise
     
     url = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/esa_worldcover_grid.geojson"
     grid = _download_grid_with_retry(url)
@@ -33,6 +35,7 @@ def _get_esa_tiles(bbox):
     return set(grid[grid.intersects(box(*bbox))]['ll_tile'])
 
 def _download_grid_with_retry(url, max_retries=10, wait_seconds=10):
+    """Read the ESA WorldCover tile grid from ``url``, retrying on failure."""
     attempt = 0
     while attempt < max_retries:
         try:
@@ -43,7 +46,7 @@ def _download_grid_with_retry(url, max_retries=10, wait_seconds=10):
             attempt += 1
             LOG.warning(f"Attempt {attempt} failed: {e}")
             time.sleep(wait_seconds)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             attempt += 1
             LOG.warning(f"Unexpected error on attempt {attempt}: {e}")
             time.sleep(wait_seconds)
@@ -53,6 +56,10 @@ def _download_grid_with_retry(url, max_retries=10, wait_seconds=10):
 
 def make_land_cover(workspace: Workspace,
                     year: Literal[2020, 2021] = 2021):
+    """
+    Make the land cover raster on the DEM's grid (workspace.LAND_File) from ESA WorldCover tiles, read from
+    land_cover_cache or the ESA bucket. Without tiles (e.g. far out at sea) every cell is tree cover (10).
+    """
     if workspace.LAND_File.exists() and not workspace.configs.overwrite:
         LOG.info(f"Land cover file already exists at {workspace.LAND_File}, skipping generation.")
         return workspace.LAND_File
@@ -67,13 +74,16 @@ def make_land_cover(workspace: Workspace,
     version_by_year = {2020: "v100", 2021: "v200"}  # extend as needed for newer years
     if year not in version_by_year:
         raise ValueError(f"Year {year} not supported. Available: {list(version_by_year)}")
+    
     version = version_by_year[year]
 
     landcover_files: list[str] = []
     cached_files = {}
     if workspace.configs.land_cover_cache:
         cached_files = {Path(path).stem: path for path in workspace.configs.land_cover_cache}
-    for tile in tiles:
+        
+    # In a fixed order: the tiles are warped one after another, and where two meet, a cell takes the last one's
+    for tile in sorted(tiles):
         if tile in cached_files:
             landcover_files.append(cached_files[tile])
         else:
@@ -92,22 +102,24 @@ def make_land_cover(workspace: Workspace,
     
     proj = dem_raster.projection
     xres, yres = dem_raster.resolution
-    if workspace.LAND_File.suffix.lower() == '.vrt':
-        options = gdal.BuildVRTOptions(outputBounds=bounds_crs,
-                            outputSRS=proj,
-                            xRes=xres,
-                            yRes=yres,
-                            resampleAlg='mode')
-        gdal.BuildVRT(workspace.LAND_File, landcover_files, options=options)
-    else:
-        options = gdal.WarpOptions(format='GTiff',
-                            outputBounds=bounds_crs,
-                            outputBoundsSRS=proj,
-                            dstSRS=proj,
-                            xRes=xres,
-                            yRes=yres,
-                            resampleAlg='mode',
-                            creationOptions=[f'COMPRESS={workspace.configs.compression}', 'PREDICTOR=2'])
-        gdal.Warp(workspace.LAND_File, landcover_files, options=options)
+    remote = all(path.startswith("/vsis3/") for path in landcover_files)
+    with gdal.config_options({"GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR"} if remote else {}):
+        if workspace.LAND_File.suffix.lower() == '.vrt':
+            options = gdal.BuildVRTOptions(outputBounds=bounds_crs,
+                                outputSRS=proj,
+                                xRes=xres,
+                                yRes=yres,
+                                resampleAlg='mode')
+            gdal.BuildVRT(workspace.LAND_File, landcover_files, options=options)
+        else:
+            options = gdal.WarpOptions(format='GTiff',
+                                outputBounds=bounds_crs,
+                                outputBoundsSRS=proj,
+                                dstSRS=proj,
+                                xRes=xres,
+                                yRes=yres,
+                                resampleAlg='mode',
+                                creationOptions=[f'COMPRESS={workspace.configs.compression}', 'PREDICTOR=2'])
+            gdal.Warp(workspace.LAND_File, landcover_files, options=options)
 
     return workspace.LAND_File

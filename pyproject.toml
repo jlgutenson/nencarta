@@ -1,9 +1,7 @@
 [build-system]
 requires = [
-"setuptools>=42",
+"setuptools>=61",
 "wheel",
-"Cython>=3.1.2",
-"numpy>=1.26.4",
 ]
 build-backend = "setuptools.build_meta"
 
@@ -18,22 +16,19 @@ authors = [
 ]
 license = { text = "MIT" }
 dependencies = [
-"beautifulsoup4",
-"cython",
 "dask",
 "gdal",
-"geoglows",
-"geojson",
 "geopandas",
 "netCDF4",
+"networkx",
 "numba",
 "numpy",
 "pandas",
-"polars",
 "pipefunc",
-"progress",
+"pyarrow",
 "pyproj",
 "PyQt5>=5.15",
+"pyyaml",
 "requests",
 "rich",
 "s3fs",
@@ -41,7 +36,6 @@ dependencies = [
 "shapely",
 "tqdm",
 "xarray",
-"whitebox",
 "zarr"
 ]
 
@@ -61,4 +55,10 @@ norecursedirs = [
     "dist",
     "ignore",
     "pytest_tmp",
+]
+
+[tool.ruff]
+extend-exclude = [
+    "tests/*.py",
+    "docs",
 ]
