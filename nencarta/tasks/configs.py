@@ -151,11 +151,15 @@ def _write_config(config_path: Path, params: dict):
 def _has_required_arc_outputs(workspace: Workspace) -> bool:
     """Whether every output ARC is asked for (VDT, curve file, AP database, representative cross sections) exists."""
     configs = workspace.configs
+    if configs.representative_cross_section_creation:
+        return all(path.exists() for path in (workspace.representative_cross_section_file,
+                                             workspace.representative_cross_section_coefficients_file))
     asked_for = (
         (workspace.VDT_File_Bathy, configs.make_vdt),
         (workspace.Curve_File_Bathy, configs.make_curvefile),
         (workspace.AP_File, configs.make_ap_database),
         (workspace.Representative_Cross_Section_File, configs.make_representative_cross_section_file),
+        (workspace.representative_cross_section_coefficients_file, configs.make_representative_cross_section_file),
     )
     return all(path.exists() for path, wanted in asked_for if wanted)
 
@@ -229,6 +233,9 @@ def define_arc_configs(workspace: Workspace,) -> Path:
     """
     Write the config of ARC's main run (rating curves and bathymetry): nencarta's files and fields, and arc_args.
     Without bathymetry, nothing is rewritten if ARC's outputs exist.
+    Representative exports pass the existing stream_length_field as Stream_Length_m.
+    ARC-only mode omits rating outputs/QMax; the additional-export option retains
+    normal rating outputs. Both use the original local DEM and stream-network paths.
     """
     workspace.ARC_Folder.mkdir(parents=True, exist_ok=True)
     workspace.VDT_Folder.mkdir(parents=True, exist_ok=True)
@@ -261,21 +268,29 @@ def define_arc_configs(workspace: Workspace,) -> Path:
     )
 
     params["# VDT_Output_File_and_CurveFile"] = ""
-    if configs.make_vdt:
+    if configs.make_vdt and not configs.representative_cross_section_creation:
         params["Print_VDT_Database"] = workspace.VDT_File_Bathy
-    if configs.make_curvefile:
+    if configs.make_curvefile and not configs.representative_cross_section_creation:
         params["Print_Curve_File"] = workspace.Curve_File_Bathy
-    if configs.make_ap_database:
+    if configs.make_ap_database and not configs.representative_cross_section_creation:
         params["Print_AP_Database"] = workspace.AP_File
     if configs.make_cross_section_file:
         params["XS_Out_File"] = workspace.Cross_Section_File
-    if configs.make_representative_cross_section_file:
-        # ARC builds them in this run, from the cross sections it makes the rating curves from
+    if configs.make_representative_cross_section_file or configs.representative_cross_section_creation:
+        workspace.XS_Folder.mkdir(parents=True, exist_ok=True)
+        # Native ARC still builds the profiles. Only their representative
+        # hydraulic export uses staged hydraulics and the meter length field.
         params["Build_Representative_Cross_Section"] = True
         params["Representative_Cross_Section_File"] = workspace.Representative_Cross_Section_File
+        params["Stream_Length_m"] = configs.stream_length_field
+        if configs.representative_cross_section_creation:
+            params.pop("Flow_File_QMax", None)
+            if configs.disable_bathymetry or (configs.uses_depth_power_law and not configs.reanalysis_file):
+                for key in ("Flow_File", "Flow_File_ID", "Flow_File_BF"):
+                    params.pop(key, None)
 
     params["StrmShp_File"] = stream_vector
-    if configs.standard_step or not configs.disable_bathymetry:
+    if configs.standard_step or not configs.disable_bathymetry or configs.representative_cross_section_creation:
         # ARC links the cross sections down the stream network for the standard step and the bathymetry, so it needs
         # each reach's id and the one below it
         params["reach_id"] = configs.stream_id_field
@@ -309,7 +324,7 @@ def define_mapper_bathymetry_config(workspace: Workspace) -> Path | None:
     (FS_Bathy), as ARC estimated it (Bathy_Use_Banks says how). It maps no flood. None without bathymetry.
     """
     configs = workspace.configs
-    if configs.disable_bathymetry:
+    if configs.disable_bathymetry or configs.representative_cross_section_creation:
         return None
 
     _write_config(workspace.Mapper_FileName_Bathy, {

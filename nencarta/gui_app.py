@@ -175,6 +175,8 @@ UNDERLYING_NAMES = {
     "vdt_file_extension": "vdt_file_extension",
     "make_cross_section_file": "XS_Out_File",
     "make_representative_cross_section_file": "Build_Representative_Cross_Section",
+    "representative_cross_section_creation": "Build_Representative_Cross_Section",
+    "stream_length_field": "Stream_Length_m",
     # Mapping
     "use_parquet": "use_parquet",
     "fldpln_library_args.solver": "solver",
@@ -1258,6 +1260,10 @@ class FloodSimulationGUI(QMainWindow):
         group = self._make_group(tab, "Configuration")
         self._add_line(group, "watershed_name", "Watershed name", settings.value("name", "example"), placeholder="example")
         self._add_path(group, "output_dir", "Output folder", "", mode="directory")
+        self._add_checkbox(group, "representative_cross_section_creation", "Representative cross sections only (skip all mappers)",
+                           _default("representative_cross_section_creation"))
+        self._add_checkbox(group, "make_representative_cross_section_file", "Make representative cross sections",
+                           _default("make_representative_cross_section_file"))
 
         group = self._make_group(tab, "DEM")
         self._add_choice(group, "dem_mode", "DEM source", DEM_MODES, _saved_dem_mode())
@@ -1294,6 +1300,7 @@ class FloodSimulationGUI(QMainWindow):
         self._add_line(group, "nwm_api_key", "NWM API key", "", placeholder="Or set the NWM_API_KEY environment variable")
         self._add_line(group, "stream_id_field", "Reach ID field", "")
         self._add_line(group, "downstream_id_field", "Downstream reach ID field", "")
+        self._add_line(group, "stream_length_field", "Reach length field (meters)", _default("stream_length_field"))
         self._add_checkbox(group, "streams_as_parquet", "Write the stream networks as GeoParquet",
                            _default("streams_as_parquet"))
         self._add_line(group, "exclude", "Leave out reaches", "", parser="int_list", placeholder="Reach IDs: 123, 456")
@@ -1538,8 +1545,6 @@ class FloodSimulationGUI(QMainWindow):
                         default=_default("vdt_file_extension"))
         self._add_checkbox(group, "make_cross_section_file", "Make the cross-section file",
                            _default("make_cross_section_file"))
-        self._add_checkbox(group, "make_representative_cross_section_file", "Make representative cross sections",
-                           _default("make_representative_cross_section_file"))
         self.show_when(lambda: self._on("make_curvefile"), "arc_args.Reach_Average_Curve_File")
         self.show_when(lambda: self._on("make_vdt"), "arc_args.VDT_Database_NumIterations")
         self.show_when(lambda: self._on("make_vdt") or self._on("make_ap_database"), "vdt_file_extension")
@@ -1804,11 +1809,12 @@ class FloodSimulationGUI(QMainWindow):
             raise ValueError("Add the source DEMs to cut the DEM from.")
         if not any(params.get(key) for key in ("flowline", "source_flowlines")):
             raise ValueError("Choose the stream network file(s).")
-        if self._is_nwm() and not (params.get("nwm_api_key") or os.getenv("NWM_API_KEY")):
+        representative_only = params.get("representative_cross_section_creation", False)
+        if not representative_only and self._is_nwm() and not (params.get("nwm_api_key") or os.getenv("NWM_API_KEY")):
             raise ValueError("NWM streamflow sources need an NWM API key.")
-        if params.get("floodmap_mode") == FloodMapMode.USER.value and not params.get("user_flow_files"):
+        if not representative_only and params.get("floodmap_mode") == FloodMapMode.USER.value and not params.get("user_flow_files"):
             raise ValueError("Add the user flow files to map.")
-        if params.get("floodmap_mode") == FloodMapMode.RETURN_PERIOD.value and not params.get("return_periods"):
+        if not representative_only and params.get("floodmap_mode") == FloodMapMode.RETURN_PERIOD.value and not params.get("return_periods"):
             raise ValueError("Pick the return periods to map.")
 
         NencartaConfig(dict(params))

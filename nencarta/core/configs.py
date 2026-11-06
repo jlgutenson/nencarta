@@ -109,7 +109,7 @@ class NencartaConfig:
 
     def validate_nwm_api_key(self):
         """Require an API key for NWM sources."""
-        if self.streamflow_source.is_nwm() and not self.nwm_api_key:
+        if not self.representative_cross_section_creation and self.streamflow_source.is_nwm() and not self.nwm_api_key:
             raise ValueError(f"Watershed '{self.watershed_name}' requires 'nwm_api_key' (or the NWM_API_KEY "
                              "environment variable) when 'streamflow_source' is NWM.")
 
@@ -125,6 +125,8 @@ class NencartaConfig:
         name = f"Watershed '{self.watershed_name}'"
         if not self.stream_id_field or not self.downstream_id_field:
             raise ValueError(f"{name}: a custom 'streamflow_source' needs 'stream_id_field' and 'downstream_id_field'.")
+        if self.representative_cross_section_creation and (self.disable_bathymetry or self.uses_depth_power_law or self.reanalysis_file):
+            return  # No forecast or scenario flow source is used by this mode.
         
         if self.floodmap_mode == FloodMapMode.FORECAST:
             raise ValueError(f"{name}: forecasts come from GEOGLOWS or NWM; with a custom 'streamflow_source', map "
@@ -376,9 +378,9 @@ class NencartaConfig:
         if not isinstance(self.representative_cross_section_creation, bool):
             raise ValueError("representative_cross_section_creation must be true or false.")
         self.stream_length_field: str | None = self.get("stream_length_field")
-        if self.representative_cross_section_creation:
+        if self.representative_cross_section_creation or self.get("make_representative_cross_section_file"):
             if not isinstance(self.stream_length_field, str) or not self.stream_length_field.strip():
-                raise ValueError("representative_cross_section_creation requires stream_length_field, the flowline length column in meters.")
+                raise ValueError("Representative cross sections require stream_length_field, the flowline length column in meters.")
             self.stream_length_field = self.stream_length_field.strip()
         self.watershed_name: str = self.get("name")
         self.reject_moved_keys()
@@ -400,7 +402,10 @@ class NencartaConfig:
         self.use_specified_depth_for_bathy_mask: bool = self.get("use_specified_depth_for_bathy_mask")
         self.specify_depths_for_bathy_mask: list[float] = self.get("specify_depths_for_bathy_mask")
         self.depth_mask_distance: float = float(self.get("depth_mask_distance"))
-        self.clean_dem: bool = self.get("clean_dem")
+        # Both the cleaner and set-depth masks invoke a mapper. Representative-
+        # only mode uses the local uncleaned DEM and raster-derived water mask.
+        self.clean_dem: bool = self.get("clean_dem") and not self.representative_cross_section_creation
+        self.use_specified_depth_for_bathy_mask &= not self.representative_cross_section_creation
         self.validate_specified_depths()
         self.set_model_args()
 
@@ -449,7 +454,7 @@ class NencartaConfig:
         self.land_watervalue: int = self.get("land_watervalue")
         self.overwrite: bool = self.get("overwrite")
         self.age_of_forecast_days: int = self.get("age_of_forecast_days")
-        self.outlet_exchange: str = self.validate_outlet_exchange()
+        self.outlet_exchange: str = "off" if self.representative_cross_section_creation else self.validate_outlet_exchange()
         self.outlet_exchange_dir: str = self.get_path("outlet_exchange_dir")
         self.use_warning_flags_to_download_dem: bool = self.get("use_warning_flags_to_download_dem")
         self.geoglows_vpu: str = self.get("geoglows_vpu")
@@ -521,10 +526,10 @@ class NencartaConfig:
             raise ValueError(f"Watershed '{self.watershed_name}': 'parallel' maps the DEMs in processes of their own, "
                              "so fldpln_library_args can't build the FLDPLN library in parallel too.")
 
-        if not self.make_vdt and not self.make_curvefile:
+        if not self.representative_cross_section_creation and not self.make_vdt and not self.make_curvefile:
             raise ValueError(f"Watershed '{self.watershed_name}': the flood maps need ARC's VDT database or curve file, "
                              "so 'make_vdt' and 'make_curvefile' can't both be False.")
-        if not self.make_vdt and self.mapper.is_curve2flood_fldpln_mapper():
+        if not self.representative_cross_section_creation and not self.make_vdt and self.mapper.is_curve2flood_fldpln_mapper():
             raise ValueError(f"Watershed '{self.watershed_name}': the Curve2Flood-FLDPLNpy mapper needs ARC's VDT "
                              "database, so 'make_vdt' must be True.")
 

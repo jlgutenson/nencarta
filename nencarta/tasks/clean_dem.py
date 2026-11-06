@@ -17,6 +17,8 @@ def make_clean_dem(workspace: Workspace) -> Path:
     first of specify_depths_for_bathy_mask with use_specified_depth_for_bathy_mask, and otherwise the water mask.
     """
     configs = workspace.configs
+    if configs.representative_cross_section_creation:
+        return workspace.model_dem  # The cleaner's initial map is forbidden in ARC-only mode.
     if workspace.DEM_File_Clean.exists() and not configs.overwrite:
         return workspace.DEM_File_Clean
 

@@ -48,7 +48,7 @@ RESERVED_ARC_KEYS = {
     "dem_file", "stream_file", "strmshp_file", "flow_file", "flow_file_id", "flow_file_bf", "flow_file_qmax",
     "lu_raster_sameres", "lu_manning_n", "bathywatermask", "reach_id", "downstream_reach_id", "drainage_area_field",
     "lc_water_value", "print_vdt_database", "print_ap_database", "print_curve_file", "xs_out_file",
-    "build_representative_cross_section", "representative_cross_section_file", "bathy_out_file", "outlet_wse_file",
+    "build_representative_cross_section", "representative_cross_section_file", "stream_length_m", "bathy_out_file", "outlet_wse_file",
 }
 RESERVED_CURVE2FLOOD_KEYS = {
     "dem_file", "stream_file", "print_vdt_database", "print_curve_file", "comid_flow_file", "lu_raster_sameres",
@@ -143,6 +143,8 @@ CONFIG_SECTIONS = {
         "geoglows_vpu": ConfigOption(None, "text", "GEOGLOWS V2 VPU (e.g. 714) for use_warning_flags_to_download_dem."),
     },
     "Streams": {
+        "stream_length_field": ConfigOption(None, "text", "Existing stream attribute of full reach lengths in meters, "
+                                           "passed to ARC as Stream_Length_m for representative coefficients."),
         "flowline": ConfigOption(None, "path", "Stream network file (shapefile, GeoPackage, GeoParquet, ...)."),
         "source_flowlines": ConfigOption([], "path_list", "Stream network files to take the domain's streams from. "
                                                           "Only those overlapping the DEM are read."),
@@ -280,6 +282,8 @@ CONFIG_SECTIONS = {
                                                            "ARC's default. Not the files and fields nencarta sets."),
     },
     "Outputs": {
+        "representative_cross_section_creation": ConfigOption(False, "bool", "Build representative cross sections only; "
+                                  "requires stream_length_field and skips all mappers, including DEM cleaning."),
         "make_vdt": ConfigOption(True, "bool", "Write ARC's VDT database (velocity, depth and top width per stream "
                                                "cell and flow). The flood maps use it, or else the curve file; "
                                                "Curve2Flood-FLDPLNpy needs it."),

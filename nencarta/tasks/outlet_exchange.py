@@ -86,6 +86,8 @@ def run_boundary_pass(model_config: ModelConfig, workspace: Workspace) -> ModelC
     DEM's own extent and coordinate system in its metadata. Skipped when that file exists, unless overwrite.
     """
     configs = workspace.configs
+    if configs.representative_cross_section_creation:
+        return model_config  # No rating-curve boundary pass is needed for ARC-only exports.
     if model_config.arc_config is None or not Path(model_config.arc_config).exists():
         LOG.info("No ARC config was made for this DEM; no water for its neighbours.")
         return model_config

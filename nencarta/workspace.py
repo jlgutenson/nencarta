@@ -5,7 +5,7 @@ from nencarta.core.enumerations import Mapper
 
 # The folders a workspace writes to, which 'folder_paths' can move, and where they go by default
 WORKSPACE_FOLDERS = ('DEM', 'ARC_InputFiles', 'FloodMap', 'Bathymetry', 'DEM_Updated', 'STRM', 'LAND',
-                     'FLOW', 'VDT', 'FIST', 'Consequences', 'FlowDirection', 'FLDPLN')
+                     'FLOW', 'VDT', 'XS', 'FIST', 'Consequences', 'FlowDirection', 'FLDPLN')
 DEFAULT_FOLDER_PATH = '{name}/{folder}'
 
 # What each kind of file is called after its '<source>_<DEM>_' or '<DEM>_' prefix, which 'file_names' can change
@@ -81,6 +81,7 @@ class Workspace:
         self.land_folder = self.folder_path('LAND')
         self.FLOW_Folder = self.folder_path('FLOW')
         self.VDT_Folder = self.folder_path('VDT')
+        self.XS_Folder = self.folder_path('XS')
         self.FIST_Folder = self.folder_path('FIST')
         self.Consequences_Folder = self.folder_path('Consequences')
         self.Flow_Direction_Folder = self.folder_path('FlowDirection')
@@ -146,8 +147,14 @@ class Workspace:
         self.Curve_File_Bathy = self.file_path(self.VDT_Folder, 'CurveFile_Bathy', 'csv', 'source')
 
         self.Cross_Section_File = self.file_path(self.VDT_Folder, 'XS', 'txt', 'source')
-        self.Representative_Cross_Section_File = self.file_path(self.VDT_Folder, 'Representative_XS',
-                                                                'parquet' if vdt_ext == 'parquet' else 'csv', 'source')
+        # Representative stage and coefficient tables share the watershed's XS
+        # folder, including any folder_paths override for that output folder.
+        self.Representative_Cross_Section_File = self.file_path(self.XS_Folder, 'Representative_XS',
+                                                                'csv', 'source')
+        # The representative writer emits CSV plus a companion coefficient table,
+        # independently of ordinary VDT/AP file extensions.
+        self.representative_cross_section_coefficients_file = self.Representative_Cross_Section_File.with_name(
+            f'{self.Representative_Cross_Section_File.stem}_exponents.csv')
 
         self.bathy_water_mask = self.file_path(self.bathy_file_folder, 'water_mask', 'tif', 'source')
         # use_specified_depth_for_bathy_mask: ARC's water mask, the streams flooded to a set depth, and the Curve2Flood
@@ -218,6 +225,11 @@ class Workspace:
         if self.configs.burn_streams:
             return self.fixed_dem
         return self.assigned_dem
+
+    @property
+    def representative_cross_section_file(self) -> Path:
+        """The representative stage CSV, under the name used by ARC-only output checks."""
+        return self.Representative_Cross_Section_File
 
     @property
     def config_end(self) -> str:

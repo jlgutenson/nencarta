@@ -42,7 +42,14 @@ def run_arc_bathymetry(model_config: ModelConfig, workspace: Workspace) -> Model
             workspace.representative_cross_section_coefficients_file,
         ))
     else:
-        outputs_exist = model_config.vdt_exists
+        # ModelConfig calls this property rating_curves_exist. Additional
+        # representative exports also require their stage/coefficient pair.
+        outputs_exist = model_config.rating_curves_exist
+        if workspace.configs.make_representative_cross_section_file:
+            outputs_exist = outputs_exist and all(path.exists() for path in (
+                workspace.representative_cross_section_file,
+                workspace.representative_cross_section_coefficients_file,
+            ))
     if outputs_exist and not workspace.configs.overwrite:
         return model_config
     
@@ -58,7 +65,7 @@ def run_mapper_bathymetry(model_config: ModelConfig, workspace: Workspace) -> Mo
     """Create mapper bathymetry unless running ARC representative exports only."""
     if workspace.configs.representative_cross_section_creation:
         return model_config
-    if not model_config.vdt_exists or\
+    if not workspace.VDT_File_Bathy.exists() or\
           workspace.configs.disable_bathymetry or \
             (model_config.burned_dem_exists and not workspace.configs.overwrite):
         return model_config

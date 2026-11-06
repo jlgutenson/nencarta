@@ -426,9 +426,40 @@ puts it into the DEM the flood maps are made on (see
 * <a id="json-make_cross_section_file"></a>`make_cross_section_file` (true/false, default false): Write ARC's cross
     sections.
 
+* <a id="json-representative_cross_section_creation"></a>`representative_cross_section_creation` (true/false, default false):
+    Run ARC for representative cross sections only. Requires `stream_length_field`.
+    Skips all mappers, including DEM cleaning, set-depth masks, mapper bathymetry,
+    flood maps and FLDPLN library generation. Scenario flows and FIST inputs are
+    not prepared. The local ARC sampler, bank detection, bathymetry and smoothing
+    supply the cross sections used by the representative export.
+
+* <a id="json-stream_length_field"></a>`stream_length_field` (text, default unset):
+    Existing stream attribute of finite positive full reach lengths in **meters**.
+    Required whenever either representative option is enabled. Passed to ARC's
+    `Stream_Length_m` (internal `s_stream_length_field`). No geometry-based length
+    estimation or unit conversion occurs.
+
 * <a id="json-make_representative_cross_section_file"></a>`make_representative_cross_section_file` (true/false, default false):
-    Write a representative cross section for each reach, averaged from its cross
-    sections, for routing models.
+    Add representative stage and coefficient exports alongside the ordinary ARC
+    products. This option **does not enable** `representative_cross_section_creation`
+    and **does not disable** flood mapping.
+
+The GUI controls are under **Inputs > Configuration**. Enter the length column
+under **Inputs > Hydrography > Reach length field (meters)**. For an ARC-only job:
+
+```json
+{
+  "representative_cross_section_creation": true,
+  "stream_length_field": "length_m"
+}
+```
+
+The outputs are CSV under `<output_dir>/<name>/XS`, named `*_Representative_XS.csv` and
+`*_Representative_XS_exponents.csv`, independently of `vdt_file_extension`.
+The representative calculation applies `arc_args`' `k_decay`, `shallow_factor`,
+`deep_factor` and `slope_adjustment_factor` to compute staged hydraulics,
+without changing local rating-curve roughness or preprocessing. Missing either
+representative file triggers ARC again; use `overwrite` to regenerate old results.
 
 * <a id="json-vdt_file_extension"></a>`vdt_file_extension` (text, default `txt`): File type of the VDT and
     area-perimeter databases: `txt`, `csv` or `parquet`.
@@ -468,7 +499,7 @@ puts it into the DEM the flood maps are made on (see
 
 * <a id="json-folder_paths"></a>`folder_paths` (dictionary): Where each output folder goes, as a path
     template per folder: `DEM`, `ARC_InputFiles`, `FloodMap`,
-    `Bathymetry`, `DEM_Updated`, `STRM`, `LAND`, `FLOW`, `VDT`,
+    `Bathymetry`, `DEM_Updated`, `STRM`, `LAND`, `FLOW`, `VDT`, `XS`,
     `FIST`, `Consequences`, `FlowDirection` and `FLDPLN`, or `default`
     for the rest. Templates can use `{output_dir}`, `{name}`, `{dem}` (the
     DEM's name) and `{folder}`; relative paths are inside `output_dir`. For
@@ -690,6 +721,7 @@ Each DEM's outputs go in `<output_dir>/<name>`, one folder per kind:
 * `VDT`: ARC's VDT and area-perimeter databases, curve files and cross
     sections; with `outlet_exchange` `pass1`, its run's VDT database
     (`VDT_Database_Boundary`).
+* `XS`: representative cross-section stage CSVs and their `_exponents.csv` coefficient companions.
 * `Bathymetry`: the water mask (and with `use_specified_depth_for_bathy_mask`,
     ARC's water mask, `depth_mask`), ARC's bathymetry (`ARC_Bathy`) and the DEM
     with bathymetry the flood maps are made on (`FS_Bathy`).

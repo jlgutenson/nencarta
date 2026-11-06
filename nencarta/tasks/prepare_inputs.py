@@ -33,7 +33,8 @@ def prepare_inputs_for_dem(workspace: Workspace) -> ModelConfig:
     raster, water mask, burned and moved streams, cleaned DEM, flow files, and the ARC and flood mapper configs
     (with use_specified_depth_for_bathy_mask, first ARC's water mask, the streams flooded to a set depth; with
     outlet_exchange pass2, the outlets' water from the neighbouring DEMs). Files that exist are reused unless
-    overwrite. Returns the configs.
+    overwrite. Representative-only mode skips mapper-dependent cleaning/masks
+    and returns no mapper or scenario/FIST inputs. Returns the configs.
     """
     DEM = workspace.assigned_dem
     configs = workspace.configs
@@ -44,10 +45,14 @@ def prepare_inputs_for_dem(workspace: Workspace) -> ModelConfig:
     Create_BaseLine_Manning_n_File_ESA(workspace)
     make_land_cover(workspace)
     make_stream_geometry(workspace)
-    make_reanalysis_file(workspace)
-    make_flood_flow_file_from_base_max_file(workspace)
+    # Only ARC-only DEM/depth-law jobs can omit flow statistics. Native mapping
+    # and additional representative exports keep their existing preparation.
+    needs_baseflow = not configs.disable_bathymetry and (bool(configs.reanalysis_file) or not configs.uses_depth_power_law)
+    if not configs.representative_cross_section_creation or needs_baseflow:
+        make_reanalysis_file(workspace)
+        make_flood_flow_file_from_base_max_file(workspace)
 
-    if not configs.move_stream_network_to_thalweg or not configs.disable_bathymetry:
+    if configs.representative_cross_section_creation or not configs.move_stream_network_to_thalweg or not configs.disable_bathymetry:
         make_stream_raster(workspace)
 
     if configs.clean_dem or not configs.disable_bathymetry or configs.burn_streams or configs.move_stream_network_to_thalweg \

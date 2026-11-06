@@ -340,14 +340,17 @@ def make_water_mask(workspace: Workspace) -> Path:
     return workspace.bathy_water_mask
 
 
-def flood_streams_to_depth(workspace: Workspace, dem: Path, depth: float, flood_map: Path, config: Path) -> Path:
+def flood_streams_to_depth(workspace: Workspace, dem: Path, depth: float, flood_map: Path, config: Path) -> Path | None:
     """
     Flood the streams ARC runs on to ``depth`` on ``dem`` with Curve2Flood, writing ``flood_map``, and its input file
     ``config``. Each stream cell's water surface is its height plus the depth; each cell takes the average of the stream
     cells' water surfaces within depth_mask_distance of it, weighted by one over the distance squared, and the cells
-    below it, in patches touching a stream, are flooded.
+    below it, in patches touching a stream, are flooded. Returns None without
+    invoking a mapper in representative-only mode.
     """
     configs = workspace.configs
+    if configs.representative_cross_section_creation:
+        return None  # Guard the low-level mapper used by depth masks/cleaning.
     stream_raster = workspace.new_stream_raster if configs.move_stream_network_to_thalweg else workspace.STRM_File_Clean
     LOG.info(f"Flooding the streams {depth} m deep...")
     flood_map.parent.mkdir(parents=True, exist_ok=True)

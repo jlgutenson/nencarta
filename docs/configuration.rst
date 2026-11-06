@@ -12,53 +12,24 @@ watershed objects in the ``watersheds`` array to run them in batch mode.
 .. _json-representative_cross_section_creation:
 
 * ``representative_cross_section_creation`` (Bool, optional): Default ``false``.
-  Set to ``true`` to enable ARC's representative cross-section hydraulics and
-  companion coefficients CSV for each DEM workspace. This skips mapper bathymetry,
-  FLDPLN library simulations, and flood-map simulations. If ``clean_dem`` is enabled,
-  DEM cleaning still runs, including its initial flood-mapper run. Forecast flows,
-  user-flow scenarios, return-period scenarios, and FIST inputs are not prepared
-  in this mode; no flood-map consequences are produced. ARC's normal outputs
-  remain controlled by their existing options.
+  Run ARC preprocessing with the representative hydraulic export,
+  and omit rating-curve outputs and every mapper. DEM cleaning and set-depth
+  masks are skipped because they invoke mappers. No scenario flows or FIST inputs
+  are prepared. The additional-output option ``make_representative_cross_section_file``
+  remains separate and does not disable mapping.
 
-  Select **Create Representative Cross Sections** at the top of the **Run** tab
-  in the GUI, or use ``--representative_cross_section_creation`` on the CLI.
-  Supply ``stream_length_field`` as described below. This requires an ARC version
-  supporting ``Build_Representative_Cross_Section`` and ``Stream_Length_m``.
-
-  Outputs are written under ``<output_dir>/<name>/XS/`` as
-  ``<source>_<DEM>_representative_cross_section.csv`` and
-  ``<source>_<DEM>_representative_cross_section_exponents.csv``. The second file is
-  the ``representative_cross_section_coefficients_file``. Missing representative
-  exports trigger ARC even when an existing VDT is reused. Existing representative
-  exports are reused unless ``overwrite`` is ``true``.
-
-  After all DEM workspaces finish successfully, NenCarta consolidates their
-  coefficients separately for each representative-mode watershed into
-  ``<output_dir>/<name>/combined_representative_cross_section_coefficients.csv``
-  (directly in ``workspace.output_dir``). Each combined CSV includes only that
-  watershed's per-DEM files from the current run,
-  including cached exports; unrelated files from earlier runs are not included.
-  Duplicate COMIDs receive the sum of their ``Cross_Section_Count`` values and
-  a count-weighted arithmetic mean for each coefficient:
-  ``sum(coefficient * Cross_Section_Count) / sum(Cross_Section_Count)``.
-  Missing or nonfinite coefficients are excluded from that coefficient's mean;
-  an entirely missing coefficient remains blank. Counts must be positive integers.
-  The combined file is rebuilt on each successful run, independently of
-  ``overwrite``. If pipeline tasks fail, any previous combined file is left
-  unchanged and consolidation is skipped.
+  Set this under **Inputs > Configuration**. CSV outputs are written under
+  ``<output_dir>/<name>/XS`` as ``*_Representative_XS.csv`` and ``*_Representative_XS_exponents.csv``.
+  Both files are required for reuse; ``overwrite`` regenerates existing outputs.
 
 .. _json-stream_length_field:
 
-* ``stream_length_field`` (String, optional): Required when
-  ``representative_cross_section_creation`` is ``true``. Name of an existing
-  flowline attribute containing finite positive reach lengths in **meters**.
-  NenCarta passes the column name to ARC's ``Stream_Length_m`` input; it does not
-  calculate lengths or convert units. In the GUI, enter the name under
-  **Run > Representative Cross Sections > Reach length column (meters)**. The CLI equivalent is
-  ``--stream_length_field COLUMN_NAME``.
+* ``stream_length_field`` (String, optional): Existing full-reach length attribute
+  in meters, required for either representative option. Passed as ARC's
+  ``Stream_Length_m`` (internal ``s_stream_length_field``), without recalculating
+  lengths or converting units. Enter it under **Inputs > Hydrography**.
 
-  For example, add these parameters to a watershed definition (replace
-  ``length_m`` with the actual column in your flowlines)::
+  For example::
 
       "representative_cross_section_creation": true,
       "stream_length_field": "length_m"
