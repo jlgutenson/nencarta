@@ -185,7 +185,7 @@ class Vector(GISDataSource, LMDBCache):
         }
 
     def to_geopandas(self, bbox_epsg_4326: list[float] | None = None, columns: list[str] | None = None) -> gpd.GeoDataFrame:
-        """Read the file (shapefile, GeoPackage, GeoJSON, GeoParquet, ...), or the part in a bbox (EPSG:4326)."""
+        """Read the file, or the part in a bbox (EPSG:4326), retaining geometry when selecting columns."""
         if bbox_epsg_4326 is not None:
             # If bbox is provided, we need to make sure it's in the same CRS as the data. We can check the CRS of the data by reading just the metadata with pyogrio, and then reprojecting the bbox if necessary.
             data_crs = self.projection
@@ -195,6 +195,14 @@ class Vector(GISDataSource, LMDBCache):
                 bbox_epsg_4326 = tuple(gdf_bbox.total_bounds)
 
         if self.filepath.suffix.lower() in ('.parquet', '.geoparquet'):
+            if columns is not None:
+                # if the file is parquet, it needs to include the geometry column explicitly to read the data into geopandas in tasks/flow_files.py
+                metadata = pq.read_schema(self.filepath).metadata or {}
+                if b"geo" in metadata:
+                    geo_metadata = json.loads(metadata[b"geo"])
+                    # Unlike read_file, read_parquet omits geometry unless it is selected explicitly.
+                    if not any(name in geo_metadata["columns"] for name in columns):
+                        columns = [*columns, geo_metadata["primary_column"]]
             if bbox_epsg_4326 is not None:
                 gdf = _read_parquet_in_bbox(self.filepath, bbox_epsg_4326, columns, self.use_threads)
                 if gdf is not None:
