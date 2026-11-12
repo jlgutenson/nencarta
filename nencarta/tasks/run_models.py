@@ -62,11 +62,12 @@ def run_arc_bathymetry(model_config: ModelConfig, workspace: Workspace) -> Model
     return model_config
 
 def run_mapper_bathymetry(model_config: ModelConfig, workspace: Workspace) -> ModelConfig:
-    """Create mapper bathymetry unless running ARC representative exports only."""
-    if workspace.configs.representative_cross_section_creation:
-        return model_config
-    if not workspace.VDT_File_Bathy.exists() or\
-          workspace.configs.disable_bathymetry or \
+    """
+    Run the flood mapper on its bathymetry config to burn ARC's bathymetry into the DEM (FS_Bathy), which the flood
+    maps use. Skipped without bathymetry, or when it exists, unless overwrite.
+    """
+    if not model_config.rating_curves_exist or\
+          workspace.configs.disable_bathymetry or model_config.bathy_mapper_config is None or \
             (model_config.burned_dem_exists and not workspace.configs.overwrite):
         return model_config
     
