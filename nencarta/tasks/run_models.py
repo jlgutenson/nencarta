@@ -79,7 +79,7 @@ def run_mapper_floodmaps(model_config: ModelConfig, workspace: Workspace) -> Flo
     """Run flood maps, or return no mapper outputs for representative-only runs."""
     if workspace.configs.representative_cross_section_creation:
         return FloodMapperBulkOutput([])
-    if not workspace.DEM_StrmShp.exists() and not workspace.configs.raise_errors_if_nothing_in_domain:
+    if not workspace.model_StrmShp.exists() and not workspace.configs.raise_errors_if_nothing_in_domain:
         return FloodMapperBulkOutput([])
     
     LOG.info("Running flood mapper to generate flood maps...")
