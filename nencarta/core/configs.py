@@ -145,6 +145,17 @@ class NencartaConfig:
             raise ValueError(f"{name}: {', '.join(fdc_fields)} come from a flow duration curve, so a custom "
                              "'streamflow_source' needs 'fdc_file' (and 'include_fdc') for them.")
 
+    def validate_move_streams(self):
+        """Reject stream-order limits when moving the stream network."""
+        if self.move_stream_network_to_thalweg and (self.StrmOrder_Lower is not None or self.StrmOrder_Upper is not None):
+            message = (
+                f"Watershed '{self.watershed_name}': 'move_stream_network_to_thalweg' cannot be True when "
+                "'StrmOrder_Lower' or 'StrmOrder_Upper' is set. Set both stream-order limits to None "
+                "(null in JSON), or disable stream movement."
+            )
+            LOG.error(message)
+            raise ValueError(message)
+
     def validate_specified_depths(self):
         """Check there are as many bathymetry mask depths as the run uses: two with clean_dem, otherwise one."""
         if self.use_specified_depth_for_bathy_mask:
@@ -520,6 +531,7 @@ class NencartaConfig:
         self.drop_multilinestrings: bool = self.get("drop_multilinestrings")
         self.minimize_output_files: bool = self.get("minimize_output_files")
 
+        self.validate_move_streams()
         self.validate_custom_source()
 
         if self.parallel and self.fldpln_library_args.get("parallel"):
