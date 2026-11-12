@@ -154,10 +154,10 @@ CONFIG_SECTIONS = {
                                                           "Default: DSLINKNO for GEOGLOWS, TOCOMID for NWM; required "
                                                           "for CUSTOM."),
         "StrmOrder_Field": ConfigOption(None, "text", "Stream attribute with each reach's stream order."),
-        "StrmOrder_Lower": ConfigOption(None, "int", "Map only reaches of at least this stream order. Not used by "
-                                                     "Curve2Flood-FLDPLNpy."),
-        "StrmOrder_Upper": ConfigOption(None, "int", "Map only reaches of at most this stream order. Not used by "
-                                                     "Curve2Flood-FLDPLNpy."),
+        "StrmOrder_Lower": ConfigOption(None, "int", "Map only reaches of at least this stream order. Moved streams "
+                                                     "are all burned and moved first, and the others dropped after."),
+        "StrmOrder_Upper": ConfigOption(None, "int", "Map only reaches of at most this stream order. Moved streams "
+                                                     "are all burned and moved first, and the others dropped after."),
         "exclude": ConfigOption([], "int_list", "IDs of reaches to leave out."),
         "drop_multilinestrings": ConfigOption(False, "bool", "Leave out reaches whose line is in several pieces."),
         "lake_filter_json": ConfigOption(None, "path", "GEOGLOWS JSON of the reaches inside lakes. Those reaches are "
