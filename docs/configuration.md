@@ -89,10 +89,12 @@ it the DEM's nodata value, and other big water the streams flow into in
     burning or moving streams.
 
 * <a id="json-StrmOrder_Lower"></a>`StrmOrder_Lower` (integer): Map only reaches of at least this stream
-    order. Not used by the `Curve2Flood-FLDPLNpy` mapper.
+    order. With `move_stream_network_to_thalweg`, every reach is still relocated, burned and moved, so the
+    reaches kept are placed just as without the bound, and the others are dropped from the moved network after.
+    Their burned lines are put back wherever they carry none of the kept reaches' water.
 
 * <a id="json-StrmOrder_Upper"></a>`StrmOrder_Upper` (integer): Map only reaches of at most this stream order.
-    Not used by the `Curve2Flood-FLDPLNpy` mapper.
+    Moved streams are handled as for `StrmOrder_Lower`.
 
 * <a id="json-exclude"></a>`exclude` (list of integers): IDs of reaches to leave out.
 

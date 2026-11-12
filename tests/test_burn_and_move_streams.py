@@ -33,6 +33,7 @@ from nencarta.tasks.move_streams import (
     _reaches_left_out,
     _reaches_stuck_in_lakes,
     _trunks,
+    _within_stream_order_bounds,
     _without_reaches,
     burn_streams_and_move_streams,
     burn_streams_into_dem,
@@ -639,13 +640,46 @@ def test_reaches_in_the_sea_are_left_out_before_the_burn(workspace_tmp):
     assert _reaches_left_out(workspace, source, dem) == set()
 
 
-def test_other_mappers_leave_out_reaches_outside_the_stream_order_bounds(workspace_tmp):
+def test_no_mapper_leaves_reaches_out_by_stream_order_before_the_move(workspace_tmp):
+    # They're moved with the rest and dropped after (see _within_stream_order_bounds)
     source = network([(1, 2), (2, -1)]).assign(strmOrder=[1, 2])
 
-    workspace, dem = left_out_workspace(workspace_tmp / "other", fldpln=False, StrmOrder_Lower=2)
-    assert _reaches_left_out(workspace, source, dem) == {1}
-    workspace, dem = left_out_workspace(workspace_tmp / "fldpln", fldpln=True, StrmOrder_Lower=2)
-    assert _reaches_left_out(workspace, source, dem) == set()
+    for fldpln in (True, False):
+        workspace, dem = left_out_workspace(workspace_tmp / str(fldpln), fldpln=fldpln, StrmOrder_Lower=2)
+        assert _reaches_left_out(workspace, source, dem) == set()
+
+
+def order_bounds(lower=None, upper=None, field="strmOrder"):
+    return SimpleNamespace(StrmOrder_Field=field, StrmOrder_Lower=lower, StrmOrder_Upper=upper,
+                           stream_id_field="LINKNO", downstream_id_field="DSLINKNO")
+
+
+def test_reaches_outside_the_stream_order_bounds_leave_the_moved_network_and_its_raster():
+    #   1 (order 1) -> 2 (order 2) -> 3 (order 3)
+    def moved():
+        return network([(1, 2), (2, 3), (3, -1)]).assign(strmOrder=[1, 2, 3]), np.array([[1, 2, 3, 0]], np.int32)
+
+    streams, raster = _within_stream_order_bounds(order_bounds(lower=2), *moved())
+    assert list(streams.LINKNO) == [2, 3]
+    assert raster.tolist() == [[0, 2, 3, 0]]
+    assert streams.set_index("LINKNO").at[2, "DSLINKNO"] == 3
+
+    # A reach whose river is dropped becomes an outlet
+    streams, raster = _within_stream_order_bounds(order_bounds(upper=2), *moved())
+    assert list(streams.LINKNO) == [1, 2]
+    assert raster.tolist() == [[1, 2, 0, 0]]
+    assert streams.set_index("LINKNO").at[2, "DSLINKNO"] == -1
+
+    streams, raster = _within_stream_order_bounds(order_bounds(lower=2, upper=2), *moved())
+    assert list(streams.LINKNO) == [2] and raster.tolist() == [[0, 2, 0, 0]]
+
+
+def test_without_stream_order_bounds_the_moved_network_is_left_alone():
+    streams = network([(1, 2), (2, -1)]).assign(strmOrder=[1, 2])
+    raster = np.array([[1, 2]], np.int32)
+    for bounds in (order_bounds(), order_bounds(lower=2, field=None), order_bounds(lower=2, field="missing")):
+        kept, kept_raster = _within_stream_order_bounds(bounds, streams, raster.copy())
+        assert list(kept.LINKNO) == [1, 2] and kept_raster.tolist() == [[1, 2]]
 
 
 def test_a_forked_reach_is_cut_to_its_trunk_the_piece_joining_the_reach_below(workspace_tmp):

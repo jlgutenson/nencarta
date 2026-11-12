@@ -42,7 +42,8 @@ def make_stream_geometry(workspace: Workspace,) -> Path:
     """
     Write the domain's streams (workspace.DEM_StrmShp): the reaches of flowline or source_flowlines that overlap the
     DEM, in the DEM's CRS, less those removed by lake_filter_json, the stream order bounds and exclude. A
-    downstream ID outside the domain becomes -1.
+    downstream ID outside the domain becomes -1. Moved, the streams keep every stream order here: the moved network
+    drops those outside the bounds (see move_streams._within_stream_order_bounds).
     """
     configs = workspace.configs
     if workspace.DEM_StrmShp.exists() and not configs.overwrite:
@@ -89,8 +90,9 @@ def make_stream_geometry(workspace: Workspace,) -> Path:
         river_ids = set(gdf[configs.stream_id_field])
         gdf.loc[~gdf[configs.downstream_id_field].isin(river_ids), configs.downstream_id_field] = -1
 
-    # if the StrmOrder_Field and StrmOrder_Lower or StrmOrder_Upper are not None use these to filter the StrmShp_gdf
-    if configs.StrmOrder_Field and (configs.StrmOrder_Lower is not None or configs.StrmOrder_Upper is not None):
+    # Keep only the stream orders between StrmOrder_Lower and StrmOrder_Upper. Moved, every reach is relocated,
+    # burned and moved first, so the bounds don't change where the kept reaches go, and dropped after.
+    if configs.StrmOrder_Field and (configs.StrmOrder_Lower is not None or configs.StrmOrder_Upper is not None) and not configs.move_stream_network_to_thalweg:
         gdf = _filter_streams_by_stream_order(gdf, configs.StrmOrder_Field, configs.StrmOrder_Lower, configs.StrmOrder_Upper)
 
 

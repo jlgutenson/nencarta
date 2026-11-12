@@ -789,7 +789,8 @@ def burn_streams_and_move_streams(workspace: Workspace) -> Path:
 
         source_gdf = Vector(workspace.DEM_StrmShp, not configs.parallel).to_geopandas().to_crs(assigned_dem.projection)
         # Only the reaches the moved network keeps are burned: a line burned and then left out stays carved in the
-        # DEM, and floods. Unmoved, the source network is already the one mapped.
+        # DEM, and floods. Unmoved, the source network is already the one mapped. Reaches outside the stream order
+        # bounds are burned and moved with the rest, and dropped after (see _within_stream_order_bounds).
         if configs.move_stream_network_to_thalweg:
             source_gdf = _kept_reaches(workspace, source_gdf, assigned_dem)
 
@@ -853,6 +854,7 @@ def burn_streams_and_move_streams(workspace: Workspace) -> Path:
                 write=not unwritten, unfilled=unfilled, nodata=burned[1] if burned else None)
         streams_gdf, final_streams = move_streams_onto_flow_directions(workspace, source_gdf, dem_for_conflation,
                                                                         assigned_dem, flowdir_array, filled_array)
+        streams_gdf, final_streams = _within_stream_order_bounds(configs, streams_gdf, final_streams)
         if not unwritten:
             filled_array = None
         if streams_gdf.empty:
@@ -1097,6 +1099,33 @@ def move_streams_onto_flow_directions(
 
     return streams, raster
 
+def _within_stream_order_bounds(configs, streams: gpd.GeoDataFrame,
+                                raster: np.ndarray) -> tuple[gpd.GeoDataFrame, np.ndarray]:
+    """
+    The moved network (``streams`` and its ``raster``) without the reaches outside the stream order bounds
+    (StrmOrder_Lower, StrmOrder_Upper); reaches that drained into them become outlets.
+
+    Every reach is relocated, burned and moved first, so the bounds don't change where the kept reaches are drawn.
+    Left out before, a reach no longer marks where its neighbours meet: the reach above a dropped tributary's mouth
+    runs on past it, a reach whose feeders are all dropped loses its head, and a reach whose river is dropped can be
+    matched along the wrong branch. Dropped here, before the water mask and restore_unfollowed_burns, their burned
+    lines are put back wherever they carry none of the kept reaches' water.
+    """
+    if not configs.StrmOrder_Field or (configs.StrmOrder_Lower is None and configs.StrmOrder_Upper is None) \
+            or streams.empty:
+        return streams, raster
+
+    id_col = configs.stream_id_field
+    kept = _filter_streams_by_stream_order(streams.copy(), configs.StrmOrder_Field, configs.StrmOrder_Lower,
+                                           configs.StrmOrder_Upper)
+    dropped = set(streams[id_col]) - set(kept[id_col])
+    if not dropped:
+        return streams, raster
+
+    LOG.info(f"Dropping {len(dropped)} reaches outside the stream order bounds from the moved stream network.")
+    raster[np.isin(raster, np.fromiter(dropped, dtype=np.int64))] = 0
+    return _without_reaches(streams, dropped, id_col, configs.downstream_id_field), raster
+
 def _kept_reaches(workspace: Workspace, source_gdf: gpd.GeoDataFrame, dem_raster: Raster) -> gpd.GeoDataFrame:
     """
     ``source_gdf`` without the reaches the moved network leaves out (see _reaches_left_out), and with the ocean, each
@@ -1117,8 +1146,8 @@ def _reaches_left_out(workspace: Workspace, source_gdf: gpd.GeoDataFrame, dem_ra
     """
     The ids of the reaches the moved network leaves out: with drop_multilinestrings those in pieces (see
     _multipart_reaches), with the ocean those below where their river enters the sea (see _reaches_in_the_sea), and
-    with the mappers other than FLDPLN those stuck in lakes (see _reaches_stuck_in_lakes) and those outside the
-    stream order bounds.
+    with the mappers other than FLDPLN those stuck in lakes (see _reaches_stuck_in_lakes). Not those outside the
+    stream order bounds, which are moved with the rest and dropped after (see _within_stream_order_bounds).
 
     Decided from the streams as they were before relocation (workspace.DEM_StrmShp, or else ``source_gdf``), before
     anything is relocated, burned or moved, so a rerun decides the same. Left out only after the burn, a reach's
@@ -1151,12 +1180,6 @@ def _reaches_left_out(workspace: Workspace, source_gdf: gpd.GeoDataFrame, dem_ra
 
     if configs.drop_multilinestrings:
         left_out |= _multipart_reaches(source_gdf, id_col)
-
-    if configs.StrmOrder_Field and (configs.StrmOrder_Lower is not None or configs.StrmOrder_Upper is not None) \
-            and not fldpln:
-        kept = _filter_streams_by_stream_order(source_gdf.copy(), configs.StrmOrder_Field, configs.StrmOrder_Lower,
-                                               configs.StrmOrder_Upper)
-        left_out |= set(source_gdf[id_col]) - set(kept[id_col])
 
     return left_out
 
