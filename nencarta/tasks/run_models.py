@@ -1,3 +1,4 @@
+import gc
 import subprocess
 from pathlib import Path
 
@@ -14,9 +15,23 @@ from nencarta.workspace import Workspace
 
 
 def _run_arc(config: Path, model_config: ModelConfig) -> None:
-    """Run ARC on a config file."""
+    """Run ARC on a config file, and then hand the memory its run took back to the system (_release_arc_memory)."""
     from arc import Arc  # Lazy import helps load faster
     Arc(str(config), quiet=model_config.quiet).run()
+    _release_arc_memory()
+
+
+def _release_arc_memory() -> None:
+    """ARC's cross sections are freed once its run returns, but the C library's allocator keeps their memory (gigabytes
+    on a flat tile) for allocations to come, and the steps after, the FLDPLN library above all, take theirs anew on
+    top of it: hand it back, with arc.release_freed_memory, where this ARC has it."""
+    try:
+        from arc import release_freed_memory
+    except ImportError:
+        return
+
+    gc.collect()  # anything of the run's held in a reference cycle
+    release_freed_memory()
 
 def _run_mapper(config_file: Path, model_config: ModelConfig) -> None:
     """Run the flood mapper on a config file: Curve2Flood, or the FloodSpreader script (see FLOODSPREADER_PATH)."""
