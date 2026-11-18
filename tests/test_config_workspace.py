@@ -49,12 +49,13 @@ def test_config_accepts_overwrite_option(workspace_tmp):
 
 
 @pytest.mark.parametrize("lower, upper", [(1, None), (None, 4), (1, 4), (0, None), (None, 0)])
-def test_moving_streams_rejects_and_logs_stream_order_limits(workspace_tmp, caplog, lower, upper):
-    with pytest.raises(ValueError, match="Set both stream-order limits to None") as error:
-        NencartaConfig(base_config(workspace_tmp, move_stream_network_to_thalweg=True,
-                                  StrmOrder_Lower=lower, StrmOrder_Upper=upper))
+def test_moving_streams_accepts_and_preserves_stream_order_limits(workspace_tmp, lower, upper):
+    config = NencartaConfig(base_config(workspace_tmp, move_stream_network_to_thalweg=True,
+                                       StrmOrder_Lower=lower, StrmOrder_Upper=upper))
 
-    assert ("nencarta", 40, str(error.value)) in caplog.record_tuples
+    assert config.move_stream_network_to_thalweg is True
+    assert config.StrmOrder_Lower == lower
+    assert config.StrmOrder_Upper == upper
 
 
 @pytest.mark.parametrize("move, lower, upper", [
