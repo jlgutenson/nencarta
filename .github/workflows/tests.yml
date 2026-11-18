@@ -16,8 +16,8 @@ concurrency:
 
 env:
   # ARC and Curve2Flood are not on conda-forge. These are the branches nencarta is developed against.
-  ARC_GIT: https://github.com/RickytheGuy/automated-rating-curve-byu.git@arc_overhaul
-  CURVE2FLOOD_GIT: https://github.com/RickytheGuy/curve2flood.git@fldpln-fast-faithful
+  ARC_GIT: https://github.com/MikeFHS/automated-rating-curve.git@main
+  CURVE2FLOOD_GIT: https://github.com/MikeFHS/curve2flood.git@main
 
 jobs:
   pytest:
