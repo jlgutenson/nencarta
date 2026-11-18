@@ -98,11 +98,30 @@ def run_mapper_floodmaps(model_config: ModelConfig, workspace: Workspace) -> Flo
         return FloodMapperBulkOutput([])
     
     LOG.info("Running flood mapper to generate flood maps...")
-    for config in model_config.mapper_configs:
-        if model_config.rating_curves_exist and not _mapper_has_required_outputs(config, workspace):
-            _run_mapper(config, model_config)
+    configs = [config for config in model_config.mapper_configs
+               if model_config.rating_curves_exist and not _mapper_has_required_outputs(config, workspace)]
+    _run_mappers(configs, model_config)
             
     return FloodMapperBulkOutput(model_config.mapper_configs)
+
+def _run_mappers(configs: list[Path], model_config: ModelConfig) -> None:
+    """Run the flood mapper on each config file (_run_mapper): Curve2Flood all at once, with Curve2Flood_Batch where
+    this Curve2Flood has it, so that the FLDPLN library they share is read once for every return period rather than
+    twice for each."""
+    if not configs:
+        return
+
+    if model_config.mapper != Mapper.FLOODSPREADER:
+        try:
+            from curve2flood import Curve2Flood_Batch
+        except ImportError:
+            pass
+        else:
+            Curve2Flood_Batch([str(config) for config in configs], quiet=model_config.quiet)
+            return
+
+    for config in configs:
+        _run_mapper(config, model_config)
 
 def run_arc_for_initial_floodmap(config: Path, configs: NencartaConfig) -> Path:
     """Run ARC for the DEM cleaner's initial rating curves."""
