@@ -1,24 +1,23 @@
 # build-in imports
+import argparse
 import json
 import sys
-import argparse
 from pathlib import Path
+
+from nencarta.core.configs import NencartaConfig
+from nencarta.core.defaults import CONFIG_OPTIONS, CONFIG_SECTIONS
+from nencarta.download_forecasts import (
+    Download_USGS_DEM_Data_Using_WarningFlag_Data,
+)
 
 # local imports
 from nencarta.logger import LOG
-from nencarta.workspace import Workspace
 from nencarta.pipeline import build_pipeline
-from nencarta.core.enumerations import Mapper
-from nencarta.core.configs import NencartaConfig
-from nencarta.Download_Process_ForecastData import Download_USGS_DEM_Data_Using_WarningFlag_Data
+from nencarta.workspace import Workspace, check_workspaces_do_not_share_folders
 
-
-def process_json_input_serial(json_file):
-    """Backward-compatible serial JSON runner."""
-    return process_json_input(json_file, parallel=False)
 
 def _resolve_workspace_dems(configs: NencartaConfig) -> list:
-    """Return DEM inputs that should become workspaces."""
+    """The DEMs to map: those in dem_dir (or downloaded into it), else dem."""
     if configs.dem_dir:
         if configs.use_warning_flags_to_download_dem:
             if configs.forensic_forecast_date:
@@ -28,7 +27,8 @@ def _resolve_workspace_dems(configs: NencartaConfig) -> list:
                     configs.forensic_forecast_date,
                 )
             return []
-        return list(Path(configs.dem_dir).glob(configs.dem_filter))
+        
+        return sorted(Path(configs.dem_dir).glob(configs.dem_filter))
 
     if configs.dem:
         return [configs.dem]
@@ -36,23 +36,39 @@ def _resolve_workspace_dems(configs: NencartaConfig) -> list:
     return []
 
 def _setup_workspace(input_dict: dict) -> list[Workspace]:
+    """One workspace per DEM of a watershed, or one for bbox with source_dems."""
     configs = NencartaConfig(input_dict)
     dem_list = _resolve_workspace_dems(configs)
-    
+
     if not dem_list:
         if configs.source_dems and configs.bbox:
             dem_list = [None]
         else:
             LOG.warning("No DEMs found in the specified folder and no source DEMs provided; cannot run pipeline.")
             return []
-        
+
     workspaces = [Workspace(configs, dem) for dem in dem_list]
     return workspaces
 
 def process_watershed(input_dict: dict):
-    """Process one watershed dictionary through the workspace pipeline.
+    """
+    Map one watershed: each of its DEMs, from the inputs to the flood maps.
 
-    The current pipeline manages timing through task-level profiling.
+    The ``cli`` command runs this. Files that already exist are reused unless ``overwrite``, so running it again
+    only makes what is missing. A DEM that fails doesn't stop the others: their errors are printed at the end.
+
+    Parameters
+    ----------
+    input_dict : dict
+        The watershed's settings, by their keys in the configuration reference (`CONFIG_OPTIONS`). Paths may be
+        strings or ``Path`` objects, and a key left out or set to None takes its default.
+
+    Raises
+    ------
+    KeyError
+        When ``name``, ``output_dir``, a DEM or the streams are missing.
+    ValueError
+        When a setting is invalid, or two settings conflict.
     """
     workspaces = _setup_workspace(input_dict)
     if not workspaces:
@@ -61,6 +77,23 @@ def process_watershed(input_dict: dict):
     return
 
 def process_many_watersheds(input_dicts: list[dict]):
+    """
+    Map several watersheds together, as `process_watershed` maps one.
+
+    Their DEMs run as one batch: the first watershed's ``parallel`` and ``num_workers`` apply to all of them.
+
+    Parameters
+    ----------
+    input_dicts : list of dict
+        Each watershed's settings, as `process_watershed` takes them.
+
+    Raises
+    ------
+    KeyError
+        When a watershed lacks ``name``, ``output_dir``, a DEM or the streams.
+    ValueError
+        When a setting is invalid, two settings conflict, or the watersheds' ``outlet_exchange`` differ.
+    """
     workspaces = []
     for input_dict in input_dicts:
         workspaces.extend(_setup_workspace(input_dict))
@@ -71,13 +104,8 @@ def process_many_watersheds(input_dicts: list[dict]):
 
 def _print_unencodable(obj) -> None:
     """
-    Print a snapshot that may contain characters the console cannot encode.
-
-    The error snapshot carries emoji, and on a cp1252 Windows console ``print`` raises
-    UnicodeEncodeError on them. That happens inside ``run_pipeline``'s ``finally`` block,
-    where the new exception replaces the real pipeline failure -- so the one thing the user
-    needed to see is exactly what gets lost. Fall back to the console's own encoding with
-    ``errors="replace"`` instead.
+    Print text the console may not be able to encode, such as the emoji in the error snapshot, replacing what it
+    can't. Without this, a cp1252 Windows console raises UnicodeEncodeError and hides the pipeline's real error.
     """
     text = str(obj)
     try:
@@ -89,14 +117,8 @@ def _print_unencodable(obj) -> None:
 
 def _make_console_lenient() -> None:
     """
-    Stop a character the console cannot encode from killing the run.
-
-    The rich progress display asked for below prints emoji, and a Windows console defaults to
-    cp1252, which has no mapping for them. rich then raises UnicodeEncodeError from inside its
-    own renderer -- at the *end* of a successful run, when it reports completion -- so a
-    pipeline that did all of its work still exits on a traceback about a codepage. Switching
-    the stream to errors="replace" leaves its encoding alone and substitutes only the
-    characters it cannot represent.
+    Make stdout and stderr replace the characters they can't encode instead of raising. The progress display
+    prints emoji, which a cp1252 Windows console can't encode, and would otherwise crash a finished run.
     """
     # Only these actually substitute an unencodable character on the way out. "surrogateescape"
     # is the Windows default and looks lenient, but it only round-trips lone surrogates -- an
@@ -115,11 +137,20 @@ def _make_console_lenient() -> None:
 
 
 def run_pipeline(workspaces: list[Workspace], executor=None):
+    """
+    Run workspaces through the pipeline (see pipeline.py), in parallel if the first one's config says so. A
+    failing workspace doesn't stop the others; the errors are printed at the end.
+    """
     _make_console_lenient()
+    check_workspaces_do_not_share_folders(workspaces)
     profile = workspaces[0].configs.profile and not workspaces[0].configs.parallel
     parallel = workspaces[0].configs.parallel
     num_workers = workspaces[0].configs.num_workers
-    pipeline = build_pipeline(profile)
+    passes = {workspace.configs.outlet_exchange for workspace in workspaces}
+    if len(passes) > 1:
+        raise ValueError(f"The watersheds run together must share outlet_exchange, not {sorted(passes)}.")
+    
+    pipeline = build_pipeline(profile, passes.pop())
     should_shutdown_executor = False
 
     if not parallel and num_workers is not None:
@@ -141,12 +172,12 @@ def run_pipeline(workspaces: list[Workspace], executor=None):
             executor=executor,
             error_handling='continue'
             )
-        
+
         if profile:
             pipeline.print_profiling_stats()
-    except Exception as e:
+    except Exception:
         if not pipeline.error_snapshot:
-            raise e
+            raise
     finally:
         if should_shutdown_executor:
             executor.shutdown()
@@ -154,16 +185,7 @@ def run_pipeline(workspaces: list[Workspace], executor=None):
             _print_unencodable(pipeline.error_snapshot.traceback)
             _print_unencodable(pipeline.error_snapshot)
 
-    LOG.info(f"Finished processing")
-    return
-
-
-def _resolve_parallel_settings(data, cli_parallel=None, cli_num_workers=None):
-    json_parallel = data.get("parallel", data.get("run_parallel"))
-    json_workers = data.get("num_workers", data.get("workers"))
-    parallel = cli_parallel if cli_parallel is not None else json_parallel
-    num_workers = cli_num_workers if cli_num_workers is not None else json_workers
-    return parallel, num_workers
+    LOG.info("Finished processing")
 
 
 def _apply_run_overrides(watersheds, parallel=None, num_workers=None):
@@ -180,11 +202,24 @@ def _apply_run_overrides(watersheds, parallel=None, num_workers=None):
 
 def process_json_input(json_file, parallel=None, num_workers=None):
     """
-    Process watersheds defined in a JSON file, optionally in parallel.
+    Map the watersheds of a JSON file together, as the ``json`` command does.
 
-    If 'parallel' / 'num_workers' are None, they are resolved from the JSON file
-    via keys "parallel" (or legacy "run_parallel") and "num_workers" (or "workers").
-    CLI overrides take precedence when provided.
+    Parameters
+    ----------
+    json_file : str or os.PathLike
+        A JSON file of the form ``{"watersheds": [{...}, ...]}``, each watershed's settings as `process_watershed`
+        takes them. A top-level ``"parallel"`` or ``"num_workers"`` applies to every watershed.
+    parallel : bool, optional
+        Whether to map the DEMs in parallel, overriding the file's ``parallel``.
+    num_workers : int, optional
+        Number of processes when parallel, overriding the file's ``num_workers``.
+
+    Raises
+    ------
+    KeyError
+        When a watershed lacks ``name``, ``output_dir``, a DEM or the streams.
+    ValueError
+        When a setting is invalid, two settings conflict, or the watersheds' ``outlet_exchange`` differ.
     """
     with open(json_file, 'r') as file:
         LOG.info(f"Reading input file: {json_file}")
@@ -195,38 +230,70 @@ def process_json_input(json_file, parallel=None, num_workers=None):
         LOG.warning("No watersheds found.")
         return
 
-    parallel, num_workers = _resolve_parallel_settings(data, parallel, num_workers)
+    parallel = data.get("parallel") if parallel is None else parallel
+    num_workers = data.get("num_workers") if num_workers is None else num_workers
     watersheds = _apply_run_overrides(watersheds, parallel, num_workers)
     process_many_watersheds(watersheds)
 
-def rename_cli_keys(input_dict: dict) -> dict:
-    """Rename CLI argument keys to match watershed dictionary keys."""
-    key_mapping = {
-        "watershed":"name",
-    }
-    skipped_keys = {"command"}
-    return {key_mapping.get(key, key): value for key, value in input_dict.items() if key not in skipped_keys}
+
+def _json_object(text: str) -> dict:
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise argparse.ArgumentTypeError(f"not valid JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise argparse.ArgumentTypeError("must be a JSON object, e.g. '{\"key\": 1}'")
+    
+    return value
+
+
+def _cli_help(option) -> str:
+    text = option.help
+    if option.choices and len(option.choices) <= 6:
+        text += f" One of: {', '.join(option.choices)}."
+    if option.default not in (None, "", [], {}) and option.kind != "dict":
+        default = ", ".join(map(str, option.default)) if isinstance(option.default, list) else option.default
+        text += f" Default: {default}."
+    # argparse formats help with %, so a literal percent sign has to be doubled
+    return text.replace("%", "%%")
+
+
+def add_config_options(parser: argparse.ArgumentParser) -> None:
+    """
+    Add a --<key> option for every config key. Switches also get --no-<key>, lists take several values, and
+    dictionaries take JSON. Options left out keep their default.
+    """
+    for section, options in CONFIG_SECTIONS.items():
+        group = parser.add_argument_group(section)
+        for key, option in options.items():
+            kwargs = {"dest": key, "default": None, "help": _cli_help(option)}
+            if key in ("name", "output_dir"):
+                kwargs["required"] = True
+            if option.kind == "bool":
+                kwargs["action"] = argparse.BooleanOptionalAction
+            elif option.kind == "dict":
+                kwargs["type"] = _json_object
+                kwargs["metavar"] = "JSON"
+            else:
+                kind = option.kind.removesuffix("_list")
+                kwargs["type"] = {"int": int, "float": float}.get(kind, str)
+                kwargs["metavar"] = {"path": "PATH", "int": "INT", "float": "NUMBER"}.get(kind, "TEXT")
+                if option.kind.endswith("_list"):
+                    kwargs["nargs"] = "+"
+            group.add_argument(f"--{key}", **kwargs)
+
 
 def process_cli_arguments(args):
-    """Process input from CLI arguments."""
-    input_dict = vars(args)
-    input_dict = rename_cli_keys(input_dict)
+    """Map the watershed given by the cli subcommand's options."""
+    input_dict = {key: value for key, value in vars(args).items() if key in CONFIG_OPTIONS and value is not None}
     process_watershed(input_dict)
 
-class RequiredIfFloodWaterAction(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
-        setattr(namespace, self.dest, values)
 
-        if namespace.flood_waterlc_and_strm_cells and values is None:
-            parser.error("--land_watervalue is required when --flood_waterlc_and_strm_cells is set to True.")
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Flood Mapping Script")
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="flood-mapping", description="Riverine flood mapping with ARC and Curve2Flood.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Subcommand for JSON input
-    json_parser = subparsers.add_parser("json", help="Process watersheds from a JSON file")
+    json_parser = subparsers.add_parser("json", help="Map the watersheds in a JSON file")
     json_parser.add_argument("json_file", type=str, help="Path to the JSON file")
     # Let CLI override JSON for parallel choice
     grp = json_parser.add_mutually_exclusive_group()
@@ -237,51 +304,19 @@ def main():
     json_parser.add_argument("--num_workers", type=int, default=None,
                              help="Number of workers when running in parallel (overrides JSON).")
 
-    # Subcommand for CLI input
-    cli_parser = subparsers.add_parser("cli", help="Process watershed parameters via CLI")
-    cli_parser.add_argument("watershed", type=str, help="Watershed name")
-    cli_parser.add_argument("flowline", type=str, help="Path to the flowline shapefile")
-    cli_parser.add_argument("dem_dir", type=str, help="Directory containing DEM files")
-    cli_parser.add_argument("output_dir", type=str, help="Directory where results will be saved")
-    cli_parser.add_argument("--disable_bathymetry", action="store_true", help="Disable ARC, Curve2Flood, and FloodSpreader bathymetry estimation inputs")
-    cli_parser.add_argument("--bathy_use_banks", action="store_true", help="Use bathy banks for processing")
-    cli_parser.add_argument("--flood_waterlc_and_strm_cells", action="store_true",
-                        help="In the flood inundation maps it shows water related land use and stream raster cells as flooded")
-    cli_parser.add_argument("--land_watervalue", type=int, action=RequiredIfFloodWaterAction,
-                        help="Land water value in the land cover raster (Required if --flood_waterlc_and_strm_cells is True)")
-    cli_parser.add_argument("--clean_dem", action="store_true", help="Clean DEM data before processing")
-    cli_parser.add_argument("--overwrite", action="store_true", help="Overwrite existing intermediate products")
-    cli_parser.add_argument("--mapper", type=str, default="Curve2Flood-Kernel Weighted", choices=Mapper.list_names(), help="Mapping method")
-    cli_parser.add_argument("--use_specified_depth_for_bathy_mask", action="store_true", help="Specify a depth for FloodSprederPy to use for bathymetry masking")
-    cli_parser.add_argument("--age_of_forecast_days", type=int, default=7, help="Age of forecast in days")
-    cli_parser.add_argument("--find_banks_based_on_landcover", action="store_true", help="Use landcover data for finding banks when estimating bathymetry")
-    cli_parser.add_argument("--specify_depths_for_bathy_mask", type=float, nargs=2, help="Specify two floats for bathymetry depth mask when '--use_specified_depth_for_bathy_mask' is True")
-    cli_parser.add_argument("--create_reach_average_curve_file", action="store_true", help="Create a reach average curve file instead of one that varies for each stream cell")
-    cli_parser.add_argument("--forensic_forecast_date", type=str, default=None, help="Forensic forecast date in YYYYMMDD format (defaults to most recent forecast) unless this argument is provided")
-    cli_parser.add_argument("--forensic_forecast_hour", type=int, default=0, choices=[i for i in range (0,24)], help="Forensic forecast hour (defaults to 0) unless this argument is provided")
-    cli_parser.add_argument("--specified_bathyflow_field", type=str, default="p_exceed_50", help="Specify the streamflow field in the streamflow reanalysis file that will be used for bathymetry estimation  (defaults to 'p_exceed_50') ")
-    cli_parser.add_argument("--specified_highflow_field", type=str, default="rp100_premium", help="Specify the highflow field in the streamflow reanalysis file that will be used by ARC as the highest flow for the VDT database and curvefile creation (defaults to 'rp100_premium')")
-    cli_parser.add_argument("--use_power_laws_for_bathymetry", action="store_true", help="Use power laws to estimate bathymetry")
-    cli_parser.add_argument("--StrmOrder_Field", type=str, default=None, help="Stream order field in the stream shapefile (optional)")
-    cli_parser.add_argument("--StrmOrder_Lower", type=int, default=None, help="Upper bound for stream order (optional)")
-    cli_parser.add_argument("--StrmOrder_Upper", type=int, default=None, help="Upper bound for stream order (optional)")
-    cli_parser.add_argument("--q_baseflow_threshold", type=float, default=None, help="Drop streams whose baseflow is below this threshold (optional)")
-    cli_parser.add_argument("--use_warning_flags_to_download_dem", action="store_true", help="Use warning flags to download DEM data")
-    cli_parser.add_argument("--geoglows_vpu", type=int, default=None, help="GEOGLOWS VPU ID (required if --use_warning_flags_to_download_dem is set to True)")
-    cli_parser.add_argument("--lake_filter_json", type=str, default=None, help="Path to the lake filter JSON file (optional)")
-    cli_parser.add_argument("--estimate_consequences", action="store_true", help="Estimate consequences using go-consequences")
-    cli_parser.add_argument("--streamflow_source", type=str, default="GEOGLOWS", choices=["NWM", "GEOGLOWS"], help="Streamflow source for NenCarta (defaults to GEOGLOWS)")
-    cli_parser.add_argument("--nwm_api_key", type=str, default=None, help="NWM API key (required when --streamflow_source is NWM)")
-    cli_parser.add_argument("--overwrite_floodmaps", action="store_true", help="Overwrite existing forecast flood maps")
-    cli_parser.add_argument("--remove_old_forecast_files", action="store_true", help="Remove old forecast files before processing")
-    cli_parser.add_argument("--make_fist_inputs", action="store_true", help="Make FIST inputs after processing")
-    cli_parser.add_argument("--move_stream_network_to_thalweg", action="store_true", help="Move stream network to the thalweg of the DEM")
-    cli_parser.add_argument("--new_strm_threshold_km2", type=float, default=None, help="The stream threshold for creating a new stream network for the DEM that you will be using. Use in conjunction with move_stream_network_to_thalweg and Curve2Flood-FLDPLNpy")
-    gui_parser = subparsers.add_parser("gui", help="Summon the GUI application")
+    cli_parser = subparsers.add_parser(
+        "cli", help="Map one watershed given as options", allow_abbrev=False,
+        usage="flood-mapping cli --name NAME --output_dir PATH [--<key> VALUE ...]",
+        description="Map one watershed. Every key of a JSON watershed is an option of the same name.",
+    )
+    add_config_options(cli_parser)
 
-    args = parser.parse_args()
+    subparsers.add_parser("gui", help="Open the GUI")
+    return parser
 
-    
+
+def main():
+    args = build_parser().parse_args()
 
     if args.command == "json":
         LOG.info('Processing ' + str(args.json_file))

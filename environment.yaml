@@ -1,27 +1,24 @@
 name: nencarta_py312
 channels:
   - conda-forge
-  - defaults
 dependencies:
   - python=3.12
-  - beautifulsoup4
-  - cython
+  # nencarta
   - dask
-  - fiona
   - gdal
-  - geoglows
-  - geojson
   - geopandas
   - libgdal-arrow-parquet
   - netcdf4
+  - networkx
   - numba
   - numpy
   - pandas
   - pipefunc
-  - polars
-  - progress
+  - pyarrow
   - pyproj
   - pyqt>=5.15
+  - python-lmdb
+  - pyyaml
   - requests
   - rich
   - s3fs
@@ -29,5 +26,11 @@ dependencies:
   - shapely
   - tqdm
   - xarray<2025.4.0
-  - whitebox
   - zarr
+  # ARC and Curve2Flood, which are installed from GitHub with pip (see the README)
+  - geojson
+  - matplotlib-base
+  - polars
+  # Tests
+  - pip
+  - pytest

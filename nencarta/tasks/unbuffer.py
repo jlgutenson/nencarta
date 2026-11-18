@@ -1,22 +1,28 @@
+import os
+
 from osgeo import gdal
 
-from nencarta.logger import LOG
-from nencarta.core.raster import Raster
-from nencarta.workspace import Workspace
 from nencarta.core.floodmapper_output import FloodMapperBulkOutput
+from nencarta.core.raster import Raster
+from nencarta.logger import LOG
+from nencarta.workspace import Workspace
+
 
 def unbuffer_maps(floodmapper_output: FloodMapperBulkOutput, workspace: Workspace) -> None:
-    """Crop a buffered flood map back to the source DEM extent and remove ocean cells."""
+    """
+    Crop each buffered flood map back to the input DEM's extent (or the bbox, without a DEM). The cropped map
+    replaces the buffered one, named without '_buffered'.
+    """
     configs = workspace.configs
     if not configs.buffer:
         return 
     
     for file in floodmapper_output.existing_rasters():
         output_file = file.parent / file.name.replace('_buffered_', '_')
-        if output_file == file:
-            LOG.warning(f"Output file {output_file} has the same name as the input file {file}.")
+        # With short_file_names there is no '_buffered_' to drop, so the map is cropped in place
+        in_place = output_file == file
 
-        if output_file.exists() and not configs.overwrite_floodmaps:
+        if not in_place and output_file.exists() and not configs.overwrite_floodmaps:
             LOG.info(f"{output_file} already exists and we aren't making it again...")
             continue
             
@@ -28,7 +34,6 @@ def unbuffer_maps(floodmapper_output: FloodMapperBulkOutput, workspace: Workspac
         if workspace.original_dem:
             raster = Raster(workspace.original_dem)
             minx, miny, maxx, maxy = raster.bbox
-            raster.shape
             unbuffered_height, unbuffered_width = raster.shape
         else:
             # Calculate from bbox
@@ -48,12 +53,18 @@ def unbuffer_maps(floodmapper_output: FloodMapperBulkOutput, workspace: Workspac
             continue
 
         LOG.info(f"Unbuffering flood map {file} to {output_file}...")
+        # GDAL takes (minx, miny, maxx, maxy); giving it maxy first writes the map upside down (south-up)
         options = gdal.WarpOptions(format='GTiff',
-                                        outputBounds=(minx, maxy, maxx, miny),
+                                        outputBounds=(minx, miny, maxx, maxy),
                                         width=unbuffered_width,
                                         height=unbuffered_height,
                                         creationOptions=[f"COMPRESS={configs.compression}", "PREDICTOR=2"]
                                         )
-        gdal.Warp(output_file, file, options=options)
+        target = file.with_name(f"{file.stem}_unbuffering{file.suffix}") if in_place else output_file
+        ds = gdal.Warp(target, file, options=options)
+        ds = None
 
-        file.unlink()  # Remove the buffered file after unbuffering
+        if in_place:
+            os.replace(target, file)
+        else:
+            file.unlink()  # Remove the buffered file after unbuffering

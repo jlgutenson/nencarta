@@ -8,8 +8,8 @@ but this can be overridden by setting the NENCARTA_CACHE_DIR environment variabl
 import os
 import pickle
 import threading
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 _HAS_LMDB = False
 _LMDB_ENV = None
@@ -36,10 +36,9 @@ try:
 except (ImportError, ModuleNotFoundError, OSError, RuntimeError):
     _HAS_LMDB = False
     _LMDB_ENV = None
-except Exception:
+except Exception:  # noqa: BLE001
     _HAS_LMDB = False
     _LMDB_ENV = None
-    pass
 
 class LMDBCache:
     """Optional LMDB-backed metadata cache for raster-like objects."""
@@ -95,7 +94,7 @@ class LMDBCache:
 
         try:
             entry = pickle.loads(value)
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None
 
         if entry["timestamp"] != timestamp:
