@@ -48,6 +48,26 @@ def test_config_accepts_overwrite_option(workspace_tmp):
     assert config.overwrite is True
 
 
+@pytest.mark.parametrize("lower, upper", [(1, None), (None, 4), (1, 4), (0, None), (None, 0)])
+def test_moving_streams_accepts_and_preserves_stream_order_limits(workspace_tmp, lower, upper):
+    config = NencartaConfig(base_config(workspace_tmp, move_stream_network_to_thalweg=True,
+                                       StrmOrder_Lower=lower, StrmOrder_Upper=upper))
+
+    assert config.move_stream_network_to_thalweg is True
+    assert config.StrmOrder_Lower == lower
+    assert config.StrmOrder_Upper == upper
+
+
+@pytest.mark.parametrize("move, lower, upper", [
+    (True, None, None), (False, None, None), (False, 1, None), (False, None, 4), (False, 1, 4),
+])
+def test_stream_movement_and_order_limits_can_be_used_separately(workspace_tmp, caplog, move, lower, upper):
+    NencartaConfig(base_config(workspace_tmp, move_stream_network_to_thalweg=move,
+                              StrmOrder_Lower=lower, StrmOrder_Upper=upper))
+
+    assert not [record for record in caplog.records if record.levelno >= 40]
+
+
 def test_config_uses_shared_defaults_for_bathymetry_options(workspace_tmp):
     config = NencartaConfig(base_config(workspace_tmp))
 
