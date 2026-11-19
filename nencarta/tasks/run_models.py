@@ -14,23 +14,36 @@ from nencarta.tasks.move_streams import load_lake_array
 from nencarta.workspace import Workspace
 
 
+# The stream cells from which an ARC run's reference cycles are worth a full garbage collection (_release_arc_memory)
+COLLECT_FROM_CELLS = 10_000
+
+
 def _run_arc(config: Path, model_config: ModelConfig) -> None:
     """Run ARC on a config file, and then hand the memory its run took back to the system (_release_arc_memory)."""
     from arc import Arc  # Lazy import helps load faster
-    Arc(str(config), quiet=model_config.quiet).run()
-    _release_arc_memory()
+    results = Arc(str(config), quiet=model_config.quiet).run()
+    cells = getattr(getattr(results, "cells", None), "count", None)
+    del results
+    _release_arc_memory(cells)
 
 
-def _release_arc_memory() -> None:
+def _release_arc_memory(cells: int | None = None) -> None:
     """ARC's cross sections are freed once its run returns, but the C library's allocator keeps their memory (gigabytes
     on a flat tile) for allocations to come, and the steps after, the FLDPLN library above all, take theirs anew on
-    top of it: hand it back, with arc.release_freed_memory, where this ARC has it."""
+    top of it: hand it back, with arc.release_freed_memory, where this ARC has it.
+
+    Some are left in reference cycles, which only a full garbage collection frees: on a hilly 1-degree tile's 114,000
+    stream cells it found a million objects and freed 1.1 GB in 0.6 s. It takes 40 ms or more however few there are,
+    more the more objects the process holds: on the FIM sites' few hundred cells it freed nothing and added a third to
+    each ARC run. So it's made for a run of `cells` stream cells from COLLECT_FROM_CELLS, or that didn't say how many.
+    """
     try:
         from arc import release_freed_memory
     except ImportError:
         return
 
-    gc.collect()  # anything of the run's held in a reference cycle
+    if cells is None or cells >= COLLECT_FROM_CELLS:
+        gc.collect()  # anything of the run's held in a reference cycle
     release_freed_memory()
 
 def _run_mapper(config_file: Path, model_config: ModelConfig) -> None:
