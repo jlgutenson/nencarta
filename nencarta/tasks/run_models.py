@@ -1,3 +1,4 @@
+import gc
 import subprocess
 from pathlib import Path
 
@@ -12,11 +13,34 @@ from nencarta.logger import LOG
 from nencarta.tasks.move_streams import load_lake_array
 from nencarta.workspace import Workspace
 
+# The stream cells from which an ARC run's reference cycles are worth a full garbage collection (_release_arc_memory)
+COLLECT_FROM_CELLS = 10_000
+
 
 def _run_arc(config: Path, model_config: ModelConfig) -> None:
-    """Run ARC on a config file."""
+    """Run ARC on a config file, and then hand the memory its run took back to the system (_release_arc_memory)."""
     from arc import Arc  # Lazy import helps load faster
-    Arc(str(config), quiet=model_config.quiet).run()
+    results = Arc(str(config), quiet=model_config.quiet).run()
+    cells = getattr(getattr(results, "cells", None), "count", None)
+    del results
+    _release_arc_memory(cells)
+
+
+def _release_arc_memory(cells: int | None = None) -> None:
+    """ARC's cross sections are freed once its run returns, but the C library's allocator keeps their memory.
+
+    Some are left in reference cycles, which only a full garbage collection frees. It takes 40 ms or more however few there are,
+    more the more objects the process holds. So it's made for a run of `cells` stream cells from COLLECT_FROM_CELLS, or that 
+    didn't say how many.
+    """
+    try:
+        from arc import release_freed_memory
+    except ImportError:
+        return
+
+    if cells is None or cells >= COLLECT_FROM_CELLS:
+        gc.collect()  # anything of the run's held in a reference cycle
+    release_freed_memory()
 
 def _run_mapper(config_file: Path, model_config: ModelConfig) -> None:
     """Run the flood mapper on a config file: Curve2Flood, or the FloodSpreader script (see FLOODSPREADER_PATH)."""
@@ -84,11 +108,30 @@ def run_mapper_floodmaps(model_config: ModelConfig, workspace: Workspace) -> Flo
         return FloodMapperBulkOutput([])
     
     LOG.info("Running flood mapper to generate flood maps...")
-    for config in model_config.mapper_configs:
-        if model_config.rating_curves_exist and not _mapper_has_required_outputs(config, workspace):
-            _run_mapper(config, model_config)
+    configs = [config for config in model_config.mapper_configs
+               if model_config.rating_curves_exist and not _mapper_has_required_outputs(config, workspace)]
+    _run_mappers(configs, model_config)
             
     return FloodMapperBulkOutput(model_config.mapper_configs)
+
+def _run_mappers(configs: list[Path], model_config: ModelConfig) -> None:
+    """Run the flood mapper on each config file (_run_mapper): Curve2Flood all at once, with Curve2Flood_Batch where
+    this Curve2Flood has it, so that the FLDPLN library they share is read once for every return period rather than
+    twice for each."""
+    if not configs:
+        return
+
+    if model_config.mapper != Mapper.FLOODSPREADER:
+        try:
+            from curve2flood import Curve2Flood_Batch
+        except ImportError:
+            pass
+        else:
+            Curve2Flood_Batch([str(config) for config in configs], quiet=model_config.quiet)
+            return
+
+    for config in configs:
+        _run_mapper(config, model_config)
 
 def run_arc_for_initial_floodmap(config: Path, configs: NencartaConfig) -> Path:
     """Run ARC for the DEM cleaner's initial rating curves."""

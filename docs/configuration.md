@@ -95,7 +95,7 @@ it the DEM's nodata value, and other big water the streams flow into in
 
 * <a id="json-StrmOrder_Upper"></a>`StrmOrder_Upper` (integer): Map only reaches of at most this stream order.
     Moved streams are handled as for `StrmOrder_Lower`.
-    
+
 * <a id="json-exclude"></a>`exclude` (list of integers): IDs of reaches to leave out.
 
 * <a id="json-drop_multilinestrings"></a>`drop_multilinestrings` (true/false, default false): Leave out reaches
