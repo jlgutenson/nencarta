@@ -23,7 +23,7 @@ class FloodMapperOutput:
     def from_config(cls, config_path: Path):
         with open(config_path, 'r') as f:
             if config_path.suffix in ['.yaml', '.yml']:
-                config = yaml.safe_load(f)
+                config = yaml.load(f, Loader=yaml.CSafeLoader)
             else:
                 config = {}
                 for line in f:
